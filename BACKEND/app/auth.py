@@ -1,13 +1,17 @@
 import jwt
+from typing import Optional, Dict, Any
 from cachetools import TTLCache
-from fastapi import HTTPException, Header, Depends
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import HTTPException, Header, Depends, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.config import settings
 
+# Cache tokens for 5 mins
 _TOKEN_CACHE = TTLCache(maxsize=4096, ttl=300)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 
-def verify_jwt(token: str) -> dict:
+# Switch to HTTPBearer. This gives the simple "Bearer Token" box in Swagger.
+security = HTTPBearer(auto_error=False)
+
+def verify_jwt(token: str) -> Dict[str, Any]:
     if token in _TOKEN_CACHE:
         return _TOKEN_CACHE[token]
     try:
@@ -24,17 +28,25 @@ def verify_jwt(token: str) -> dict:
         raise HTTPException(status_code=401, detail=f"Invalid Token: {str(e)}")
 
 async def get_current_user_id(
-    token: str = Depends(oauth2_scheme), 
-    authorization: str = Header(None)
+    # Get token from Swagger UI (HTTPBearer) or Manual Header
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    authorization: Optional[str] = Header(None)
 ) -> str:
-    final_token = token
-    if not final_token and authorization:
+    token = None
+
+    # 1. Try Swagger UI (HTTPBearer)
+    if auth:
+        token = auth.credentials
+    
+    # 2. Try Manual Header (React/Postman)
+    # Header format: "Bearer <token>"
+    if not token and authorization:
         parts = authorization.split(" ")
         if len(parts) == 2 and parts[0].lower() == "bearer":
-            final_token = parts[1]
-            
-    if not final_token:
-        raise HTTPException(status_code=401, detail="Missing Authentication")
-        
-    payload = verify_jwt(final_token)
+            token = parts[1]
+
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing Authentication Token")
+
+    payload = verify_jwt(token)
     return payload["sub"]
