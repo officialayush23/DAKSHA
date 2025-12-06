@@ -1,33 +1,33 @@
 import React from "react";
-import { AuthPage } from "@/pages/AuthPage";
-import { useAuth } from "@/context/AuthContext";
-import { Button } from "@/components/ui/button";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthPage } from "@/pages/auth/AuthPage"; 
+import Layout from "@/components/layout/Layout";
+import ProtectedRoute from "@/components/layout/ProtectedRoute";
+import Catalog from "@/pages/shop/Catalog";
+import Cart from "@/pages/cart/Cart";
+import Profile from "@/pages/account/Profile";
 
 function App() {
-  const { user, profile, logout, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">
-        Loading...
-      </div>
-    );
-  }
-
   return (
-    <>
-      <AuthPage />
-      {user && (
-        <div className="fixed bottom-4 right-4 flex items-center gap-3 bg-background/80 border rounded-full px-4 py-2 shadow">
-          <span className="text-xs text-muted-foreground">
-            {profile?.full_name || user.email}
-          </span>
-          <Button size="sm" variant="outline" onClick={logout}>
-            Logout
-          </Button>
-        </div>
-      )}
-    </>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<AuthPage />} />
+        
+        <Route path="/" element={
+          <ProtectedRoute>
+            <Layout />
+          </ProtectedRoute>
+        }>
+          <Route index element={<Catalog />} />
+          <Route path="cart" element={<Cart />} />
+          <Route path="profile" element={<Profile />} />
+          <Route path="support" element={<div>Support Page</div>} />
+          <Route path="orders" element={<div>Orders Page</div>} />
+        </Route>
+
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 
