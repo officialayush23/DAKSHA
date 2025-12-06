@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends
 from app.core.auth import get_current_user_id
-from app.models.users import UserProfileUpdate, PaymentMethodCreate
+from app.models.users import UserProfileUpdate, PaymentMethodCreate, UserRegisterRequest
 from app.services.user_service import UserService
 from app.database import supabase
 
 router = APIRouter(prefix="/users", tags=["Users"])
+
 
 
 @router.get("/me")
@@ -34,3 +35,23 @@ async def add_payment_method(
     return await UserService.add_payment_method(
         user_id, data.gateway_token_id, data.card_last4, data.card_brand
     )
+
+
+@router.post("/register")
+async def register_profile(
+    data: UserRegisterRequest, user_id: str = Depends(get_current_user_id)
+):
+    """
+    Called after email auth to capture phone, name, gender, etc.
+    """
+    # make sure user row exists
+    await UserService.ensure_user_exists(user_id)
+
+    update_data = {
+        "full_name": data.full_name,
+        "phone_number": data.phone_number,
+        "gender": data.gender,
+        "date_of_birth": data.date_of_birth,
+    }
+    profile = await UserService.update_profile(user_id, update_data)
+    return {"user": profile}

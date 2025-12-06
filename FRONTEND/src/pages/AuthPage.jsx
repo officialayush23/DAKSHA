@@ -1,111 +1,263 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import api from '../lib/api';
-import { toast } from 'sonner'; // Notification Library
+import React, { useState } from "react";
+import { useAuth } from "@/context/AuthContext";
+import api from "@/lib/apiClient";
 
-// Shadcn UI Components (Ensure these are installed)
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  CardDescription,
+  CardFooter,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { ModeToggle } from "../components/use_ui/ModeToggle";
 
-export default function AuthPage() {
-  const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
-  const [phone, setPhone] = useState('');
-  const [otp, setOtp] = useState(''); // Mock OTP for backend demo
-  
-  // Ensure we have a Guest ID (Cookie) on mount
-  useEffect(() => {
-    if (!localStorage.getItem('daksha_guest_id')) {
-      localStorage.setItem('daksha_guest_id', crypto.randomUUID());
-    }
-  }, []);
+import { toast } from "sonner";
 
-  const handleAuth = async (e) => {
+export function AuthPage() {
+  const { login, signUp, profile, user, refreshProfile, loading } = useAuth();
+
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  const [signupEmail, setSignupEmail] = useState("");
+  const [signupPassword, setSignupPassword] = useState("");
+
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("+91");
+  const [gender, setGender] = useState("");
+  const [dob, setDob] = useState("");
+  const [registerLoading, setRegisterLoading] = useState(false);
+
+  const hasPhone = profile && profile.phone_number;
+
+  /* -----------------------------------------
+   * LOGIN
+   * ----------------------------------------- */
+  const handleLogin = async (e) => {
     e.preventDefault();
-    setLoading(true);
-
     try {
-      // 1. Get the Guest ID we've been using
-      const guestId = localStorage.getItem('daksha_guest_id');
-
-      // 2. Call the "Upsert" API (Login/Register + Merge)
-      // In a real app, verify OTP first. Here we simulate it.
-      const response = await api.post('/auth/login', {
-        phone_number: phone, // Must be E.164 (e.g. +91...)
-        guest_id: guestId
-      });
-
-      // 3. Success! Save Token
-      // IMPORTANT: Your backend /auth/login currently returns { user_id, message }.
-      // You need a REAL JWT here.
-      // Option A: If using Supabase Auth on Frontend, get session.access_token there.
-      // Option B: If backend generates it, ensure backend sends { access_token: "..." }
-      
-      // Assuming backend sends token or we simulate one for now:
-      const token = response.data.access_token || "simulate_jwt_if_mocking"; 
-      localStorage.setItem('daksha_token', token);
-
-      toast.success("Welcome back!", {
-        description: "Your cart has been merged successfully."
-      });
-
-      navigate('/dashboard');
-
-    } catch (error) {
-      console.error(error);
-      toast.error("Authentication Failed", {
-        description: error.response?.data?.detail || "Please check your number."
-      });
+      setLoginLoading(true);
+      await login(loginEmail, loginPassword);
+      toast.success("Signed in successfully.");
+    } catch (err) {
+      toast.error(err?.message || "Login failed.");
     } finally {
-      setLoading(false);
+      setLoginLoading(false);
+    }
+  };
+
+  /* -----------------------------------------
+   * SIGN UP
+   * ----------------------------------------- */
+  const handleSignUp = async (e) => {
+    e.preventDefault();
+    try {
+      await signUp(signupEmail, signupPassword);
+      toast.info("Check your email to verify your account.");
+    } catch (err) {
+      toast.error(err?.message || "Sign up failed.");
+    }
+  };
+
+  /* -----------------------------------------
+   * PROFILE COMPLETION
+   * ----------------------------------------- */
+  const handleRegisterProfile = async (e) => {
+    e.preventDefault();
+    try {
+      setRegisterLoading(true);
+
+      await api.post("/users/register", {
+        full_name: fullName,
+        phone_number: phone,
+        gender: gender || null,
+        date_of_birth: dob || null,
+      });
+
+      await refreshProfile();
+      toast.success("Profile updated successfully.");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to update profile.");
+    } finally {
+      setRegisterLoading(false);
     }
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100 p-4">
-      <Card className="w-[400px] shadow-lg border-t-4 border-blue-600">
-        <CardHeader>
-          <CardTitle className="text-2xl font-bold text-center">Daksha Retail</CardTitle>
-          <CardDescription className="text-center">
-            Enter your phone number to continue
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleAuth} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="phone">Phone Number</Label>
-              <Input 
-                id="phone" 
-                placeholder="+91 99999 99999" 
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                required
-              />
-            </div>
-            
-            {/* Mock OTP Field */}
-            <div className="space-y-2">
-              <Label htmlFor="otp">OTP (Verification)</Label>
-              <Input 
-                id="otp" 
-                type="password"
-                placeholder="123456" 
-                value={otp}
-                onChange={(e) => setOtp(e.target.value)}
-              />
-            </div>
+    <div className="min-h-screen flex flex-col bg-background text-foreground">
+      <header className="flex items-center justify-between px-6 py-4 border-b">
+        <div className="font-semibold tracking-tight">Daksha Retail</div>
+        <ModeToggle />
+      </header>
 
-            <Button className="w-full bg-blue-600 hover:bg-blue-700" type="submit" disabled={loading}>
-              {loading ? "Verifying..." : "Continue"}
-            </Button>
-          </form>
-        </CardContent>
-        <CardFooter className="justify-center text-sm text-muted-foreground">
-          Secure Login • Powered by Team Rigged
-        </CardFooter>
-      </Card>
+      <main className="flex-1 flex items-center justify-center px-4">
+        <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* -------------------------------------------------
+           * LOGIN / SIGNUP CARD
+           * ------------------------------------------------- */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Sign in</CardTitle>
+              <CardDescription>
+                Authenticate with Supabase email login.
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent className="space-y-6">
+              {/* LOGIN FORM */}
+              <form className="space-y-4" onSubmit={handleLogin}>
+                <div className="space-y-2">
+                  <Label htmlFor="loginEmail">Email</Label>
+                  <Input
+                    id="loginEmail"
+                    type="email"
+                    value={loginEmail}
+                    onChange={(e) => setLoginEmail(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="loginPassword">Password</Label>
+                  <Input
+                    id="loginPassword"
+                    type="password"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={loginLoading || loading}
+                >
+                  {loginLoading || loading ? "Signing in..." : "Sign in"}
+                </Button>
+              </form>
+
+              <Separator />
+
+              {/* SIGN UP FORM */}
+              <form className="space-y-4" onSubmit={handleSignUp}>
+                <div className="space-y-2">
+                  <Label htmlFor="signupEmail">Create new account</Label>
+                  <Input
+                    id="signupEmail"
+                    type="email"
+                    value={signupEmail}
+                    onChange={(e) => setSignupEmail(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="signupPassword">Password</Label>
+                  <Input
+                    id="signupPassword"
+                    type="password"
+                    value={signupPassword}
+                    onChange={(e) => setSignupPassword(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <Button type="submit" variant="outline" className="w-full">
+                  Sign up
+                </Button>
+              </form>
+            </CardContent>
+
+            <CardFooter>
+              {user && (
+                <p className="text-xs text-muted-foreground">
+                  Logged in as {user.email}
+                </p>
+              )}
+            </CardFooter>
+          </Card>
+
+          {/* -------------------------------------------------
+           * PROFILE COMPLETION CARD
+           * ------------------------------------------------- */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Complete your profile</CardTitle>
+              <CardDescription>
+                Add details for personalization and recommendations.
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent>
+              {!user ? (
+                <p className="text-sm text-muted-foreground">
+                  Sign in to complete your profile.
+                </p>
+              ) : (
+                <form className="space-y-4" onSubmit={handleRegisterProfile}>
+                  <div className="space-y-2">
+                    <Label htmlFor="fullName">Full name</Label>
+                    <Input
+                      id="fullName"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      placeholder={profile?.full_name || ""}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Phone (E.164)</Label>
+                    <Input
+                      id="phone"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="+91XXXXXXXXXX"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="gender">Gender</Label>
+                    <Input
+                      id="gender"
+                      value={gender}
+                      onChange={(e) => setGender(e.target.value)}
+                      placeholder={profile?.gender || "men / women / unisex"}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="dob">Date of birth</Label>
+                    <Input
+                      id="dob"
+                      type="date"
+                      value={dob}
+                      onChange={(e) => setDob(e.target.value)}
+                    />
+                  </div>
+
+                  {hasPhone && (
+                    <p className="text-xs text-green-500">
+                      Phone on file: {profile.phone_number}
+                    </p>
+                  )}
+
+                  <Button type="submit" className="w-full" disabled={registerLoading}>
+                    {registerLoading ? "Saving..." : "Save profile"}
+                  </Button>
+                </form>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </main>
     </div>
   );
 }

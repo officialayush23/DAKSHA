@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
-from app.auth import get_current_user_id
+from app.core.auth import get_current_user_id
+
 from app.models.management import StoreCreate, InventoryFullUpdate
 from app.database import supabase, redis_client
 import json

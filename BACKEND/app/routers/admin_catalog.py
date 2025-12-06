@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
-from app.auth import get_current_user_id
+from app.core.auth import get_current_user_id
+
 from app.models.management import ProductCreate, VariantCreate
 from app.services.ai_service import AIService
 from app.database import supabase
