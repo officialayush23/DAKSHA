@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+supabase[pydantic]
+pydantic
+pydantic-settings
+python-dotenv
+websockets
+pyjwt
+cachetools
+redis
+langchain-google-genai
+sentence-transformers
+tenacity
+langchain 
+langgraph       
+python-jose 
+         

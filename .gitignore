@@ -1,0 +1,94 @@
+# ==========================
+# 🐍 Python / FastAPI
+# ==========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv/
+env.bak/
+venv.bak/
+
+# Testing & Coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# ==========================
+# ⚛️ Node.js / React / Vite
+# ==========================
+node_modules/
+/dist
+/build
+.input/
+.output/
+.nuxt/
+.next/
+# Local Environment Files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ==========================
+# 🔐 Security & Environment
+# ==========================
+# CRITICAL: Never commit .env files
+.env
+.env.*
+!.env.example  # Do commit the example file
+
+# ==========================
+# 💻 IDE & OS Specific
+# ==========================
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ==========================
+# 🐳 Docker & Supabase
+# ==========================
+supabase/.temp/
+.postgres_data/
+docker-compose.override.yml
+
+# ==========================
+# 📂 Project Specific (Uploads)
+# ==========================
+# Ignore locally stored user uploads if any
+/uploads/
+/backend/static/uploads/
