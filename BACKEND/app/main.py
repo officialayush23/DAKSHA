@@ -5,7 +5,7 @@ from app.routers import (
     auth, users, profile, catalog, analytics, 
     cart, orders, payments, inventory, feedback, 
     support, realtime, channels,
-    admin_catalog, admin_inventory, admin_support 
+    admin_catalog, admin_inventory, admin_support,notifications,admin_promotions,omni,
 )
 
 app = FastAPI(
@@ -40,6 +40,12 @@ app.include_router(channels.router)
 app.include_router(admin_catalog.router)
 app.include_router(admin_inventory.router)
 app.include_router(admin_support.router)
+app.include_router(notifications.router)
+app.include_router(admin_promotions.router)
+app.include_router(omni.router)
+
+
+
 
 @app.get("/")
 def health():

@@ -10,6 +10,7 @@ class OmniSessionService:
         user_id: Optional[str],
         chat_session_id: Optional[str],
         active_cart_id: Optional[str],
+        context_summary: Optional[str] = None,
     ):
         existing = (
             supabase.table("omni_channel_sessions")
@@ -19,12 +20,15 @@ class OmniSessionService:
             .maybe_single()
             .execute()
         )
+
         payload = {
             "channel_type": channel_type,
             "channel_id": channel_id,
             "user_id": user_id,
             "chat_session_id": chat_session_id,
             "active_cart_id": active_cart_id,
+            "context_summary": context_summary,
+            "last_active_at": "now()",
         }
 
         if existing.data:
