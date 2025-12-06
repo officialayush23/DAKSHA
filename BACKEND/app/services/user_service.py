@@ -5,9 +5,14 @@ from app.database import supabase
 class UserService:
     @staticmethod
     async def ensure_user_exists(user_id: str) -> dict:
-        res = supabase.table("users").select("*").eq("id", user_id).single().execute()
-        if res.data:
-            return res.data
+        res = (
+            supabase.table("users")
+            .select("*")
+            .eq("id", user_id)
+            .execute()
+        )
+        if res.data and len(res.data) > 0:
+            return res.data[0]
 
         new_profile = {
             "id": user_id,
@@ -31,7 +36,12 @@ class UserService:
             if check.data:
                 raise HTTPException(400, "Phone number already in use")
 
-        res = supabase.table("users").update(data).eq("id", user_id).execute()
+        res = (
+            supabase.table("users")
+            .update(data)
+            .eq("id", user_id)
+            .execute()
+        )
         if not res.data:
             raise HTTPException(404, "User not found")
         return res.data[0]
