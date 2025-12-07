@@ -6,6 +6,7 @@ from app.routers import (
     cart, orders, payments, inventory, feedback, 
     support, realtime, channels,
     admin_catalog, admin_inventory, admin_support,notifications,admin_promotions,omni,
+    temp_auth
 )
 
 app = FastAPI(
@@ -43,6 +44,7 @@ app.include_router(admin_support.router)
 app.include_router(notifications.router)
 app.include_router(admin_promotions.router)
 app.include_router(omni.router)
+app.include_router(temp_auth.router)
 
 
 
