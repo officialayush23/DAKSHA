@@ -113,7 +113,7 @@ memory/
 memory_store/
 
 # Model artifacts
-models/
+
 model_cache/
 huggingface/
 *.model
