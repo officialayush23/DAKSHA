@@ -3,7 +3,7 @@ from app.database import redis_client
 
 class EventBus:
     """
-    Semantic channels:
+    Semantic Redis channels:
       user:{user_id}             -> notifications, order status, etc.
       store:{store_id}:inventory -> store inventory dashboards
       support:dashboard          -> support/complaints dashboard

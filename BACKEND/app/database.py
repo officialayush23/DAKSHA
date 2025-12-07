@@ -3,11 +3,12 @@ import redis.asyncio as redis
 import json
 from app.config import settings
 
-# Supabase client – service role key for backend
+# Supabase client – service-role key for backend
 supabase: Client = create_client(
     settings.SUPABASE_URL,
     settings.SUPABASE_SERVICE_ROLE_KEY,
 )
+
 
 class RedisBus:
     def __init__(self):
@@ -21,5 +22,6 @@ class RedisBus:
         pubsub = self.redis.pubsub()
         await pubsub.subscribe(channel)
         return pubsub
+
 
 redis_client = RedisBus()

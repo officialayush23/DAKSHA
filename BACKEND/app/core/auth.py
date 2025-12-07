@@ -1,26 +1,21 @@
-# app/core/auth.py
 import jwt
-from typing import Optional, Dict, Any
 from cachetools import TTLCache
-from fastapi import HTTPException, Depends
+from fastapi import HTTPException, Header, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from typing import Optional, Dict, Any
+
 from app.config import settings
 
-# Cache tokens for 5 minutes
+# Cache tokens for 5 mins
 _TOKEN_CACHE = TTLCache(maxsize=4096, ttl=300)
 
-# This drives Swagger’s "Authorize" dialog (single Bearer field)
+# HTTP Bearer – Swagger will show a simple "Authorize" with Bearer token only
 security = HTTPBearer(auto_error=False)
 
 
 def verify_jwt(token: str) -> Dict[str, Any]:
-    """
-    Decodes and validates the Supabase JWT.
-    Caches decoded payload for performance.
-    """
     if token in _TOKEN_CACHE:
         return _TOKEN_CACHE[token]
-
     try:
         payload = jwt.decode(
             token,
@@ -37,15 +32,25 @@ def verify_jwt(token: str) -> Dict[str, Any]:
 
 async def get_current_user_id(
     auth: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    authorization: Optional[str] = Header(None),
 ) -> str:
     """
-    Dependency for all protected endpoints.
-    Reads Authorization: Bearer <token>.
-    Works with Swagger's Authorize dialog automatically.
+    Reads token from:
+      - Swagger "Authorize" (HTTPBearer)
+      - or plain Authorization: Bearer <token>
     """
-    if not auth or not auth.credentials:
+    token = None
+
+    if auth:
+        token = auth.credentials
+
+    if not token and authorization:
+        parts = authorization.split(" ")
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1]
+
+    if not token:
         raise HTTPException(status_code=401, detail="Missing Authentication Token")
 
-    token = auth.credentials
     payload = verify_jwt(token)
     return payload["sub"]

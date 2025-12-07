@@ -1,5 +1,5 @@
-from app.database import supabase
 from typing import Optional
+from app.database import supabase
 
 
 class OmniSessionService:
@@ -28,7 +28,6 @@ class OmniSessionService:
             "chat_session_id": chat_session_id,
             "active_cart_id": active_cart_id,
             "context_summary": context_summary,
-            "last_active_at": "now()",
         }
 
         if existing.data:

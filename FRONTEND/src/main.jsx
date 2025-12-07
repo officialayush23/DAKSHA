@@ -1,18 +1,23 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.jsx'
-import { AuthProvider } from './context/AuthContext.jsx'
-import { ThemeProvider } from './components/use_ui/ThemeProvider.jsx'
-import { Toaster } from 'sonner'
+// src/main.jsx
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
 
-createRoot(document.getElementById('root')).render(
+import "./index.css";
+import App from "./App.jsx";
+import { AuthProvider } from "./context/AuthContext.jsx";
+import { ThemeProvider } from "./components/use_ui/ThemeProvider.jsx";
+import { Toaster } from "sonner";
+
+createRoot(document.getElementById("root")).render(
   <StrictMode>
     <ThemeProvider>
       <AuthProvider>
-        <App />
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
       </AuthProvider>
     </ThemeProvider>
-    <Toaster richColors closeButton/>
-  </StrictMode>,
-)
+    <Toaster richColors closeButton />
+  </StrictMode>
+);

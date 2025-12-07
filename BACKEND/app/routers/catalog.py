@@ -1,6 +1,6 @@
 from fastapi import APIRouter
-from app.services.catalog_service import CatalogService
 from app.services.ai_service import AIService
+from app.services.catalog_service import CatalogService
 
 router = APIRouter(prefix="/catalog", tags=["Catalog"])
 

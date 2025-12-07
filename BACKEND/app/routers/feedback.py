@@ -8,7 +8,6 @@ router = APIRouter(prefix="/feedback", tags=["Feedback"])
 
 @router.post("/submit")
 async def submit_review(review: ReviewCreate, user_id: str = Depends(get_current_user_id)):
-    # TODO: hook AIService for sentiment/tags
     sentiment_score = 0.8
     tags = ["good_quality", "fast_shipping"]
 
