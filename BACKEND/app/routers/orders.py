@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import get_current_user_id
-from app.models.commerce import ReturnRequest, CheckoutRequest
+from app.schemas import ReturnRequest, CheckoutRequest
 from app.database import supabase
 from app.services.commerce_service import CommerceService
 

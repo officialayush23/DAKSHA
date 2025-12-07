@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from app.core.auth import get_current_user_id
-from app.models.users import UserProfileUpdate, PaymentMethodCreate, UserRegisterRequest
+from app.schemas import UserProfileUpdate, PaymentMethodCreate, UserRegisterRequest
 from app.services.user_service import UserService
 from app.database import supabase
 

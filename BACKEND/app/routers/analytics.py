@@ -1,5 +1,5 @@
 from fastapi import APIRouter, BackgroundTasks
-from app.models.analytics import FootprintCreate
+from app.schemas import FootprintCreate
 from app.services.analytics_service import AnalyticsService
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])

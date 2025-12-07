@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.models.support import TicketCreate
+from app.schemas import TicketCreate
 from app.services.support_service import SupportService
 
 router = APIRouter(prefix="/support", tags=["Support"])

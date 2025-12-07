@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from app.core.auth import get_current_user_id
-from app.models.management import PromotionCreate
+from app.schemas import PromotionCreate
 from app.database import supabase
 
 router = APIRouter(prefix="/admin/promotions", tags=["Admin: Promotions"])

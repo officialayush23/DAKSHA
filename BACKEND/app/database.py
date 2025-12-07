@@ -1,23 +1,36 @@
-from supabase import create_client, Client
-import redis.asyncio as redis
 import json
+import redis.asyncio as redis
+from supabase import create_client, Client
 from app.config import settings
 
-# Supabase client – service role key for backend
+
 supabase: Client = create_client(
     settings.SUPABASE_URL,
-    settings.SUPABASE_SERVICE_ROLE_KEY,
+    settings.SUPABASE_SERVICE_ROLE_KEY,   
 )
+
 
 class RedisBus:
     def __init__(self):
-        self.redis = redis.from_url(settings.REDIS_URL, decode_responses=True)
+        self.redis = redis.from_url(
+            settings.REDIS_URL,
+            decode_responses=True
+        )
 
     async def publish_json(self, channel: str, event: str, data: dict):
-        payload = json.dumps({"event": event, "data": data})
+        """
+        Publish JSON payload to a Redis pub/sub channel.
+        """
+        payload = json.dumps({
+            "event": event,
+            "data": data
+        })
         await self.redis.publish(channel, payload)
 
     async def subscribe(self, channel: str):
+        """
+        Subscribe to a Redis pub/sub channel.
+        """
         pubsub = self.redis.pubsub()
         await pubsub.subscribe(channel)
         return pubsub

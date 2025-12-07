@@ -3,7 +3,7 @@ from app.core.auth import get_current_user_id
 
 from app.services.commerce_service import CommerceService
 from app.services.ai_service import AIService
-from app.models.commerce import AddToCartRequest
+from app.schemas import AddToCartRequest
 
 router = APIRouter(prefix="/commerce", tags=["Commerce"])
 

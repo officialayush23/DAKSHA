@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from app.core.auth import get_current_user_id
-from app.models.profile import AddressCreate, StyleProfileUpdate
+from app.schemas import AddressCreate, StyleProfileUpdate
 from app.services.profile_service import ProfileService
 
 router = APIRouter(prefix="/profile", tags=["Profile"])

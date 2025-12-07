@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from typing import Optional
 from app.core.auth import get_current_user_id
-from app.models.channels import ChannelMessage
+from app.schemas import ChannelMessage
 from app.agents.graph import run_sales_agent # Use the new runner
 
 router = APIRouter(prefix="/channels", tags=["Omnichannel"])

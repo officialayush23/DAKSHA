@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from app.core.auth import get_current_user_id
-from app.models.commerce import AddToCartRequest
+from app.schemas import AddToCartRequest
 from app.services.commerce_service import CommerceService
 
 router = APIRouter(prefix="/cart", tags=["Cart"])
