@@ -29,7 +29,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten later for prod
+    allow_origins=["http://localhost:5173"],  # tighten later for prod
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -55,6 +55,11 @@ app.include_router(admin_catalog.router)
 app.include_router(admin_inventory.router)
 app.include_router(admin_support.router)
 app.include_router(admin_promotions.router)
+
+
+@app.get("/hello")
+async def hello():
+    return {"message": "Hello, from the backend!"}
 
 
 @app.get("/")

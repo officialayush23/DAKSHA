@@ -2,31 +2,52 @@
 import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { Button } from "@/components/ui/button";
 
+import { Button } from "@/components/ui/button";
 import { LoginPage } from "@/pages/LoginPage";
 import { SignupPage } from "@/pages/SignupPage";
 import { RegisterProfilePage } from "@/pages/RegisterProfile";
+import AuthPage from "@/pages/AuthPage";
+import ProductsPage from "@/pages/ProductsPage";
 
-function AppInner() {
-  const { user, profile, logout } = useAuth();
+export default function App() {
+  const { user, profile, logout, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        Loading...
+      </div>
+    );
+  }
+
+  const profileComplete =
+    profile?.full_name && profile?.phone_number;
 
   return (
     <>
       <Routes>
-        <Route
-          path="/"
-          element={<Navigate to={user ? "/register" : "/login"} replace />}
-        />
-        <Route
-          path="/login"
-          element={user ? <Navigate to="/register" replace /> : <LoginPage />}
-        />
-        <Route
-          path="/signup"
-          element={user ? <Navigate to="/register" replace /> : <SignupPage />}
-        />
-        <Route path="/register" element={<RegisterProfilePage />} />
+        {!user && (
+          <>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/signup" element={<SignupPage />} />
+            <Route path="*" element={<AuthPage />} />
+          </>
+        )}
+
+        {user && !profileComplete && (
+          <>
+            <Route path="/register" element={<RegisterProfilePage />} />
+            <Route path="*" element={<Navigate to="/register" replace />} />
+          </>
+        )}
+
+        {user && profileComplete && (
+          <>
+            <Route path="/products" element={<ProductsPage />} />
+            <Route path="*" element={<Navigate to="/products" replace />} />
+          </>
+        )}
       </Routes>
 
       {user && (
@@ -46,8 +67,4 @@ function AppInner() {
       )}
     </>
   );
-}
-
-export default function App() {
-  return <AppInner />;
 }

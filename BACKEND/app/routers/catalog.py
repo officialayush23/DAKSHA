@@ -2,7 +2,13 @@ from fastapi import APIRouter
 from app.services.ai_service import AIService
 from app.services.catalog_service import CatalogService
 
-router = APIRouter(prefix="/catalog", tags=["Catalog"])
+router = APIRouter(prefix="/products", tags=["Catalog"])
+
+
+@router.get("")
+async def get_products(category: str = None, brand: str = None, sort: str = "newest"):
+    products = CatalogService.get_products(category=category, brand=brand, sort=sort)
+    return products
 
 
 @router.get("/search")
