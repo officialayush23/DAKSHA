@@ -62,7 +62,7 @@ export function LoginPage() {
       setSubmitting(true);
       await login(email, password);
       toast.success("Signed in.");
-      navigate("/register");
+      navigate("/dashboard");
     } catch (err) {
       toast.error(err?.message || "Login failed.");
     } finally {

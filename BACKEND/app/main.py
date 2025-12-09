@@ -56,6 +56,10 @@ app.include_router(admin_inventory.router)
 app.include_router(admin_support.router)
 app.include_router(admin_promotions.router)
 
+origins = [
+    "http://localhost:5173", # Your React App
+    "http://127.0.0.1:5173",
+]
 
 @app.get("/")
 def health():
