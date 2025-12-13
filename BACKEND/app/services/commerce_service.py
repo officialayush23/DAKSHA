@@ -45,13 +45,13 @@ class CommerceService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    async def add_to_cart(user_id: str, variant_id: str, store_location_id: str, qty: int):
-        """
-        store_location_id is only used when the frontend explicitly adds from a store page.
-        For delivery orders, frontend will pass the warehouse location_id.
-        """
-
-        # Lock inventory row at that location
+    async def add_to_cart(
+        user_id: str,
+        variant_id: str,
+        store_location_id: str,
+        qty: int,
+    ):
+        # 1) Lock inventory row
         inv = (
             supabase.table("inventory")
             .select(
@@ -67,13 +67,13 @@ class CommerceService:
         if not inv or inv["quantity_on_hand"] < qty:
             raise HTTPException(400, "Insufficient stock at this location")
 
-        # Optimistic version-check update
+        # 2) Optimistic update
         updated = (
             supabase.table("inventory")
             .update({
                 "quantity_on_hand": inv["quantity_on_hand"] - qty,
                 "quantity_reserved": inv["quantity_reserved"] + qty,
-                "version": inv["version"] + 1
+                "version": inv["version"] + 1,
             })
             .eq("id", inv["id"])
             .eq("version", inv["version"])
@@ -82,23 +82,26 @@ class CommerceService:
 
         if not updated:
             raise HTTPException(409, "Stock changed concurrently. Retry")
-        
 
+        # 3) Get cart
+        cart = CommerceService._get_or_create_cart(user_id)
+
+        # 4) Create reservation (FIXED)
         supabase.table("inventory_reservations").insert(
-        {
-            "cart_id": cart["id"],
-            "product_variant_id": variant_id,
-            "fulfillment_location_id": fulfillment_location_id,
-            "quantity": qty,
-            "status": "active",
-            "expires_at": datetime.utcnow() + timedelta(minutes=RESERVATION_TTL_MINUTES),
-        }
+            {
+                "cart_id": cart["id"],
+                "product_variant_id": variant_id,
+                "fulfillment_location_id": store_location_id,
+                "quantity": qty,
+                "status": "active",
+                "expires_at": datetime.utcnow()
+                + timedelta(minutes=RESERVATION_TTL_MINUTES),
+            }
         ).execute()
 
-
-        # Realtime push update
-        await EventBus.notify_store_inventory(
-            str(store_location_id),
+        # 5) Realtime update
+        await EventBus.notify_inventory_update(
+            store_location_id,
             {
                 "inventory_id": inv["id"],
                 "product_variant_id": inv["product_variant_id"],
@@ -107,17 +110,15 @@ class CommerceService:
             },
         )
 
-        # Insert into cart
-        cart = CommerceService._get_or_create_cart(user_id)
-
+        # 6) Cart item upsert
         supabase.table("cart_items").upsert(
             {
                 "cart_id": cart["id"],
                 "product_variant_id": variant_id,
                 "quantity": qty,
-                "store_id": None,  # deprecated for delivery; preserved for backward compatibility
+                "fulfillment_location_id": store_location_id,
             },
-            on_conflict="cart_id,product_variant_id"
+            on_conflict="cart_id,product_variant_id",
         ).execute()
 
         return {"status": "success", "cart_id": cart["id"]}
@@ -239,7 +240,8 @@ class CommerceService:
                     "product_variant_id": pv["id"],
                     "quantity": int(row["quantity"]),
                     "price_at_purchase": price,
-                    "fulfillment_location_id": fulfillment_location_id,
+                    "fulfillment_location_id": store_location_id,
+
                 }
             )
 
@@ -256,7 +258,7 @@ class CommerceService:
         supabase.table("order_allocations").insert(
             {
                 "order_id": order["id"],
-                "fulfillment_location_id": fulfillment_location_id,
+                "fulfillment_location_id": store_location_id,
                 "allocation_type": allocation["allocation_type"],
                 "reasoning": allocation["reasoning"],
             }
@@ -315,187 +317,7 @@ class CommerceService:
     # ALLOCATION LOGIC — DELIVERY
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _allocate_delivery(user_id: str, items, address_id):
-        """
-        Steps:
-        1) Try warehouse single-source → MUST satisfy all items
-        2) If fails → find nearest stores to user
-        3) Try store single-source
-        4) If fails → return failure + reasoning
-        """
-        # -------- LOAD ALL warehouses --------
-        warehouses = (
-            supabase.table("fulfillment_locations")
-            .select("id, latitude, longitude, type")
-            .eq("type", "warehouse")
-            .eq("is_active", True)
-            .execute()
-        ).data
-
-        # -------- Step 1: warehouse-first --------
-        for wh in warehouses:
-            ok, missing = CommerceService._location_has_all_items(wh["id"], items)
-            if ok:
-                return (
-                    {row["product_variants"]["id"]: wh["id"] for row in items},
-                    f"Allocated from warehouse {wh['id']} because it had full stock."
-                )
-
-        # -------- Step 2: nearest active stores --------
-        if address_id:
-            user_address = (
-                supabase.table("user_addresses")
-                .select("latitude, longitude")
-                .eq("id", address_id)
-                .single()
-                .execute()
-            ).data
-            if not user_address or not user_address["latitude"]:
-                return None, "Delivery address missing coordinates."
-
-            nearest = StoreService.find_nearest_stores(
-                lat=float(user_address["latitude"]),
-                lng=float(user_address["longitude"]),
-                limit=5
-            )
-        else:
-            nearest = StoreService.find_nearest_stores(0, 0, limit=5)
-
-        # -------- Step 3: try each store --------
-        for st in nearest:
-            location_id = st["fulfillment_location_id"]
-            ok, missing = CommerceService._location_has_all_items(location_id, items)
-            if ok:
-                return (
-                    {row["product_variants"]["id"]: location_id for row in items},
-                    f"Allocated from store {st['id']} (nearest with all items available)."
-                )
-
-        # -------- Step 4: Fail (no-split policy) --------
-        return None, "No single warehouse or store had 100% of the cart. We avoid splitting orders unless the user explicitly chooses pickup."
-
-    # ------------------------------------------------------------------
-    # ALLOCATION LOGIC — PICKUP
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _allocate_pickup(items, store_location_id):
-        ok, missing = CommerceService._location_has_all_items(store_location_id, items)
-        if ok:
-            return (
-                {row["product_variants"]["id"]: store_location_id for row in items},
-                "Allocated for pickup at chosen store; all items available."
-            )
-        return None, f"Pickup store is missing variants: {missing}"
-
-    # ------------------------------------------------------------------
-    # CHECK IF LOCATION CAN FULFILL ALL ITEMS
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _location_has_all_items(location_id: str, items: List[dict]) -> Tuple[bool, List[str]]:
-        missing = []
-        for row in items:
-            variant = row["product_variants"]
-            qty_req = row["quantity"]
-
-            inv = (
-                supabase.table("inventory")
-                .select("quantity_on_hand")
-                .eq("product_variant_id", variant["id"])
-                .eq("fulfillment_location_id", location_id)
-                .maybe_single()
-                .execute()
-            ).data
-
-            if not inv or inv["quantity_on_hand"] < qty_req:
-                missing.append(variant["id"])
-
-        return (len(missing) == 0), missing
-
-    # ------------------------------------------------------------------
-    # APPLY STOCK CHANGES + CREATE ORDER ITEMS + FULFILLMENT SOURCE RECORD
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _finalize_allocation(order_id: str, items, allocation: Dict[str, str]):
-        """
-        Deduct reserved → final stock.
-        Create order_items + fulfillment_sources entries.
-        """
-        fulfillment_rows = []
-
-        for row in items:
-            pv = row["product_variants"]
-            variant_id = pv["id"]
-            qty = row["quantity"]
-            location_id = allocation[variant_id]
-
-            # Fetch inventory row
-            inv = (
-                supabase.table("inventory")
-                .select("id, quantity_on_hand, quantity_reserved, version")
-                .eq("product_variant_id", variant_id)
-                .eq("fulfillment_location_id", location_id)
-                .single()
-                .execute()
-            ).data
-
-            if not inv or inv["quantity_reserved"] < qty:
-                raise HTTPException(500, "Stock inconsistency: reserved < required")
-
-            updated = (
-                supabase.table("inventory")
-                .update({
-                    "quantity_reserved": inv["quantity_reserved"] - qty,
-                    "version": inv["version"] + 1
-                })
-                .eq("id", inv["id"])
-                .eq("version", inv["version"])
-                .execute()
-            ).data
-
-            if not updated:
-                raise HTTPException(409, "Concurrent stock change during checkout")
-
-            # Create order item
-            base_price = float(pv["products"]["base_price"])
-            price = float(pv["price_override"] or base_price)
-
-            (
-                supabase.table("order_items")
-                .insert({
-                    "order_id": order_id,
-                    "product_variant_id": variant_id,
-                    "quantity": qty,
-                    "price_at_purchase": price,
-                    "fulfillment_location_id": location_id
-                })
-                .execute()
-            )
-
-            fulfillment_rows.append({
-                "order_id": order_id,
-                "source_type": "store" if CommerceService._is_store(location_id) else "warehouse",
-                "source_id": location_id,
-            })
-
-        # Insert fulfillment source rows
-        if fulfillment_rows:
-            supabase.table("fulfillment_sources").insert(fulfillment_rows).execute()
-
-    @staticmethod
-    def _is_store(location_id: str) -> bool:
-        st = (
-            supabase.table("stores")
-            .select("id")
-            .eq("fulfillment_location_id", location_id)
-            .maybe_single()
-            .execute()
-        ).data
-        return bool(st)
-
+   
     # ------------------------------------------------------------------
     # TRACKING
     # ------------------------------------------------------------------

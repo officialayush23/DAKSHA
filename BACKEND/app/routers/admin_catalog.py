@@ -38,7 +38,7 @@ async def create_product(
 @router.post("/variants")
 async def create_variant(
     data: VariantCreate,
-    user_id: str = Depends(get_current_user_id),
+    rbac = Depends(require_role("catalog_admin", "super_admin")),
 ):
     exists = (
         supabase.table("product_variants")

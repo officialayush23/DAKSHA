@@ -85,15 +85,16 @@ class InventoryService:
         await InventoryAlertService.evaluate_and_trigger(updated)
 
         # Realtime broadcast
-        await EventBus.notify_store_inventory(
-            data.store_id,
-            {
-                "inventory_id": updated["id"],
-                "product_variant_id": updated["product_variant_id"],
-                "quantity_on_hand": updated["quantity_on_hand"],
-                "quantity_reserved": updated.get("quantity_reserved", 0),
-            },
+        await EventBus.notify_inventory_update(
+        data.store_id,
+        {
+            "inventory_id": updated["id"],
+            "product_variant_id": updated["product_variant_id"],
+            "quantity_on_hand": updated["quantity_on_hand"],
+            "quantity_reserved": updated.get("quantity_reserved", 0),
+        },
         )
+
 
         return updated
     
