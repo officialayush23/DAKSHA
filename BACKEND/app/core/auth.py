@@ -4,6 +4,7 @@ from fastapi import HTTPException, Header, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional, Dict, Any
 
+
 from app.config import settings
 
 # Cache tokens for 5 mins
@@ -54,3 +55,5 @@ async def get_current_user_id(
 
     payload = verify_jwt(token)
     return payload["sub"]
+
+

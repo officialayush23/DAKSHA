@@ -1,43 +1,96 @@
-from fastapi import APIRouter
-from app.services.commerce_service import CommerceService
+# app/routers/inventory.py
+
+from fastapi import APIRouter, Query
+from app.database import supabase
+from app.services.store_service import StoreService
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
 
 
+# ---------------------------------------------------------
+# CHECK STOCK BY SKU + LOCATION
+# ---------------------------------------------------------
 @router.get("/check")
-async def check_stock(sku: str, store_id: str):
-    """
-    Returns stock info for a given SKU at a specific store.
+async def check_stock(
+    sku: str,
+    fulfillment_location_id: str,
+):
+    variant = (
+        supabase.table("product_variants")
+        .select("id, sku, products(name)")
+        .eq("sku", sku)
+        .single()
+        .execute()
+    ).data
 
-    Shape (from CommerceService.get_stock_by_sku):
-    {
-      "sku": "...",
-      "product_name": "...",
-      "store_id": "...",
-      "available": bool,
-      "status": "available" | "out_of_stock",
-      "quantity_on_hand": int,
-      "quantity_reserved": int,
-      "qty": int,         # alias for quantity_on_hand (backward compat)
-      "reserved": int,    # alias for quantity_reserved (backward compat)
-      "location": {
-        "aisle_number": int | null,
-        "bay_number": int | null,
-        "shelf_height": int | null,
-        "display_location": str | null,
-        "section_id": uuid | null
-      }
+    if not variant:
+        return {"available": False}
+
+    inv = (
+        supabase.table("inventory")
+        .select("*")
+        .eq("product_variant_id", variant["id"])
+        .eq("fulfillment_location_id", fulfillment_location_id)
+        .maybe_single()
+        .execute()
+    ).data
+
+    if not inv or inv["quantity_on_hand"] <= 0:
+        return {
+            "available": False,
+            "sku": sku,
+            "location_id": fulfillment_location_id,
+        }
+
+    return {
+        "available": True,
+        "sku": sku,
+        "product_name": variant["products"]["name"],
+        "qty": inv["quantity_on_hand"],
+        "location": {
+            "aisle": inv["aisle_number"],
+            "bay": inv["bay_number"],
+            "shelf": inv["shelf_height"],
+            "display": inv["display_location"],
+        },
     }
-    """
-    return CommerceService.get_stock_by_sku(sku, store_id)
 
 
-@router.get("/store/{store_id}")
-async def list_store_inventory(store_id: str, limit: int = 100, offset: int = 0):
+# ---------------------------------------------------------
+# NEAREST STORES WITH STOCK (CHATBOT USE)
+# ---------------------------------------------------------
+@router.get("/nearby")
+async def nearby_stores(
+    product_variant_id: str,
+    lat: float,
+    lng: float,
+    limit: int = Query(5, ge=1, le=10),
+):
     """
-    Store inventory listing for a given store.
+    Used by agent:
+    "This is available in Store X, 2.1 km away"
+    """
+    stores = StoreService.find_nearest_stores(lat, lng, limit=limit)
 
-    Delegates to CommerceService.list_store_inventory so dashboards,
-    kiosks and future agents stay consistent.
-    """
-    return CommerceService.list_store_inventory(store_id=store_id, limit=limit, offset=offset)
+    results = []
+    for s in stores:
+        inv = (
+            supabase.table("inventory")
+            .select("quantity_on_hand")
+            .eq("product_variant_id", product_variant_id)
+            .eq("fulfillment_location_id", s["fulfillment_location_id"])
+            .maybe_single()
+            .execute()
+        ).data
+
+        if inv and inv["quantity_on_hand"] > 0:
+            results.append(
+                {
+                    "store_id": s["id"],
+                    "name": s["name"],
+                    "distance_km": s["distance_km"],
+                    "available_qty": inv["quantity_on_hand"],
+                }
+            )
+
+    return results

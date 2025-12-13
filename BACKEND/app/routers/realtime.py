@@ -1,50 +1,49 @@
+# app/routers/realtime.py
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.database import redis_client
 import asyncio
 
 router = APIRouter(tags=["Realtime"])
 
-# ... existing notification/dashboard streams ...
 
-@router.websocket("/ws/store-inventory/{store_id}")
-async def store_inventory_stream(websocket: WebSocket, store_id: str):from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from app.database import redis_client
-import asyncio
-
-router = APIRouter(tags=["Realtime"])
-
-
-@router.websocket("/ws/store-inventory/{store_id}")
-async def store_inventory_stream(websocket: WebSocket, store_id: str):
-    """
-    Connects the Store Manager's Tablet / Kiosk to live inventory updates.
-    """
+@router.websocket("/ws/inventory/{fulfillment_location_id}")
+async def inventory_stream(websocket: WebSocket, fulfillment_location_id: str):
     await websocket.accept()
-    pubsub = await redis_client.subscribe(f"store:{store_id}:inventory")
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe(
+        f"inventory:{fulfillment_location_id}",
+        f"inventory_alerts:{fulfillment_location_id}",
+    )
+
+    try:
+        while True:
+            message = await pubsub.get_message(
+                ignore_subscribe_messages=True,
+                timeout=1.0
+            )
+            if message:
+                await websocket.send_text(message["data"])
+            await asyncio.sleep(0.05)
+
+    except WebSocketDisconnect:
+        await pubsub.unsubscribe()
+    finally:
+        await pubsub.close()
+
+
+
+@router.websocket("/ws/inventory-alerts/{fulfillment_location_id}")
+async def inventory_alert_stream(websocket: WebSocket, fulfillment_location_id: str):
+    await websocket.accept()
+    pubsub = await redis_client.subscribe(
+        f"inventory:{fulfillment_location_id}:alerts"
+    )
+
     try:
         while True:
             msg = await pubsub.get_message(ignore_subscribe_messages=True)
             if msg:
                 await websocket.send_text(msg["data"])
-            await asyncio.sleep(0.1)
-    except WebSocketDisconnect:
-        await pubsub.unsubscribe()
-
-    """
-    Connects the Store Manager's Tablet / Kiosk to live updates.
-    """
-    await websocket.accept()
-    
-    # Subscribe to this specific store's channel
-    pubsub = await redis_client.subscribe(f"store:{store_id}:inventory")
-    
-    try:
-        while True:
-            # Wait for Redis message
-            msg = await pubsub.get_message(ignore_subscribe_messages=True)
-            if msg:
-                # msg['data'] contains the JSON we published in admin_inventory.py
-                await websocket.send_text(msg['data'])
             await asyncio.sleep(0.1)
     except WebSocketDisconnect:
         await pubsub.unsubscribe()

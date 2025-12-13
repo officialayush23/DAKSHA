@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import asyncio
+from app.workers.reservation_cleanup import reservation_cleanup_loop
 
 from app.routers import (
     auth,
@@ -41,6 +43,8 @@ app.include_router(users.router)
 app.include_router(profile.router)
 app.include_router(catalog.router)
 app.include_router(analytics.router)
+
+
 app.include_router(cart.router)
 app.include_router(orders.router)
 app.include_router(payments.router)
@@ -55,6 +59,11 @@ app.include_router(admin_catalog.router)
 app.include_router(admin_inventory.router)
 app.include_router(admin_support.router)
 app.include_router(admin_promotions.router)
+
+@app.on_event("startup")
+async def start_background_tasks():
+    asyncio.create_task(reservation_cleanup_loop())
+
 
 
 @app.get("/")

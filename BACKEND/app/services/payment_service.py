@@ -1,83 +1,107 @@
+# app/services/payment_service.py
+
 from fastapi import HTTPException
 from app.database import supabase
-from app.core.redis_bus import EventBus
+from datetime import datetime
+import uuid
 
 
 class PaymentService:
+
+    # ---------------------------------------------------------
+    # CREATE PAYMENT INTENT
+    # ---------------------------------------------------------
     @staticmethod
-    def create_payment_intent(order_id: str, user_id: str) -> dict:
+    def create_payment_intent(order_id: str, user_id: str):
+        """
+        Creates a payment intent entry in DB.
+        External gateways (Razorpay/Stripe) will use this ID.
+        """
+
+        # Validate order ownership
         order = (
             supabase.table("orders")
-            .select("*")
+            .select("id, user_id, total_amount, discount_amount, status")
             .eq("id", order_id)
             .single()
             .execute()
-        )
-        if not order.data or order.data["user_id"] != user_id:
+        ).data
+
+        if not order:
             raise HTTPException(404, "Order not found")
 
-        amount = float(order.data["total_amount"] - order.data["discount_amount"])
+        if order["user_id"] != user_id:
+            raise HTTPException(403, "Not your order")
 
-        res = (
+        if order["status"] not in ("pending", "processing"):
+            raise HTTPException(400, "Order is not payable")
+
+        final_amount = float(order["total_amount"]) - float(order["discount_amount"] or 0)
+
+        # Create internal payment record
+        payment = (
             supabase.table("payments")
             .insert(
                 {
                     "order_id": order_id,
                     "user_id": user_id,
-                    "provider": "mock_gateway",
+                    "provider": "razorpay",
                     "status": "initiated",
-                    "amount": amount,
+                    "amount": final_amount,
                 }
             )
             .execute()
-        )
-        payment = res.data[0]
-        payment["payment_url"] = f"https://mock-gateway.test/pay/{payment['id']}"
-        return payment
+        ).data[0]
 
+        return {
+            "payment_id": payment["id"],
+            "amount": final_amount,
+            "currency": "INR",
+        }
+
+    # ---------------------------------------------------------
+    # CONFIRM PAYMENT (GATEWAY CALLBACK)
+    # ---------------------------------------------------------
     @staticmethod
-    async def confirm_payment(
-        payment_id: str, success: bool, error_message: str | None = None
-    ):
-        payment_res = (
+    async def confirm_payment(payment_id: str, success: bool):
+        """
+        Finalizes payment + updates order:
+        - success → status = paid
+        - failure → status = failed
+        """
+
+        pay = (
             supabase.table("payments")
-            .select("*")
+            .select("*, orders(id, status)")
             .eq("id", payment_id)
             .single()
             .execute()
-        )
-        if not payment_res.data:
+        ).data
+
+        if not pay:
             raise HTTPException(404, "Payment not found")
 
-        payment = payment_res.data
-
-        attempt = {
-            "payment_id": payment_id,
-            "gateway_transaction_id": f"mock_tx_{payment_id}",
-            "status": "success" if success else "failed",
-            "error_code": None if success else "ERR_PAYMENT",
-            "error_message": None if success else (error_message or "Payment failed"),
-        }
-        supabase.table("payment_attempts").insert(attempt).execute()
-
+        order_id = pay["order_id"]
         new_status = "success" if success else "failed"
-        supabase.table("payments").update({"status": new_status}).eq(
-            "id", payment_id
+
+        # Update payment record
+        supabase.table("payments").update({"status": new_status}).eq("id", payment_id).execute()
+
+        # Record attempt
+        supabase.table("payment_attempts").insert(
+            {
+                "payment_id": payment_id,
+                "status": new_status,
+                "attempted_at": datetime.utcnow().isoformat(),
+            }
         ).execute()
 
-        order_status = "paid" if success else "pending"
-        order_res = (
-            supabase.table("orders")
-            .update({"status": order_status})
-            .eq("id", payment["order_id"])
-            .execute()
-        )
-        order = order_res.data[0]
+        # Update order
+        supabase.table("orders").update(
+            {"status": "paid" if success else "cancelled"}
+        ).eq("id", order_id).execute()
 
-        await EventBus.notify_user(
-            order["user_id"],
-            "order_status_updated",
-            {"order_id": order["id"], "status": order_status},
-        )
-
-        return {"order": order, "payment_status": new_status}
+        return {
+            "status": "completed" if success else "failed",
+            "order_id": order_id,
+        }

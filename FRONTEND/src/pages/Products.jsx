@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+// src/pages/ProductsPage.jsx
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient"; 
 import api from "@/lib/apiClient";
@@ -8,13 +9,20 @@ import {
   LayoutGrid, List as ListIcon, Loader2, ArrowLeft,
   X, ShoppingBag, ChevronDown, SlidersHorizontal
 } from "lucide-react";
+import { 
+  trackProductView, 
+  trackProductClick, 
+  trackAddToCart, 
+  flush, 
+  trackEvent 
+} from "@/lib/analytics";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card } from "@/components/ui/card";
@@ -37,6 +45,14 @@ export default function ProductsPage() {
   const [addingId, setAddingId] = useState(null);
   const [visibleCount, setVisibleCount] = useState(12);
 
+  // -----------------------------
+  // PAGE ENTER / EXIT TRACKING
+  // -----------------------------
+  useEffect(() => {
+    trackEvent("page_enter", { page: "products_page" });
+    return () => trackEvent("page_exit", { page: "products_page" });
+  }, []);
+
   // --- 1. Fetch Data ---
   const fetchCatalog = async () => {
     setLoading(true);
@@ -53,7 +69,7 @@ export default function ProductsPage() {
 
       if (error) throw error;
 
-      const formatted = data.map(p => {
+      const formatted = (data || []).map(p => {
         const variants = p.variants || [];
         const firstVariant = variants.length > 0 ? variants[0] : null;
         
@@ -111,63 +127,109 @@ export default function ProductsPage() {
     setDisplayedProducts(result);
   }, [allProducts, searchQuery, priceRange, selectedGenders, sortOption]);
 
-
-  // --- 3. Add to Cart ---
+  // --- 3. Add to Cart (with tracking) ---
   const handleAddToCart = async (product) => {
     if (!product.default_variant_id) return toast.error("Out of stock");
 
     setAddingId(product.id);
 
     try {
-        // API Strategy
-        try {
-            await api.post("/cart/add", { variant_id: product.default_variant_id, quantity: 1 });
-            toast.success(`Added ${product.name}`);
-        } catch (apiError) {
-            // Supabase Fallback
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return toast.error("Please log in");
+      toast.success(`Adding ${product.name}…`);
 
-            let { data: cart } = await supabase.from('carts').select('id').eq('user_id', user.id).eq('status', 'active').maybeSingle();
-            if (!cart) {
-                const { data: newCart } = await supabase.from('carts').insert({ user_id: user.id, status: 'active' }).select().single();
-                cart = newCart;
-            }
+      // Preferred API
+      try {
+        await api.post("/cart/add", { variant_id: product.default_variant_id, quantity: 1 });
+        toast.success(`Added ${product.name}`);
+        trackAddToCart(product, 1, { source: "api" });
+        await flush();
+        return;
+      } catch (apiError) {
 
-            const { data: existing } = await supabase.from('cart_items').select('id, quantity').eq('cart_id', cart.id).eq('product_variant_id', product.default_variant_id).maybeSingle();
-            
-            if (existing) {
-                 await supabase.from('cart_items').update({ quantity: existing.quantity + 1 }).eq('id', existing.id);
-            } else {
-                 await supabase.from('cart_items').insert({
-                    cart_id: cart.id,
-                    product_variant_id: product.default_variant_id,
-                    quantity: 1
-                });
-            }
-            toast.success(`Added ${product.name}`);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          toast.error("Please log in");
+          trackAddToCart(product, 1, { source: "client_not_logged" });
+          setAddingId(null);
+          return;
         }
+
+        let { data: cart } = await supabase
+          .from('carts')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('status', 'active')
+          .maybeSingle();
+
+        if (!cart) {
+          const { data: newCart } = await supabase
+            .from('carts')
+            .insert({ user_id: user.id, status: 'active' })
+            .select()
+            .single();
+          cart = newCart;
+        }
+
+        const { data: existing } = await supabase
+          .from('cart_items')
+          .select('id, quantity')
+          .eq('cart_id', cart.id)
+          .eq('product_variant_id', product.default_variant_id)
+          .maybeSingle();
+                
+        if (existing) {
+          await supabase.from('cart_items')
+            .update({ quantity: existing.quantity + 1 })
+            .eq('id', existing.id);
+        } else {
+          await supabase.from('cart_items').insert({
+            cart_id: cart.id,
+            product_variant_id: product.default_variant_id,
+            quantity: 1
+          });
+        }
+
+        toast.success(`Added ${product.name}`);
+        trackAddToCart(product, 1, { source: "supabase_client_fallback" });
+        await flush();
+      }
     } catch (err) {
-        toast.error("Failed to add to cart");
+      toast.error("Failed to add to cart");
+      trackEvent("add_to_cart_failed", { product_id: product.id, reason: String(err) });
     } finally {
-        setAddingId(null);
+      setAddingId(null);
     }
   };
 
+  // ------------------------
+  // FILTER TRACKING HERE
+  // ------------------------
   const toggleGender = (g) => {
-    setSelectedGenders(prev => prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g]);
+    setSelectedGenders(prev => {
+      const newList = prev.includes(g)
+        ? prev.filter(x => x !== g)
+        : [...prev, g];
+
+      trackEvent("filter_change", { genders: newList });
+
+      return newList;
+    });
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-blue-500/30">
+    <div className="min-h-screen dark:bg-background text-slate-100 font-sans ">
       
       {/* --- Sticky Glass Header --- */}
-      <div className="sticky top-0 z-40 w-full border-b border-white/5 bg-slate-950/80 backdrop-blur-xl">
+      <div className="sticky top-0 z-40 w-full border-b dark:bg-background backdrop-blur-xl">
         <div className="container max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
           
           {/* Left: Brand & Back */}
           <div className="flex items-center gap-4 shrink-0">
-            <Button variant="ghost" size="icon" className="rounded-full hover:bg-white/10 text-slate-400 hover:text-white" onClick={() => navigate("/dashboard")}>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="rounded-full hover:bg-white/10 text-slate-400 hover:text-white" 
+              onClick={() => navigate("/dashboard")}
+            >
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <span className="font-bold text-lg tracking-tight hidden md:block text-slate-100">Store</span>
@@ -180,29 +242,62 @@ export default function ProductsPage() {
               placeholder="Search products..." 
               className="pl-10 h-10 rounded-full bg-slate-900 border-white/5 focus:bg-slate-800 focus:border-white/20 transition-all placeholder:text-slate-600 text-slate-200"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                trackEvent("search", { query: e.target.value });
+              }}
             />
           </div>
 
           {/* Right: Actions */}
           <div className="flex items-center gap-3">
             <div className="hidden md:flex items-center bg-slate-900/50 rounded-full p-1 border border-white/5">
-               <button onClick={() => setViewMode("grid")} className={`p-2 rounded-full transition-all ${viewMode === 'grid' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}><LayoutGrid className="h-4 w-4" /></button>
-               <button onClick={() => setViewMode("list")} className={`p-2 rounded-full transition-all ${viewMode === 'list' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}><ListIcon className="h-4 w-4" /></button>
+               <button 
+                 onClick={() => setViewMode("grid")} 
+                 className={`p-2 rounded-full transition-all ${viewMode === 'grid' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+               >
+                 <LayoutGrid className="h-4 w-4" />
+               </button>
+               <button 
+                 onClick={() => setViewMode("list")} 
+                 className={`p-2 rounded-full transition-all ${viewMode === 'list' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+               >
+                 <ListIcon className="h-4 w-4" />
+               </button>
             </div>
             
             <Sheet>
               <SheetTrigger asChild>
-                <Button variant="outline" size="icon" className="md:hidden rounded-full border-white/10 bg-transparent hover:bg-white/5 text-slate-300"><Filter className="h-4 w-4" /></Button>
+                <Button 
+                  variant="outline" 
+                  size="icon" 
+                  className="md:hidden rounded-full border-white/10 bg-transparent hover:bg-white/5 text-slate-300"
+                >
+                  <Filter className="h-4 w-4" />
+                </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-[300px] border-r-white/10 bg-slate-950 text-slate-100">
-                <SheetHeader className="text-left mb-6"><SheetTitle className="text-white">Filters</SheetTitle></SheetHeader>
-                <FilterSidebar priceRange={priceRange} setPriceRange={setPriceRange} selectedGenders={selectedGenders} toggleGender={toggleGender} />
+              <SheetContent side="left" className="w-[300px] border-r-white/10 p-2 dark:bg-background text-slate-100">
+                <SheetHeader className="text-left mb-6">
+                  <SheetTitle className="text-white">Filters</SheetTitle>
+                </SheetHeader>
+                <FilterSidebar 
+                  priceRange={priceRange} 
+                  setPriceRange={(val) => {
+                    setPriceRange(val);
+                    trackEvent("filter_change", { price_range: val });
+                  }}
+                  selectedGenders={selectedGenders} 
+                  toggleGender={toggleGender} 
+                />
               </SheetContent>
             </Sheet>
 
-            <Button className="rounded-full relative bg-white text-slate-950 hover:bg-slate-200 font-semibold" onClick={() => navigate("/cart")}>
-              <ShoppingBag className="h-4 w-4 mr-2" /> Cart
+            <Button 
+              className="rounded-full relative bg-white text-slate-950 hover:bg-slate-200 font-semibold" 
+              onClick={() => navigate("/cart")}
+            >
+              <ShoppingBag className="h-4 w-4 mr-2" /> 
+              Cart
             </Button>
           </div>
         </div>
@@ -214,9 +309,18 @@ export default function ProductsPage() {
         {/* Desktop Sidebar */}
         <aside className="hidden lg:block w-64 sticky top-24 shrink-0 space-y-8">
            <FilterSidebar 
-             priceRange={priceRange} setPriceRange={setPriceRange} 
-             selectedGenders={selectedGenders} toggleGender={toggleGender} 
-             reset={() => { setSelectedGenders([]); setPriceRange([0, 20000]); }}
+             priceRange={priceRange} 
+             setPriceRange={(val) => {
+               setPriceRange(val);
+               trackEvent("filter_change", { price_range: val });
+             }}
+             selectedGenders={selectedGenders} 
+             toggleGender={toggleGender} 
+             reset={() => { 
+                setSelectedGenders([]); 
+                setPriceRange([0, 20000]);
+                trackEvent("filter_change", { reset: true });
+             }}
            />
         </aside>
 
@@ -227,15 +331,27 @@ export default function ProductsPage() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
              <div className="flex items-center gap-3">
                <h2 className="text-xl font-semibold tracking-tight text-white">All Products</h2>
-               <Badge variant="secondary" className="bg-slate-900 text-slate-400 hover:bg-slate-900 border border-white/5">{displayedProducts.length}</Badge>
+               <Badge 
+                 variant="secondary" 
+                 className="bg-slate-900 text-slate-400 hover:bg-slate-900 border border-white/5"
+               >
+                 {displayedProducts.length}
+               </Badge>
              </div>
              
              {/* Sort Select */}
-             <Select value={sortOption} onValueChange={setSortOption}>
+             <Select 
+               value={sortOption} 
+               onValueChange={(v) => {
+                 setSortOption(v);
+                 trackEvent("sort_change", { option: v });
+               }}
+             >
                <SelectTrigger className="w-[160px] h-9 rounded-lg bg-slate-900 border-white/10 text-slate-300 focus:ring-0">
-                 <span className="text-slate-500 mr-2">Sort by:</span> <SelectValue />
+                 <span className="text-slate-500 mr-2">Sort by:</span> 
+                 <SelectValue />
                </SelectTrigger>
-               <SelectContent className="bg-slate-900 border-white/10 text-slate-300">
+               <SelectContent className="dark:bg-background border-white/10 text-slate-300">
                  <SelectItem value="relevance">Relevance</SelectItem>
                  <SelectItem value="newest">Newest Arrivals</SelectItem>
                  <SelectItem value="price_low">Price: Low to High</SelectItem>
@@ -248,34 +364,71 @@ export default function ProductsPage() {
           {(selectedGenders.length > 0 || priceRange[0] > 0 || priceRange[1] < 20000) && (
             <div className="flex flex-wrap gap-2 mb-6">
               {selectedGenders.map(g => (
-                <Badge key={g} className="pl-3 pr-1.5 py-1 capitalize gap-1 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/5">
-                  {g} <X className="h-3 w-3 cursor-pointer hover:text-white" onClick={() => toggleGender(g)} />
+                <Badge 
+                  key={g} 
+                  className="pl-3 pr-1.5 py-1 capitalize gap-1 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/5"
+                >
+                  {g} 
+                  <X 
+                    className="h-3 w-3 cursor-pointer hover:text-white" 
+                    onClick={() => toggleGender(g)} 
+                  />
                 </Badge>
               ))}
-              <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-slate-500 hover:text-white" onClick={() => { setSelectedGenders([]); setPriceRange([0, 20000]); }}>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-6 px-2 text-xs text-slate-500 hover:text-white" 
+                onClick={() => { 
+                  setSelectedGenders([]); 
+                  setPriceRange([0, 20000]); 
+                  trackEvent("filter_change", { clear_all: true });
+                }}
+              >
                 Clear all
               </Button>
             </div>
           )}
 
           {/* Grid */}
-          {loading ? <ProductGridSkeleton viewMode={viewMode} /> : displayedProducts.length === 0 ? (
+          {loading ? (
+            <ProductGridSkeleton viewMode={viewMode} />
+          ) : displayedProducts.length === 0 ? (
              <div className="flex flex-col items-center justify-center py-32 text-center border border-dashed border-white/5 rounded-3xl bg-white/[0.02]">
-                <div className="bg-slate-900 p-4 rounded-full mb-4"><Search className="h-8 w-8 text-slate-600" /></div>
+                <div className="bg-background p-4 rounded-full mb-4">
+                  <Search className="h-8 w-8 text-slate-600" />
+                </div>
                 <h3 className="text-lg font-medium text-white">No products found</h3>
-                <p className="text-slate-500 max-w-xs mx-auto mt-1 mb-6">Try adjusting your price range or filters.</p>
-                <Button variant="outline" className="border-white/10 text-white hover:bg-white/5" onClick={() => { setSearchQuery(""); setSelectedGenders([]); }}>Clear Filters</Button>
+                <p className="text-slate-500 max-w-xs mx-auto mt-1 mb-6">
+                  Try adjusting your price range or filters.
+                </p>
+                <Button 
+                  variant="outline" 
+                  className="border-white/10 text-white hover:bg-white/5" 
+                  onClick={() => { 
+                    setSearchQuery(""); 
+                    setSelectedGenders([]); 
+                    trackEvent("filter_change", { reset: true });
+                  }}
+                >
+                  Clear Filters
+                </Button>
              </div>
           ) : (
             <>
-              <div className={viewMode === 'grid' ? "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-8" : "flex flex-col gap-4"}>
+              <div className={
+                viewMode === 'grid' 
+                ? "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-8" 
+                : "flex flex-col gap-4"
+              }>
                 {displayedProducts.slice(0, visibleCount).map((product) => (
-                  <ProductCard 
+                  <ProductTile 
                     key={product.id} 
                     product={product} 
                     viewMode={viewMode} 
                     onAdd={handleAddToCart} 
                     isAdding={addingId === product.id}
+                    navigate={navigate}
                   />
                 ))}
               </div>
@@ -283,7 +436,12 @@ export default function ProductsPage() {
               {/* Load More Button */}
               {visibleCount < displayedProducts.length && (
                 <div className="mt-12 flex justify-center">
-                  <Button variant="outline" size="lg" className="min-w-[200px] border-white/10 hover:bg-white/5 text-slate-300 bg-slate-900/50" onClick={() => setVisibleCount(prev => prev + 8)}>
+                  <Button 
+                    variant="outline" 
+                    size="lg" 
+                    className="min-w-[200px] border-white/10 hover:bg-white/5 text-slate-300 bg-slate-900/50" 
+                    onClick={() => setVisibleCount(prev => prev + 8)}
+                  >
                     Load More Products
                   </Button>
                 </div>
@@ -302,10 +460,28 @@ const FilterSidebar = ({ priceRange, setPriceRange, selectedGenders, toggleGende
     <div>
       <div className="flex items-center justify-between mb-4">
          <h3 className="font-semibold text-sm tracking-wide text-white">Price Range</h3>
-         {reset && <button onClick={reset} className="text-[10px] text-slate-500 hover:text-white uppercase font-bold tracking-wider">Reset</button>}
+         {reset && (
+           <button 
+             onClick={reset} 
+             className="text-[10px] text-slate-500 hover:text-white uppercase font-bold tracking-wider"
+           >
+             Reset
+           </button>
+         )}
       </div>
-      <Card className="bg-slate-900/50 border-white/5 p-4">
-        <Slider defaultValue={[0, 20000]} max={20000} step={100} value={priceRange} onValueChange={setPriceRange} className="my-4" />
+
+      <Card className="bg-background dark:bg-background p-4">
+        <Slider 
+          defaultValue={[0, 20000]} 
+          max={20000} 
+          step={100} 
+          value={priceRange} 
+          onValueChange={(val) => {
+            setPriceRange(val);
+            trackEvent("filter_change", { price_range: val });
+          }} 
+          className="my-4" 
+        />
         <div className="flex justify-between text-xs font-mono text-slate-400">
           <span>₹{priceRange[0]}</span>
           <span>₹{priceRange[1]}</span>
@@ -317,7 +493,10 @@ const FilterSidebar = ({ priceRange, setPriceRange, selectedGenders, toggleGende
       <h3 className="font-semibold text-sm tracking-wide text-white mb-4">Department</h3>
       <div className="space-y-2">
          {['men', 'women', 'unisex', 'kids'].map(g => (
-           <label key={g} className="flex items-center justify-between group cursor-pointer p-2 rounded-lg hover:bg-white/5 transition-colors">
+           <label 
+             key={g} 
+             className="flex items-center justify-between group cursor-pointer p-2 rounded-lg hover:bg-white/5 transition-colors"
+           >
              <span className="text-sm capitalize text-slate-400 group-hover:text-slate-200">{g}</span>
              <Checkbox 
                 checked={selectedGenders.includes(g)} 
@@ -331,62 +510,135 @@ const FilterSidebar = ({ priceRange, setPriceRange, selectedGenders, toggleGende
   </div>
 );
 
-// --- PRODUCT CARD (Dark Blue & Compact) ---
-const ProductCard = ({ product, viewMode, onAdd, isAdding }) => {
+// --- PRODUCT TILE ---
+function ProductTile({ product, viewMode, onAdd, isAdding, navigate }) {
   const isList = viewMode === 'list';
   const [liked, setLiked] = useState(false);
+  const ref = useRef(null);
+
+  // Intersection observer -> view tracking
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let viewed = false;
+
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (!viewed && entry.isIntersecting && entry.intersectionRatio > 0.5) {
+          viewed = true;
+          trackProductView(product);
+        }
+      });
+    }, { threshold: [0.5] });
+
+    io.observe(el);
+    return () => io.disconnect();
+  }, [product]);
+
+  // Click handler -> product_click
+  const handleClick = (e) => {
+    if (e.target.closest('button')) return;
+    trackProductClick(product);
+    flush();
+    navigate(`/products/${product.id}`);
+  };
 
   return (
-    <div className={`group relative flex ${isList ? 'flex-row items-center border border-white/5 bg-slate-900/40 p-4 rounded-xl' : 'flex-col gap-3'}`}>
+    <div 
+      ref={ref} 
+      onClick={handleClick} 
+      className={`group relative flex ${isList ? 'flex-row items-center border border-white/5 bg-slate-900/40 p-4 rounded-xl' : 'flex-col gap-3 cursor-pointer'}`}
+    >
       
-      {/* Image: Square Aspect Ratio */}
-      <div className={`relative overflow-hidden rounded-xl bg-slate-900 border border-white/5 ${isList ? 'w-24 h-24 shrink-0' : 'aspect-square w-full'}`}>
+      {/* IMAGE */}
+      <div 
+        className={`relative overflow-hidden rounded-xl bg-slate-900 border border-white/5 ${isList ? 'w-24 h-24 shrink-0' : 'aspect-square w-full'}`}
+      >
         {product.image_url ? (
-          <img src={product.image_url} alt={product.name} className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105" />
+          <img 
+            src={product.image_url} 
+            alt={product.name} 
+            className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105" 
+          />
         ) : (
-          <div className="flex flex-col items-center justify-center h-full text-slate-700"><SlidersHorizontal className="h-8 w-8 mb-2 opacity-50" /></div>
+          <div className="flex flex-col items-center justify-center h-full text-slate-700">
+            <SlidersHorizontal className="h-8 w-8 mb-2 opacity-50" />
+          </div>
         )}
         
-        {/* Overlay Actions (Grid Only) */}
+        {/* Like + preview buttons */}
         {!isList && (
           <div className="absolute top-2 right-2 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0">
-             <button onClick={(e) => { e.stopPropagation(); setLiked(!liked); }} className="p-2 rounded-full bg-slate-950/80 backdrop-blur text-white hover:bg-white hover:text-black transition-colors border border-white/10">
+             <button 
+               onClick={(e) => { e.stopPropagation(); setLiked(!liked); }} 
+               className="p-2 rounded-full bg-slate-950/80 backdrop-blur text-white hover:bg-white hover:text-black transition-colors border border-white/10"
+             >
                 <Heart className={`h-4 w-4 ${liked ? 'fill-current text-red-500 hover:text-red-500' : ''}`} />
              </button>
-             <button className="p-2 rounded-full bg-slate-950/80 backdrop-blur text-white hover:bg-white hover:text-black transition-colors border border-white/10">
+
+             <button 
+               onClick={(e) => { 
+                 e.stopPropagation(); 
+                 trackEvent('quick_preview', { product_id: product.id }); 
+               }} 
+               className="p-2 rounded-full bg-slate-950/80 backdrop-blur text-white hover:bg-white hover:text-black transition-colors border border-white/10"
+             >
                 <Eye className="h-4 w-4" />
              </button>
           </div>
         )}
 
-        {/* Tags */}
+        {/* Tag */}
         <div className="absolute top-2 left-2">
-           {product.tags?.slice(0, 1).map(tag => <span key={tag} className="text-[10px] font-bold px-2 py-1 rounded bg-white text-black shadow-lg uppercase tracking-wider">{tag}</span>)}
+           {product.tags?.slice(0, 1).map(tag => (
+             <span 
+               key={tag} 
+               className="text-[10px] font-bold px-2 py-1 rounded bg-white text-black shadow-lg uppercase tracking-wider"
+             >
+               {tag}
+             </span>
+           ))}
         </div>
       </div>
 
-      {/* Details */}
+      {/* DETAILS */}
       <div className={`flex flex-col ${isList ? 'ml-6 flex-1' : ''}`}>
         <div className="mb-1 flex justify-between items-start">
-           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{product.category_name}</span>
-           {!product.has_stock && <span className="text-[10px] text-red-500 font-bold uppercase">Sold Out</span>}
+           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+             {product.category_name}
+           </span>
+           {!product.has_stock && (
+             <span className="text-[10px] text-red-500 font-bold uppercase">
+               Sold Out
+             </span>
+           )}
         </div>
         
-        <h3 className="text-sm font-medium text-slate-200 leading-tight group-hover:text-white transition-colors line-clamp-1 mb-1">{product.name}</h3>
-        {isList && <p className="text-sm text-slate-500 line-clamp-2 mb-3 max-w-lg">{product.description}</p>}
+        <h3 className="text-sm font-medium text-slate-200 leading-tight group-hover:text-white transition-colors line-clamp-1 mb-1">
+          {product.name}
+        </h3>
+
+        {isList && (
+          <p className="text-sm text-slate-500 line-clamp-2 mb-3 max-w-lg">
+            {product.description}
+          </p>
+        )}
         
         <div className="flex items-center justify-between mt-1">
-           <span className="text-base font-semibold text-white">₹{product.price.toLocaleString()}</span>
+           <span className="text-base font-semibold text-white">
+             ₹{product.price.toLocaleString()}
+           </span>
            
-           {/* Add Button: Visible always */}
            <Button 
              size="sm"
              className={`h-8 rounded-full px-4 text-xs font-semibold transition-all ${isList ? '' : 'w-auto'}`}
-             onClick={() => onAdd(product)} 
+             onClick={(e) => { e.stopPropagation(); onAdd(product); }} 
              disabled={isAdding || !product.has_stock}
-             variant={!product.has_stock ? "ghost" : "secondary"} // Secondary is white/light in dark mode
+             variant={!product.has_stock ? "ghost" : "secondary"}
            >
-             {isAdding ? <Loader2 className="h-3 w-3 animate-spin" /> : (
+             {isAdding ? (
+               <Loader2 className="h-3 w-3 animate-spin" />
+             ) : (
                !product.has_stock ? "Unavailable" : "Add"
              )}
            </Button>
@@ -394,7 +646,7 @@ const ProductCard = ({ product, viewMode, onAdd, isAdding }) => {
       </div>
     </div>
   );
-};
+}
 
 // --- Skeletons ---
 const ProductGridSkeleton = ({ viewMode }) => (
@@ -409,7 +661,16 @@ const ProductGridSkeleton = ({ viewMode }) => (
              </div>
           </div>
         ) : (
-          <div key={i} className="flex gap-4 h-24 border border-slate-900 rounded-xl p-3"><Skeleton className="w-24 h-full rounded-lg bg-slate-900" /><div className="flex-1 py-2 space-y-2"><Skeleton className="h-4 w-32 bg-slate-900" /><Skeleton className="h-4 w-1/2 bg-slate-900" /></div></div>
+          <div 
+            key={i} 
+            className="flex gap-4 h-24 border border-slate-900 rounded-xl p-3"
+          >
+            <Skeleton className="w-24 h-full rounded-lg bg-slate-900" />
+            <div className="flex-1 py-2 space-y-2">
+              <Skeleton className="h-4 w-32 bg-slate-900" />
+              <Skeleton className="h-4 w-1/2 bg-slate-900" />
+            </div>
+          </div>
         )
      ))}
   </div>

@@ -2,14 +2,14 @@ from fastapi import APIRouter, Depends
 from app.core.auth import get_current_user_id
 from app.database import supabase
 from app.core.redis_bus import EventBus
-
+from app.core.rbac import require_role
 router = APIRouter(prefix="/admin/support", tags=["Admin: Support"])
 
 
 @router.get("/tickets")
 async def get_all_tickets(
     status: str = "open",
-    user_id: str = Depends(get_current_user_id),
+    rbac = Depends(require_role("support_agent", "super_admin")),
 ):
     """
     Fetch queue for the support dashboard.

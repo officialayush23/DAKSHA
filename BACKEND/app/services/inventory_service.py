@@ -1,95 +1,126 @@
+# app/services/inventory_service.py
+
 from fastapi import HTTPException
 from app.database import supabase
 from app.core.redis_bus import EventBus
-from app.models.management import InventoryFullUpdate
+from app.services.inventory_alert_service import InventoryAlertService
 
 
 class InventoryService:
+
+    # ---------------------------------------------------------
+    # STORE DASHBOARD LOAD
+    # ---------------------------------------------------------
     @staticmethod
     def get_store_dashboard(store_id: str):
         """
-        Initial load for the Store Manager's Tablet.
-        Returns all inventory for this specific store with variant + product info.
+        Load everything a store dashboard needs:
+        - inventory
+        - product + variant metadata
         """
-        res = (
+
+        inv = (
             supabase.table("inventory")
             .select(
-                "*, "
-                "product_variants("
-                "   sku, color_name, size_label, "
-                "   products(name)"
-                ")"
+                "*, product_variants(*, products(name, base_price))"
             )
-            .eq("store_id", store_id)
+            .eq("fulfillment_location_id", store_id)
+            .order("product_variant_id")
             .execute()
         )
-        return res.data
 
+        return inv.data or []
+
+    # ---------------------------------------------------------
+    # FULL UPDATE (manager correction)
+    # ---------------------------------------------------------
     @staticmethod
-    async def full_update(data: InventoryFullUpdate) -> dict:
+    async def full_update(data):
         """
-        'God Mode' inventory update:
-        - Optimistic locking via version
-        - Updates quantity + location fields
-        - Broadcasts realtime update to store dashboard / kiosks
+        Updates:
+        - quantity_on_hand
+        - aisle/bay/shelf
+        - display location
+        - section mapping
+        AND triggers real-time dashboard updates.
         """
-        # 1. Get Current Version
-        current = (
+
+        # Validate row exists
+        row = (
             supabase.table("inventory")
-            .select("id, version")
-            .eq("store_id", data.store_id)
+            .select("*")
             .eq("product_variant_id", data.variant_id)
-            .single()
+            .eq("fulfillment_location_id", data.store_id)
+            .maybe_single()
             .execute()
-        )
+        ).data
 
-        if not current.data:
-            raise HTTPException(status_code=404, detail="Item not found in this store")
+        if not row:
+            raise HTTPException(404, "Inventory row not found for this store")
 
-        current_version = current.data["version"]
+        updates = {}
+        for fld in [
+            "quantity_on_hand",
+            "section_id",
+            "aisle_number",
+            "bay_number",
+            "shelf_height",
+            "display_location",
+        ]:
+            val = getattr(data, fld)
+            if val is not None:
+                updates[fld] = val
 
-        # 2. Prepare Update Payload (strip Nones + IDs)
-        payload = {k: v for k, v in data.dict().items() if v is not None}
+        if not updates:
+            return row
 
-        # These are identifiers, not columns to update
-        payload.pop("variant_id", None)
-        payload.pop("store_id", None)
-
-        # Bump version
-        payload["version"] = current_version + 1
-
-        # 3. Execute Update with Optimistic Lock
-        res = (
+        updated = (
             supabase.table("inventory")
-            .update(payload)
-            .eq("store_id", data.store_id)
+            .update(updates)
             .eq("product_variant_id", data.variant_id)
-            .eq("version", current_version)
+            .eq("fulfillment_location_id", data.store_id)
             .execute()
-        )
+        ).data[0]
 
-        if not res.data:
-            # Someone else changed it between read & write
-            raise HTTPException(
-                status_code=409,
-                detail="Inventory modified by someone else. Retry.",
-            )
+        await InventoryAlertService.evaluate_and_trigger(updated)
 
-        updated_item = res.data[0]
-
-        # 4. Realtime broadcast via EventBus
+        # Realtime broadcast
         await EventBus.notify_store_inventory(
             data.store_id,
             {
-                "inventory_id": updated_item["id"],
-                "product_variant_id": updated_item["product_variant_id"],
-                "quantity_on_hand": updated_item["quantity_on_hand"],
-                "quantity_reserved": updated_item.get("quantity_reserved", 0),
-                "aisle_number": updated_item.get("aisle_number"),
-                "bay_number": updated_item.get("bay_number"),
-                "shelf_height": updated_item.get("shelf_height"),
-                "display_location": updated_item.get("display_location"),
+                "inventory_id": updated["id"],
+                "product_variant_id": updated["product_variant_id"],
+                "quantity_on_hand": updated["quantity_on_hand"],
+                "quantity_reserved": updated.get("quantity_reserved", 0),
             },
         )
 
-        return updated_item
+        return updated
+    
+        
+
+class InventoryService:
+    ...
+
+    # ---------------------------------------------------------
+    # GENERIC FULFILLMENT DASHBOARD (STORE / WAREHOUSE)
+    # ---------------------------------------------------------
+    @staticmethod
+    def get_fulfillment_dashboard(fulfillment_location_id: str):
+        """
+        Used by:
+        - store dashboards
+        - warehouse dashboards
+        """
+
+        res = (
+            supabase.table("inventory")
+            .select(
+                "*, product_variants(*, products(name, base_price))"
+            )
+            .eq("fulfillment_location_id", fulfillment_location_id)
+            .order("product_variant_id")
+            .execute()
+        )
+
+        return res.data or []

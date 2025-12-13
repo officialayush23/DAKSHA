@@ -1,8 +1,11 @@
-from fastapi import APIRouter, Depends
+# app/routers/admin_catalog.py
+
+from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import get_current_user_id
 from app.models.management import ProductCreate, VariantCreate
 from app.services.ai_service import AIService
 from app.database import supabase
+from app.core.rbac import require_role
 
 router = APIRouter(prefix="/admin/catalog", tags=["Admin: Catalog"])
 
@@ -10,33 +13,26 @@ router = APIRouter(prefix="/admin/catalog", tags=["Admin: Catalog"])
 @router.post("/products")
 async def create_product(
     data: ProductCreate,
-    user_id: str = Depends(get_current_user_id),
+    rbac = Depends(require_role("catalog_admin", "super_admin"))
 ):
-    """
-    Create a product and automatically generate its semantic embedding
-    for hybrid search (products.description_embedding).
-    """
-    context = f"{data.name} {data.description} {' '.join(data.style_tags)}"
-    embedding = AIService.generate_embedding(context)
+    embedding = AIService.generate_embedding(
+        f"{data.name} {data.description} {' '.join(data.style_tags)}"
+    )
 
-    # Insert product according to schema:
-    # products: (category_id, name, description, gender_enum, usage_type,
-    #            season, style_tags, base_price, description_embedding, ...)
-    payload = {
-        "name": data.name,
-        "description": data.description,
-        "base_price": data.base_price,
-        "category_id": data.category_id,
-        "gender": data.gender,          # gender_enum in DB
-        "usage_type": data.usage_type,
-        "style_tags": data.style_tags,
-        "description_embedding": embedding,
-    }
+    res = supabase.table("products").insert(
+        {
+            "name": data.name,
+            "description": data.description,
+            "base_price": data.base_price,
+            "category_id": data.category_id,
+            "gender": data.gender,
+            "usage_type": data.usage_type,
+            "style_tags": data.style_tags,
+            "description_embedding": embedding,
+        }
+    ).execute()
 
-    res = supabase.table("products").insert(payload).execute()
-    product_id = res.data[0]["id"]
-
-    return {"status": "created", "id": product_id}
+    return res.data[0]
 
 
 @router.post("/variants")
@@ -44,12 +40,16 @@ async def create_variant(
     data: VariantCreate,
     user_id: str = Depends(get_current_user_id),
 ):
-    """
-    Adds a SKU (size/color/etc.) to an existing product.
-    """
-    # product_variants matches schema: product_id, sku, color_name, size_label,
-    # material, price_override, attributes, image_url, image_embedding...
-    res = supabase.table("product_variants").insert(data.dict()).execute()
-    variant_id = res.data[0]["id"]
+    exists = (
+        supabase.table("product_variants")
+        .select("id")
+        .eq("sku", data.sku)
+        .maybe_single()
+        .execute()
+    ).data
 
-    return {"status": "created", "id": variant_id}
+    if exists:
+        raise HTTPException(400, "SKU already exists")
+
+    res = supabase.table("product_variants").insert(data.dict()).execute()
+    return res.data[0]

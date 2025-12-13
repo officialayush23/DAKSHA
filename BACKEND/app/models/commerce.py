@@ -3,8 +3,8 @@ from typing import Optional
 
 
 class AddToCartRequest(BaseModel):
-    variant_id: str
-    store_id: str
+    variant_id: str                       # pv.id
+    fulfillment_location_id: str          # stores OR warehouses
     quantity: int = 1
 
 
@@ -16,7 +16,7 @@ class ReturnRequest(BaseModel):
 
 
 class CheckoutRequest(BaseModel):
-    order_type: str  # 'delivery' | 'pickup' | 'reservation'
-    store_id: Optional[str] = None
+    order_type: str                       # "delivery" | "pickup"
+    pickup_fulfillment_location_id: Optional[str] = None
     address_id: Optional[str] = None
     promotion_code: Optional[str] = None
