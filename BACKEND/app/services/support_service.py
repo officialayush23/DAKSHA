@@ -1,3 +1,5 @@
+# app/services/support_service.py
+
 from app.database import supabase
 from app.core.redis_bus import EventBus
 

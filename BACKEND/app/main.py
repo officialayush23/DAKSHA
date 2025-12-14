@@ -20,7 +20,9 @@ from app.routers import (
     admin_catalog,
     admin_inventory,
     admin_support,
-    admin_promotions,  # ✅ NEW
+    admin_promotions,
+    admin_rbac,
+    admin_warehouse_inventory,  # ✅ NEW
 )
 
 app = FastAPI(
@@ -59,6 +61,9 @@ app.include_router(admin_catalog.router)
 app.include_router(admin_inventory.router)
 app.include_router(admin_support.router)
 app.include_router(admin_promotions.router)
+app.include_router(admin_rbac.router)
+
+app.include_router(admin_warehouse_inventory.router)  # ✅ NEW
 
 @app.on_event("startup")
 async def start_background_tasks():

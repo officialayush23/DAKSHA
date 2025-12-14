@@ -13,7 +13,7 @@ router = APIRouter(prefix="/admin/catalog", tags=["Admin: Catalog"])
 @router.post("/products")
 async def create_product(
     data: ProductCreate,
-    rbac = Depends(require_role("catalog_admin", "super_admin"))
+    rbac = Depends(require_role("catalog_admin"))
 ):
     embedding = AIService.generate_embedding(
         f"{data.name} {data.description} {' '.join(data.style_tags)}"
@@ -38,7 +38,7 @@ async def create_product(
 @router.post("/variants")
 async def create_variant(
     data: VariantCreate,
-    rbac = Depends(require_role("catalog_admin", "super_admin")),
+    rbac = Depends(require_role("catalog_admin")),
 ):
     exists = (
         supabase.table("product_variants")

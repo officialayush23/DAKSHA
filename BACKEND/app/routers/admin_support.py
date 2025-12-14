@@ -1,23 +1,16 @@
 from fastapi import APIRouter, Depends
-from app.core.auth import get_current_user_id
 from app.database import supabase
 from app.core.redis_bus import EventBus
 from app.core.rbac import require_role
+
 router = APIRouter(prefix="/admin/support", tags=["Admin: Support"])
 
 
 @router.get("/tickets")
 async def get_all_tickets(
     status: str = "open",
-    rbac = Depends(require_role("support_agent", "super_admin")),
+    _rbac = Depends(require_role("support_agent")),
 ):
-    """
-    Fetch queue for the support dashboard.
-    support_tickets: (id, user_id, order_id, ticket_status, dispute_type,
-                      issue_summary, conversation_summary, sentiment_score,
-                      resolved_by, resolution_notes, failure_count,
-                      created_at, updated_at, ...)
-    """
     res = (
         supabase.table("support_tickets")
         .select("*, users(full_name, phone_number)")
@@ -29,10 +22,9 @@ async def get_all_tickets(
 
 
 @router.get("/stats")
-async def get_support_stats(user_id: str = Depends(get_current_user_id)):
-    """
-    Aggregate counts for dashboard charts.
-    """
+async def get_support_stats(
+    _rbac = Depends(require_role("support_agent")),
+):
     open_tickets = (
         supabase.table("support_tickets")
         .select("id", count="exact")
@@ -56,17 +48,12 @@ async def update_ticket(
     ticket_id: str,
     status: str | None = None,
     resolution_notes: str | None = None,
-    user_id: str = Depends(get_current_user_id),
+    _rbac = Depends(require_role("support_agent")),
 ):
-    """
-    Update ticket status / resolution notes.
-    If status is set, we mark resolved_by = 'human_agent' (for now).
-    Also broadcasts an update event to support dashboard via Redis.
-    """
-    payload: dict = {}
+    payload = {}
     if status:
         payload["ticket_status"] = status
-        payload["resolved_by"] = "human_agent"  # TODO: use actual agent id
+        payload["resolved_by"] = "human_agent"
     if resolution_notes is not None:
         payload["resolution_notes"] = resolution_notes
 
@@ -81,7 +68,6 @@ async def update_ticket(
     )
 
     ticket = res.data[0] if res.data else None
-
     if ticket:
         await EventBus.notify_support_dashboard("ticket_updated", ticket)
 

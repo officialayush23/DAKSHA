@@ -1,23 +1,25 @@
+# app/services/commerce_service.py
+
 from fastapi import HTTPException
 from app.database import supabase
 from app.core.redis_bus import EventBus
-from app.services.store_service import StoreService
-from typing import List, Dict, Optional, Tuple
-import math
 from app.services.allocation_service import AllocationService
+from app.services.human_handoff_service import HumanHandoffService
+from typing import List, Optional
 from datetime import timedelta, datetime
 
-
 RESERVATION_TTL_MINUTES = 15
+DEFAULT_FULFILLMENT_SLA_HOURS = 48
+
+
 class CommerceService:
 
-    # ------------------------------------------------------------------
-    # UTILITIES
-    # ------------------------------------------------------------------
-
+    # =========================================================
+    # CART HELPERS
+    # =========================================================
     @staticmethod
-    def _get_cart(user_id: str) -> Optional[dict]:
-        cart = (
+    def _get_cart(user_id: str):
+        return (
             supabase.table("carts")
             .select("id")
             .eq("user_id", user_id)
@@ -25,73 +27,74 @@ class CommerceService:
             .maybe_single()
             .execute()
         ).data
-        return cart
 
     @staticmethod
-    def _get_or_create_cart(user_id: str) -> dict:
+    def _get_or_create_cart(user_id: str):
         cart = CommerceService._get_cart(user_id)
         if cart:
             return cart
 
-        res = (
+        return (
             supabase.table("carts")
             .insert({"user_id": user_id, "status": "active"})
             .execute()
         ).data[0]
-        return res
 
-    # ------------------------------------------------------------------
-    # ADD TO CART  (Delivery cart does NOT need store_id anymore)
-    # ------------------------------------------------------------------
-
+    # =========================================================
+    # ADD TO CART (OPTIMISTIC + REALTIME)
+    # =========================================================
     @staticmethod
     async def add_to_cart(
         user_id: str,
         variant_id: str,
-        store_location_id: str,
+        fulfillment_location_id: str,
         qty: int,
     ):
-        # 1) Lock inventory row
         inv = (
             supabase.table("inventory")
             .select(
-                "id, fulfillment_location_id, product_variant_id, "
-                "quantity_on_hand, quantity_reserved, version"
+                "id, product_variant_id, quantity_on_hand, "
+                "quantity_reserved, version"
             )
             .eq("product_variant_id", variant_id)
-            .eq("fulfillment_location_id", store_location_id)
+            .eq("fulfillment_location_id", fulfillment_location_id)
             .single()
             .execute()
         ).data
 
         if not inv or inv["quantity_on_hand"] < qty:
-            raise HTTPException(400, "Insufficient stock at this location")
+            raise HTTPException(400, "Insufficient stock")
 
-        # 2) Optimistic update
         updated = (
             supabase.table("inventory")
-            .update({
-                "quantity_on_hand": inv["quantity_on_hand"] - qty,
-                "quantity_reserved": inv["quantity_reserved"] + qty,
-                "version": inv["version"] + 1,
-            })
+            .update(
+                {
+                    "quantity_on_hand": inv["quantity_on_hand"] - qty,
+                    "quantity_reserved": inv["quantity_reserved"] + qty,
+                    "version": inv["version"] + 1,
+                }
+            )
             .eq("id", inv["id"])
             .eq("version", inv["version"])
             .execute()
         ).data
 
         if not updated:
-            raise HTTPException(409, "Stock changed concurrently. Retry")
+            HumanHandoffService.trigger(
+                session_id=None,
+                user_id=user_id,
+                reason="inventory_conflict",
+                summary="Concurrent inventory update during add-to-cart",
+            )
+            raise HTTPException(409, "Inventory changed. Assistance triggered.")
 
-        # 3) Get cart
         cart = CommerceService._get_or_create_cart(user_id)
 
-        # 4) Create reservation (FIXED)
         supabase.table("inventory_reservations").insert(
             {
                 "cart_id": cart["id"],
                 "product_variant_id": variant_id,
-                "fulfillment_location_id": store_location_id,
+                "fulfillment_location_id": fulfillment_location_id,
                 "quantity": qty,
                 "status": "active",
                 "expires_at": datetime.utcnow()
@@ -99,34 +102,30 @@ class CommerceService:
             }
         ).execute()
 
-        # 5) Realtime update
         await EventBus.notify_inventory_update(
-            store_location_id,
+            fulfillment_location_id,
             {
-                "inventory_id": inv["id"],
-                "product_variant_id": inv["product_variant_id"],
+                "product_variant_id": variant_id,
                 "quantity_on_hand": updated[0]["quantity_on_hand"],
                 "quantity_reserved": updated[0]["quantity_reserved"],
             },
         )
 
-        # 6) Cart item upsert
         supabase.table("cart_items").upsert(
             {
                 "cart_id": cart["id"],
                 "product_variant_id": variant_id,
                 "quantity": qty,
-                "fulfillment_location_id": store_location_id,
+                "fulfillment_location_id": fulfillment_location_id,
             },
             on_conflict="cart_id,product_variant_id",
         ).execute()
 
         return {"status": "success", "cart_id": cart["id"]}
 
-    # ------------------------------------------------------------------
-    # CART LISTING
-    # ------------------------------------------------------------------
-
+    # =========================================================
+    # CART READ
+    # =========================================================
     @staticmethod
     def get_cart_with_items(user_id: str):
         cart = CommerceService._get_cart(user_id)
@@ -136,8 +135,8 @@ class CommerceService:
         items = (
             supabase.table("cart_items")
             .select(
-                "id, quantity, "
-                "product_variants(id, sku, price_override, product_id, "
+                "quantity, fulfillment_location_id, "
+                "product_variants(id, price_override, "
                 "products(name, base_price))"
             )
             .eq("cart_id", cart["id"])
@@ -146,29 +145,17 @@ class CommerceService:
 
         return {"cart": cart, "items": items}
 
-    # ------------------------------------------------------------------
-    # CHECKOUT ENGINE — Warehouse-first + nearest store fallback
-    # ------------------------------------------------------------------
-
+    # =========================================================
+    # CHECKOUT (ALLOCATION + FULFILLMENT CREATION)
+    # =========================================================
     @staticmethod
     def checkout(
         user_id: str,
         order_type: str,
-        store_pickup_location_id: Optional[str],
+        pickup_location_id: Optional[str],
         address_id: Optional[str],
         promotion_code: Optional[str],
     ):
-        """
-        Master checkout:
-        - Delivery: warehouse → fallback to single store
-        - Pickup: explicit store only
-        - No split unless absolutely unavoidable
-        - Stores allocation reasoning for agent
-        """
-
-        # --------------------------------------------------
-        # 1) Load cart
-        # --------------------------------------------------
         cart_data = CommerceService.get_cart_with_items(user_id)
         if not cart_data or not cart_data["items"]:
             raise HTTPException(400, "Cart is empty")
@@ -176,124 +163,133 @@ class CommerceService:
         cart = cart_data["cart"]
         items = cart_data["items"]
 
-        # --------------------------------------------------
-        # 2) Calculate totals
-        # --------------------------------------------------
-        total, discount, applied_promo_id = CommerceService._calculate_totals(
+        total, discount, promo_id = CommerceService._calculate_totals(
             items, promotion_code
         )
 
-        # --------------------------------------------------
-        # 3) Prepare lightweight item payload for allocation
-        # --------------------------------------------------
         allocation_items = [
             {
                 "product_variant_id": row["product_variants"]["id"],
-                "quantity": int(row["quantity"]),
+                "quantity": row["quantity"],
             }
             for row in items
         ]
 
-        # --------------------------------------------------
-        # 4) Fulfillment allocation (CORE LOGIC)
-        # --------------------------------------------------
-        allocation = AllocationService.allocate(
-            order_type=order_type,
-            items=allocation_items,
-            pickup_location_id=store_pickup_location_id,
-        )
+        delivery_lat = delivery_lng = None
+        if order_type == "delivery":
+            addr = (
+                supabase.table("user_addresses")
+                .select("latitude, longitude")
+                .eq("id", address_id)
+                .single()
+                .execute()
+            ).data
+            delivery_lat = float(addr["latitude"])
+            delivery_lng = float(addr["longitude"])
+
+        try:
+            allocation = AllocationService.allocate(
+                order_type=order_type,
+                items=allocation_items,
+                pickup_location_id=pickup_location_id,
+                user_lat=delivery_lat,
+                user_lng=delivery_lng,
+            )
+        except Exception as e:
+            HumanHandoffService.trigger(
+                session_id=None,
+                user_id=user_id,
+                reason="allocation_failure",
+                summary=str(e),
+            )
+            raise
 
         fulfillment_location_id = allocation["fulfillment_location_id"]
 
-        # --------------------------------------------------
-        # 5) Create ORDER
-        # --------------------------------------------------
-        order_payload = {
-            "user_id": user_id,
-            "status": "pending",
-            "type": order_type,
-            "total_amount": total,
-            "discount_amount": discount,
-            "delivery_address_id": address_id,
-            "applied_promotion_id": applied_promo_id,
-        }
-
         order = (
             supabase.table("orders")
-            .insert(order_payload)
+            .insert(
+                {
+                    "user_id": user_id,
+                    "status": "pending",
+                    "type": order_type,
+                    "total_amount": total,
+                    "discount_amount": discount,
+                    "delivery_address_id": address_id,
+                    "applied_promotion_id": promo_id,
+                }
+            )
             .execute()
         ).data[0]
 
-        # --------------------------------------------------
-        # 6) Create ORDER ITEMS + reserve inventory
-        # --------------------------------------------------
-        order_items_payload = []
-
-        for row in items:
-            pv = row["product_variants"]
-            base_price = float(pv["products"]["base_price"])
-            price = float(pv["price_override"] or base_price)
-
-            order_items_payload.append(
+        supabase.table("order_items").insert(
+            [
                 {
                     "order_id": order["id"],
-                    "product_variant_id": pv["id"],
-                    "quantity": int(row["quantity"]),
-                    "price_at_purchase": price,
-                    "fulfillment_location_id": store_location_id,
-
+                    "product_variant_id": row["product_variants"]["id"],
+                    "quantity": row["quantity"],
+                    "price_at_purchase": float(
+                        row["product_variants"]["price_override"]
+                        or row["product_variants"]["products"]["base_price"]
+                    ),
+                    "fulfillment_location_id": fulfillment_location_id,
                 }
-            )
-
-        supabase.table("order_items").insert(order_items_payload).execute()
+                for row in items
+            ]
+        ).execute()
 
         supabase.table("inventory_reservations").update(
-        {"status": "consumed"}
-        ).eq("cart_id", cart["id"]).eq("status", "active").execute()
+            {"status": "consumed"}
+        ).eq("cart_id", cart["id"]) \
+         .eq("fulfillment_location_id", fulfillment_location_id) \
+         .eq("status", "active") \
+         .execute()
 
+        # 🔥 FULFILLMENT CREATION (CRITICAL)
+        supabase.table("fulfillments").insert(
+            {
+                "order_id": order["id"],
+                "fulfillment_location_id": fulfillment_location_id,
+                "status": "pending",
+                "type": order_type,
+                "sla_deadline": datetime.utcnow()
+                + timedelta(hours=DEFAULT_FULFILLMENT_SLA_HOURS),
+            }
+        ).execute()
 
-        # --------------------------------------------------
-        # 7) Persist allocation reasoning (agent-safe)
-        # --------------------------------------------------
         supabase.table("order_allocations").insert(
             {
                 "order_id": order["id"],
-                "fulfillment_location_id": store_location_id,
+                "fulfillment_location_id": fulfillment_location_id,
                 "allocation_type": allocation["allocation_type"],
                 "reasoning": allocation["reasoning"],
             }
         ).execute()
 
-        # --------------------------------------------------
-        # 8) Convert cart
-        # --------------------------------------------------
         supabase.table("carts") \
             .update({"status": "converted"}) \
             .eq("id", cart["id"]) \
             .execute()
 
-        # --------------------------------------------------
-        # 9) Return enriched response
-        # --------------------------------------------------
-        return {
-            "order": order,
-            "allocation": allocation,
-        }
+        return {"order": order, "allocation": allocation}
 
-    # ------------------------------------------------------------------
-    # PRICE + PROMO
-    # ------------------------------------------------------------------
-
+    # =========================================================
+    # PRICING
+    # =========================================================
     @staticmethod
     def _calculate_totals(items: List[dict], promo_code: Optional[str]):
-        total = 0.0
-        for row in items:
-            pv = row["product_variants"]
-            base_price = float(pv["products"]["base_price"])
-            price = float(pv["price_override"] or base_price)
-            total += price * row["quantity"]
+        total = sum(
+            (
+                float(row["product_variants"]["price_override"]
+                or row["product_variants"]["products"]["base_price"])
+                * row["quantity"]
+            )
+            for row in items
+        )
 
         discount = 0.0
+        promo_id = None
+
         if promo_code:
             promo = (
                 supabase.table("promotions")
@@ -305,50 +301,37 @@ class CommerceService:
             ).data
 
             if promo:
+                promo_id = promo["id"]
                 if promo["discount_type"] == "percentage":
-                    discount = total * float(promo["discount_value"]) / 100
+                    discount = total * promo["discount_value"] / 100
                 elif promo["discount_type"] == "fixed_amount":
-                    discount = float(promo["discount_value"])
+                    discount = promo["discount_value"]
                 discount = min(discount, total)
 
-        return total, discount
+        return total, discount, promo_id
 
-    # ------------------------------------------------------------------
-    # ALLOCATION LOGIC — DELIVERY
-    # ------------------------------------------------------------------
-
-   
-    # ------------------------------------------------------------------
+    # =========================================================
     # TRACKING
-    # ------------------------------------------------------------------
-
+    # =========================================================
     @staticmethod
     def track_order(order_id: str):
         order = (
             supabase.table("orders")
             .select("*")
             .eq("id", order_id)
-            .maybe_single()
+            .single()
             .execute()
         ).data
-
-        if not order:
-            raise HTTPException(404, "Order not found")
 
         fulfillment = (
             supabase.table("fulfillments")
             .select("*")
             .eq("order_id", order_id)
-            .order("shipped_at", desc=True)
             .maybe_single()
             .execute()
         ).data
 
         return {
-            "order_id": order_id,
-            "status": order["status"],
-            "type": order["type"],
-            "total_amount": order["total_amount"],
-            "discount_amount": order["discount_amount"],
-            "latest_fulfillment": fulfillment,
+            "order": order,
+            "fulfillment": fulfillment,
         }

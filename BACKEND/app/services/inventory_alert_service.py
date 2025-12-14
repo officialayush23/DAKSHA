@@ -1,3 +1,4 @@
+# app/services/inventory_alert_service.py
 from app.database import supabase
 from app.core.redis_bus import EventBus
 

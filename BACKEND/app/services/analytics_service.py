@@ -1,3 +1,4 @@
+# app/services/analytics_service.py
 from app.database import supabase
 import logging
 

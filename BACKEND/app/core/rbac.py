@@ -1,11 +1,12 @@
+# app/core/rbac.py
+
 from fastapi import Depends, HTTPException, status
-from typing import Optional, List
 from app.database import supabase
 from app.core.auth import get_current_user_id
 
 
 # --------------------------------------------------
-# Fetch role + scoped permissions
+# LOAD RBAC CONTEXT
 # --------------------------------------------------
 def get_user_rbac(user_id: str) -> dict:
     user = (
@@ -19,7 +20,7 @@ def get_user_rbac(user_id: str) -> dict:
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid user")
 
-    scoped_roles = (
+    scopes = (
         supabase.table("user_roles")
         .select("role, store_id, warehouse_id")
         .eq("user_id", user_id)
@@ -28,20 +29,25 @@ def get_user_rbac(user_id: str) -> dict:
 
     return {
         "user_id": user_id,
-        "primary_role": user["role"],   # super_admin, customer, etc.
-        "scopes": scoped_roles,
+        "identity": user["role"],  # customer | super_admin
+        "scopes": scopes,
     }
 
 
+# --------------------------------------------------
+# ROLE CHECK (GLOBAL + SCOPED)
+# --------------------------------------------------
 def require_role(*allowed_roles: str):
     def dependency(user_id: str = Depends(get_current_user_id)):
         rbac = get_user_rbac(user_id)
 
-        if rbac["primary_role"] in allowed_roles:
+        # super_admin bypass
+        if rbac["identity"] == "super_admin":
             return rbac
 
-        for s in rbac["scopes"]:
-            if s["role"] in allowed_roles:
+        # global operational roles (catalog, support, fulfillment)
+        for scope in rbac["scopes"]:
+            if scope["role"] in allowed_roles:
                 return rbac
 
         raise HTTPException(
@@ -52,6 +58,9 @@ def require_role(*allowed_roles: str):
     return dependency
 
 
+# --------------------------------------------------
+# STORE ACCESS
+# --------------------------------------------------
 def require_store_access(store_id_param: str = "store_id"):
     def dependency(
         user_id: str = Depends(get_current_user_id),
@@ -63,7 +72,7 @@ def require_store_access(store_id_param: str = "store_id"):
 
         rbac = get_user_rbac(user_id)
 
-        if rbac["primary_role"] == "super_admin":
+        if rbac["identity"] == "super_admin":
             return rbac
 
         for scope in rbac["scopes"]:
@@ -81,6 +90,9 @@ def require_store_access(store_id_param: str = "store_id"):
     return dependency
 
 
+# --------------------------------------------------
+# WAREHOUSE ACCESS
+# --------------------------------------------------
 def require_warehouse_access(warehouse_id_param: str = "warehouse_id"):
     def dependency(
         user_id: str = Depends(get_current_user_id),
@@ -92,7 +104,7 @@ def require_warehouse_access(warehouse_id_param: str = "warehouse_id"):
 
         rbac = get_user_rbac(user_id)
 
-        if rbac["primary_role"] == "super_admin":
+        if rbac["identity"] == "super_admin":
             return rbac
 
         for scope in rbac["scopes"]:
@@ -108,5 +120,3 @@ def require_warehouse_access(warehouse_id_param: str = "warehouse_id"):
         )
 
     return dependency
-
-

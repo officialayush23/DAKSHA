@@ -1,3 +1,5 @@
+# app/services/loyalty_service.py
+
 from app.database import supabase
 
 

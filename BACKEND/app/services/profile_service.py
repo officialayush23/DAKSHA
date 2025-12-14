@@ -1,3 +1,5 @@
+# app/services/profile_service.py
+
 from app.database import supabase
 
 

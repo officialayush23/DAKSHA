@@ -1,41 +1,37 @@
-from fastapi import HTTPException
+# app/services/rbac_service.py
 from app.database import supabase
+from fastapi import HTTPException
 
 
 class RBACService:
 
     @staticmethod
     def assign_role(
-        actor_user_id: str,
+        *,
         target_user_id: str,
         role: str,
         store_id: str | None = None,
         warehouse_id: str | None = None,
     ):
-        # 1️⃣ Actor permission check
-        actor_roles = (
-            supabase.table("user_roles")
-            .select("role")
-            .eq("user_id", actor_user_id)
-            .execute()
-        ).data or []
+        """
+        Assign operational role to a user.
+        Only operational_role_enum allowed here.
+        """
 
-        actor_role_names = {r["role"] for r in actor_roles}
+        # Guardrails
+        if role in ("customer", "super_admin"):
+            raise HTTPException(
+                400,
+                "Global roles cannot be assigned via this endpoint"
+            )
 
-        if "super_admin" not in actor_role_names and "admin" not in actor_role_names:
-            raise HTTPException(403, "Insufficient privileges")
-
-        if role == "admin" and "super_admin" not in actor_role_names:
-            raise HTTPException(403, "Only super_admin can assign admin")
-
-        # 2️⃣ Role-specific validation
         if role == "store_manager" and not store_id:
             raise HTTPException(400, "store_id required for store_manager")
 
         if role == "warehouse_manager" and not warehouse_id:
             raise HTTPException(400, "warehouse_id required for warehouse_manager")
 
-        # 3️⃣ Prevent duplicates
+        # Prevent duplicates
         exists = (
             supabase.table("user_roles")
             .select("id")
@@ -48,9 +44,8 @@ class RBACService:
         ).data
 
         if exists:
-            raise HTTPException(409, "Role already assigned")
+            return exists
 
-        # 4️⃣ Assign
         res = (
             supabase.table("user_roles")
             .insert({

@@ -1,3 +1,6 @@
+# app/services/ai_service.py
+
+
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from app.config import settings
 from tenacity import retry, stop_after_attempt, wait_exponential

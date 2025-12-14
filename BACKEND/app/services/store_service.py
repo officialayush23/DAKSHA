@@ -1,3 +1,5 @@
+# app/services/store_service.py
+
 from app.database import supabase
 
 

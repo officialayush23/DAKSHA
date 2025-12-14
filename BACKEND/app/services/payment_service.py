@@ -1,27 +1,21 @@
 # app/services/payment_service.py
-
+from datetime import datetime
 from fastapi import HTTPException
 from app.database import supabase
-from datetime import datetime
-import uuid
+from app.core.redis_bus import EventBus
+from app.services.human_handoff_service import HumanHandoffService
 
 
 class PaymentService:
 
     # ---------------------------------------------------------
-    # CREATE PAYMENT INTENT
+    # 1️⃣ AUTHORIZE + CAPTURE PAYMENT
     # ---------------------------------------------------------
     @staticmethod
-    def create_payment_intent(order_id: str, user_id: str):
-        """
-        Creates a payment intent entry in DB.
-        External gateways (Razorpay/Stripe) will use this ID.
-        """
-
-        # Validate order ownership
+    def capture_payment(order_id: str, provider: str, provider_ref: str, amount: float):
         order = (
             supabase.table("orders")
-            .select("id, user_id, total_amount, discount_amount, status")
+            .select("*")
             .eq("id", order_id)
             .single()
             .execute()
@@ -30,78 +24,139 @@ class PaymentService:
         if not order:
             raise HTTPException(404, "Order not found")
 
-        if order["user_id"] != user_id:
-            raise HTTPException(403, "Not your order")
+        if order["status"] != "pending":
+            raise HTTPException(409, "Order already paid or cancelled")
 
-        if order["status"] not in ("pending", "processing"):
-            raise HTTPException(400, "Order is not payable")
-
-        final_amount = float(order["total_amount"]) - float(order["discount_amount"] or 0)
-
-        # Create internal payment record
         payment = (
             supabase.table("payments")
-            .insert(
-                {
-                    "order_id": order_id,
-                    "user_id": user_id,
-                    "provider": "razorpay",
-                    "status": "initiated",
-                    "amount": final_amount,
-                }
-            )
+            .insert({
+                "order_id": order_id,
+                "amount": amount,
+                "currency": "INR",
+                "provider": provider,
+                "provider_reference": provider_ref,
+                "status": "captured",
+                "captured_at": datetime.utcnow(),
+            })
             .execute()
         ).data[0]
 
-        return {
-            "payment_id": payment["id"],
-            "amount": final_amount,
-            "currency": "INR",
-        }
+        # Escrow credit (LOCKED)
+        PaymentService._credit_escrow(order_id, amount)
+
+        # Move order forward
+        supabase.table("orders") \
+            .update({"status": "paid"}) \
+            .eq("id", order_id) \
+            .execute()
+
+        return payment
 
     # ---------------------------------------------------------
-    # CONFIRM PAYMENT (GATEWAY CALLBACK)
+    # 2️⃣ CREDIT ESCROW WALLET
     # ---------------------------------------------------------
     @staticmethod
-    async def confirm_payment(payment_id: str, success: bool):
-        """
-        Finalizes payment + updates order:
-        - success → status = paid
-        - failure → status = failed
-        """
-
-        pay = (
-            supabase.table("payments")
-            .select("*, orders(id, status)")
-            .eq("id", payment_id)
+    def _credit_escrow(order_id: str, amount: float):
+        wallet = (
+            supabase.table("wallets")
+            .select("*")
+            .eq("type", "escrow")
             .single()
             .execute()
         ).data
 
-        if not pay:
-            raise HTTPException(404, "Payment not found")
+        if not wallet:
+            raise HTTPException(500, "Escrow wallet missing")
 
-        order_id = pay["order_id"]
-        new_status = "success" if success else "failed"
+        supabase.table("wallet_transactions").insert({
+            "wallet_id": wallet["id"],
+            "amount": amount,
+            "type": "credit",
+            "status": "locked",
+            "reference_type": "order",
+            "reference_id": order_id,
+            "created_at": datetime.utcnow(),
+        }).execute()
 
-        # Update payment record
-        supabase.table("payments").update({"status": new_status}).eq("id", payment_id).execute()
+    # ---------------------------------------------------------
+    # 3️⃣ RELEASE PAYOUT AFTER DELIVERY
+    # ---------------------------------------------------------
+    @staticmethod
+    def release_payout(order_id: str):
+        fulfillment = (
+            supabase.table("fulfillments")
+            .select("*")
+            .eq("order_id", order_id)
+            .maybe_single()
+            .execute()
+        ).data
 
-        # Record attempt
-        supabase.table("payment_attempts").insert(
-            {
-                "payment_id": payment_id,
-                "status": new_status,
-                "attempted_at": datetime.utcnow().isoformat(),
-            }
-        ).execute()
+        if not fulfillment or fulfillment["status"] != "delivered":
+            raise HTTPException(409, "Order not delivered")
 
-        # Update order
-        supabase.table("orders").update(
-            {"status": "paid" if success else "cancelled"}
-        ).eq("id", order_id).execute()
+        tx = (
+            supabase.table("wallet_transactions")
+            .select("*")
+            .eq("reference_id", order_id)
+            .eq("status", "locked")
+            .maybe_single()
+            .execute()
+        ).data
 
-        return {
-            "status": "completed" if success else "failed",
-            "order_id": order_id,
-        }
+        if not tx:
+            raise HTTPException(409, "No escrow transaction found")
+
+        # Unlock escrow
+        supabase.table("wallet_transactions") \
+            .update({"status": "released"}) \
+            .eq("id", tx["id"]) \
+            .execute()
+
+        # Schedule payout
+        payout = (
+            supabase.table("payouts")
+            .insert({
+                "order_id": order_id,
+                "amount": tx["amount"],
+                "status": "scheduled",
+                "scheduled_at": datetime.utcnow(),
+            })
+            .execute()
+        ).data[0]
+
+        return payout
+
+    # ---------------------------------------------------------
+    # 4️⃣ REFUND (FAILURE / CANCELLATION)
+    # ---------------------------------------------------------
+    @staticmethod
+    def refund(order_id: str, reason: str):
+        tx = (
+            supabase.table("wallet_transactions")
+            .select("*")
+            .eq("reference_id", order_id)
+            .eq("status", "locked")
+            .maybe_single()
+            .execute()
+        ).data
+
+        if not tx:
+            raise HTTPException(409, "No refundable escrow")
+
+        supabase.table("wallet_transactions").update({
+            "status": "reversed",
+            "metadata": {"reason": reason},
+        }).eq("id", tx["id"]).execute()
+
+        supabase.table("orders").update({
+            "status": "refunded"
+        }).eq("id", order_id).execute()
+
+        HumanHandoffService.trigger(
+            session_id=None,
+            user_id=None,
+            reason="payment_refund",
+            summary=reason,
+        )
+
+        return {"status": "refunded"}

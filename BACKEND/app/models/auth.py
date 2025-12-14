@@ -1,3 +1,4 @@
+# app/models/auth.py
 from pydantic import BaseModel, constr
 
 

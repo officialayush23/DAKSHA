@@ -1,43 +1,35 @@
-# app/routers/admin_inventory.py
-
 from fastapi import APIRouter, Depends
-from app.core.auth import get_current_user_id
 from app.models.management import StoreCreate, InventoryFullUpdate
 from app.database import supabase
 from app.services.inventory_service import InventoryService
-from app.core.rbac import require_store_access
+from app.core.rbac import require_role, require_store_access
 
 router = APIRouter(prefix="/admin/inventory", tags=["Admin: Store Ops"])
 
 
 # ---------------------------------------------------------
-# CREATE STORE / WAREHOUSE (fulfillment location)
+# CREATE STORE / WAREHOUSE (SUPER ADMIN ONLY)
 # ---------------------------------------------------------
 @router.post("/stores")
 async def create_store(
     data: StoreCreate,
-    user_id: str = Depends(get_current_user_id),
+    _rbac = Depends(require_role("super_admin")),
 ):
-    """
-    Creates a store + its fulfillment_location entry.
-    """
-
-    # 1) Create fulfillment_location
     loc = (
         supabase.table("fulfillment_locations")
         .insert(
             {
-                "type": data.type,  # store | warehouse | dark_store
+                "type": data.type,
                 "name": data.name,
                 "city": data.city,
                 "latitude": data.latitude,
                 "longitude": data.longitude,
                 "address_line": data.address_line_1,
             }
-        ).execute()
+        )
+        .execute()
     ).data[0]
 
-    # 2) Create store
     store = (
         supabase.table("stores")
         .insert(
@@ -59,20 +51,23 @@ async def create_store(
 
 
 # ---------------------------------------------------------
-# DASHBOARD INITIAL LOAD
+# DASHBOARD
 # ---------------------------------------------------------
 @router.get("/dashboard/{store_id}")
-async def get_store_dashboard(store_id: str, user_id: str = Depends(get_current_user_id)):
+async def get_store_dashboard(
+    store_id: str,
+    _rbac = Depends(require_store_access("store_id")),
+):
     return InventoryService.get_store_dashboard(store_id)
 
 
 # ---------------------------------------------------------
-# FULL INVENTORY UPDATE
+# INVENTORY UPDATE
 # ---------------------------------------------------------
 @router.patch("/update")
 async def update_inventory_details(
     data: InventoryFullUpdate,
-    rbac = Depends(require_store_access("store_id")),
+    _rbac = Depends(require_store_access("store_id")),
 ):
     updated = await InventoryService.full_update(data)
     return {"status": "updated", "data": updated}
