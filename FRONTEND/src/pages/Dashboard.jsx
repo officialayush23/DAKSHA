@@ -12,11 +12,10 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from "framer-motion";
 
 // ---------------------------------------------
-// Motion presets (shared)
+// Motion presets
 // ---------------------------------------------
 const fadeUp = {
   hidden: { opacity: 0, y: 16 },
@@ -24,28 +23,90 @@ const fadeUp = {
 };
 
 // ---------------------------------------------
-// Dashboard
+// Custom Home Skeleton (brand-grade)
+// ---------------------------------------------
+function HomeSkeleton() {
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <main className="max-w-6xl mx-auto px-4 py-10 space-y-16">
+        {/* HERO */}
+        <Card className="bg-neutral-900/60 border-border/40">
+          <CardHeader className="space-y-4">
+            <div className="h-6 w-24 bg-muted/40 rounded" />
+            <div className="h-10 w-3/4 bg-muted/40 rounded" />
+            <div className="h-4 w-1/2 bg-muted/30 rounded" />
+            <div className="flex gap-3 pt-2">
+              <div className="h-10 w-32 bg-muted/40 rounded" />
+              <div className="h-10 w-32 bg-muted/30 rounded" />
+            </div>
+          </CardHeader>
+        </Card>
+
+        {/* SECTIONS */}
+        {[1, 2].map((s) => (
+          <div key={s} className="space-y-6">
+            <div className="space-y-2">
+              <div className="h-6 w-48 bg-muted/40 rounded" />
+              <div className="h-4 w-64 bg-muted/30 rounded" />
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="h-72 rounded-xl bg-muted/30 animate-pulse"
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </main>
+    </div>
+  );
+}
+
+// ---------------------------------------------
+// Dashboard Page
 // ---------------------------------------------
 export default function Dashboard() {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     let mounted = true;
+
     async function load() {
       try {
         const res = await api.get("/home");
         if (mounted) setData(res.data);
       } catch (e) {
         console.error("Home load failed", e);
+        if (mounted) setError(true);
       } finally {
         if (mounted) setLoading(false);
       }
     }
+
     load();
     return () => (mounted = false);
   }, []);
+
+  // ---------------------------------------------
+  // State handling
+  // ---------------------------------------------
+  if (loading) return <HomeSkeleton />;
+
+  if (error || !data) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <p className="text-muted-foreground">
+          Failed to load home. Please refresh.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -69,47 +130,41 @@ export default function Dashboard() {
         >
           <Card className="bg-gradient-to-br from-neutral-900 to-neutral-950 border-border/40">
             <CardHeader className="space-y-4">
-              {loading ? (
-                <>
-                  <Skeleton className="h-6 w-32" />
-                  <Skeleton className="h-10 w-3/4" />
-                  <Skeleton className="h-4 w-1/2" />
-                </>
-              ) : (
-                <>
-                  <Badge variant="outline" className="w-fit">
-                    AI Curated
-                  </Badge>
-                  <CardTitle className="text-4xl">
-                    {data.hero.title}
-                  </CardTitle>
-                  <CardDescription className="text-base max-w-xl">
-                    {data.hero.subtitle}
-                  </CardDescription>
-                  <div className="flex gap-3 pt-2">
-                    <Button
-                      size="lg"
-                      onClick={() => navigate(data.hero.cta.href)}
-                    >
-                      {data.hero.cta.label}
-                    </Button>
-                    <Button
-                      size="lg"
-                      variant="outline"
-                      onClick={() => navigate("/chat")}
-                    >
-                      <Bot className="h-4 w-4 mr-2" />
-                      Ask Agent
-                    </Button>
-                  </div>
-                </>
-              )}
+              <Badge variant="outline" className="w-fit">
+                AI Curated
+              </Badge>
+
+              <CardTitle className="text-4xl">
+                {data.hero.title}
+              </CardTitle>
+
+              <CardDescription className="text-base max-w-xl">
+                {data.hero.subtitle}
+              </CardDescription>
+
+              <div className="flex gap-3 pt-2">
+                <Button
+                  size="lg"
+                  onClick={() => navigate(data.hero.cta.href)}
+                >
+                  {data.hero.cta.label}
+                </Button>
+
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={() => navigate("/chat")}
+                >
+                  <Bot className="h-4 w-4 mr-2" />
+                  Ask Agent
+                </Button>
+              </div>
             </CardHeader>
           </Card>
         </motion.section>
 
         {/* SECTIONS */}
-        {(data?.sections || []).map((section, idx) => (
+        {(data.sections || []).map((section, idx) => (
           <motion.section
             key={section.id}
             variants={fadeUp}
@@ -119,30 +174,19 @@ export default function Dashboard() {
             className="space-y-6"
           >
             <div>
-              <h2 className="text-2xl font-semibold">{section.title}</h2>
+              <h2 className="text-2xl font-semibold">
+                {section.title}
+              </h2>
               <p className="text-sm text-muted-foreground">
                 {section.subtitle}
               </p>
             </div>
 
-            {loading ? (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {Array(4)
-                  .fill(0)
-                  .map((_, i) => (
-                    <Skeleton
-                      key={i}
-                      className="h-72 rounded-xl"
-                    />
-                  ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {section.items.map((p) => (
-                  <ProductCard key={p.id} product={p} />
-                ))}
-              </div>
-            )}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {section.items.map((p) => (
+                <ProductCard key={p.id} product={p} />
+              ))}
+            </div>
           </motion.section>
         ))}
       </main>
@@ -151,7 +195,7 @@ export default function Dashboard() {
 }
 
 // ---------------------------------------------
-// Product Card (shadcn + motion)
+// Product Card
 // ---------------------------------------------
 function ProductCard({ product }) {
   const navigate = useNavigate();
@@ -186,15 +230,6 @@ function ProductCard({ product }) {
           <div className="text-sm text-muted-foreground">
             ₹{product.base_price}
           </div>
-
-          {product.badge && (
-            <Badge
-              variant="outline"
-              className="border-amber-500/40 text-amber-400"
-            >
-              {product.badge}
-            </Badge>
-          )}
 
           {product.agent_reason && (
             <div className="text-xs text-muted-foreground bg-muted/40 rounded-md p-2">

@@ -15,6 +15,7 @@ import ProductPage from "@/pages/Products"
 import SupportPage from "@/pages/Support"
 import Payment from "@/pages/Payment"
 import { GlobalLayout } from "./components/layout/GlobalLayout";
+import Chat from "./pages/Chat";
 
 function AppInner() {
   const { user, profile, logout } = useAuth();
@@ -44,6 +45,7 @@ function AppInner() {
         <Route path="/support" element={user ? <SupportPage /> : <Navigate to="/login" replace />} />
         <Route path="/profile" element={user ? <ProfilePage /> : <Navigate to="/login" replace />} />
         <Route path="/payment" element={user ? <Payment /> : <Navigate to="/login" replace />} />
+            <Route path="/chat" element={user ? <Chat/> : <Navigate to="/login" replace />} />
       </Route>
       </Routes>
 

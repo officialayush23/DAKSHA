@@ -1,5 +1,6 @@
 import logging
 from typing import Optional, List, Dict, Any
+
 from app.database import supabase
 from app.services.ai_service import AIService
 from app.services.promotion_service import PromotionService
@@ -9,261 +10,167 @@ logger = logging.getLogger("daksha.recommendation")
 
 class RecommendationService:
     """
-    Recommendation strategy (ordered):
-    1) Precomputed user embedding
-    2) Live embedding
-    3) Trending fallback
-    Promotion-aware, inventory-safe.
+    Recommendation strategy (strict order):
+
+    HOME (UX-facing, deterministic):
+      - Inventory-backed trending (SAFE)
+      - Optional user signals later
+
+    ML (model-facing):
+      - Precomputed embeddings
+      - Live embeddings
+      - Inventory + promotion aware ranking
+
+    These paths NEVER call each other.
     """
 
-
-    """
-    IMPORTANT:
-    - for_home() is UX-first, deterministic, agent-facing
-    - get_personalized_recommendations() is ML-first, model-facing
-
-    They must NEVER call each other.
-    """
-
-
-
-
-
-
-
     # =========================================================
-    # PUBLIC API
+    # HOME — SAFE & DETERMINISTIC
     # =========================================================
-# app/services/recommendation_service.py
 
-
-
-
-
-
-    # =========================================================
-    # HOME — PERSONALIZED
-    # =========================================================
     @staticmethod
     def for_home(user_context: dict, limit: int = 8) -> List[Dict]:
         """
-        Deterministic today.
-        ML/Vector tomorrow.
+        HARD GUARANTEE:
+        - Never throws
+        - Never depends on missing SQL
+        - Never reads invalid columns
         """
 
-        user_type = user_context["user_type"]
-
-        # ---------------------------------------------
-        # 1. Guest fallback (no personalization)
-        # ---------------------------------------------
-        if user_type == "guest":
-            return RecommendationService.trending_global(limit)
-
-        # ---------------------------------------------
-        # 2. Use recent behavior (views / cart / orders)
-        # ---------------------------------------------
-        user_id = user_context.get("user_id")
-        categories = RecommendationService._recent_categories(user_id)
-
-        if not categories:
-            return RecommendationService.trending_global(limit)
-
-        res = (
-            supabase.table("products")
-            .select(
-                "id, name, base_price, image_url, category_id"
-            )
-            .in_("category_id", categories)
-            .eq("is_active", True)
-            .limit(limit)
-            .execute()
-        )
-
-        products = res.data or []
-
-        return [
-            RecommendationService._shape_product(
-                p,
-                reason=f"Because you explored {categories[0]} products",
-            )
-            for p in products
-        ]
-
-    # =========================================================
-    # TRENDING — GLOBAL
-    # =========================================================
-    @staticmethod
-    def trending_global(limit: int = 8) -> List[Dict]:
-        res = (
-            supabase.rpc(
-                "get_trending_products",
-                {"p_limit": limit}
-            ).execute()
-        )
-
-        return [
-            RecommendationService._shape_product(
-                p,
-                reason="Trending with customers right now",
-            )
-            for p in (res.data or [])
-        ]
-
-    # =========================================================
-    # HELPERS
-    # =========================================================
-    @staticmethod
-    def _recent_categories(user_id: str) -> list:
-        if not user_id:
+        try:
+            return RecommendationService._trending_inventory(limit)
+        except Exception:
+            logger.exception("Home recommendation failed, returning empty list")
             return []
 
-        res = (
-            supabase.rpc(
-                "get_user_recent_categories",
-                {"p_user_id": user_id}
-            ).execute()
-        )
-
-        return [r["category_id"] for r in (res.data or [])]
-
     @staticmethod
-    def _shape_product(product: dict, reason: str) -> dict:
-        return {
-            "id": product["id"],
-            "name": product["name"],
-            "base_price": product["base_price"],
-            "image_url": product.get("image_url"),
-            "badge": product.get("badge"),
-            "agent_reason": reason,
-            "applicable_promotions": [],  # keep slot, even if empty
-        }
+    def _trending_inventory(limit: int) -> List[Dict]:
+        """
+        Inventory-backed trending.
+        Uses product_variants.image_url (schema-safe).
+        """
+
+        res = supabase.rpc(
+            "get_trending_products",
+            {"p_limit": limit},
+        ).execute()
+
+        rows = res.data or []
+
+        return [
+            {
+                "id": r["product_id"],
+                "name": r["name"],
+                "base_price": r["base_price"],
+                "image_url": r["image_url"],
+                "badge": None,
+                "agent_reason": "Popular with customers",
+                "applicable_promotions": [],
+            }
+            for r in rows
+        ]
+
+    # =========================================================
+    # ML — PERSONALIZED PIPELINE (NOT USED BY HOME)
+    # =========================================================
 
     @staticmethod
     def get_personalized_recommendations(
-        user_id: Optional[str], limit: int = 8
+        user_id: Optional[str],
+        limit: int = 8,
     ) -> List[Dict[str, Any]]:
 
         try:
             candidates: List[Dict[str, Any]] = []
 
-            # ---------- 1) PRECOMPUTED EMBEDDING ----------
+            # ---------- 1. PRECOMPUTED EMBEDDING ----------
             if user_id:
-                emb_row = (
-                    supabase.table("user_embeddings")
-                    .select("embedding")
-                    .eq("user_id", user_id)
-                    .maybe_single()
-                    .execute()
-                )
-
-                embedding = emb_row.data.get("embedding") if emb_row.data else None
-
+                embedding = RecommendationService._get_precomputed_embedding(user_id)
                 if embedding:
-                    recs = RecommendationService._rpc_recommend_by_vector(
+                    candidates = RecommendationService._rpc_recommend_by_vector(
                         embedding, limit * 2
                     )
-                    candidates = recs or []
 
-            # ---------- 2) LIVE EMBEDDING ----------
+            # ---------- 2. LIVE EMBEDDING ----------
             if not candidates and user_id:
                 live_embedding = RecommendationService._compute_live_vector(user_id)
                 if live_embedding:
                     candidates = RecommendationService._rpc_recommend_by_vector(
                         live_embedding, limit * 2
-                    ) or []
+                    )
 
-            # ---------- 3) TRENDING ----------
+            # ---------- 3. INVENTORY FALLBACK ----------
             if not candidates:
-                candidates = RecommendationService.get_trending_products(limit * 2)
-
-            if not candidates:
-                return []
+                return RecommendationService._trending_inventory(limit)
 
             # ---------- INVENTORY FILTER ----------
-            filtered = RecommendationService._filter_available_products(candidates)
-            if not filtered:
+            available = RecommendationService._filter_available_products(candidates)
+            if not available:
                 return []
 
             # ---------- PROMOTION AWARE RANKING ----------
             promotions = PromotionService.get_active_promotions()
-            enriched: List[Dict[str, Any]] = []
-
-            for r in filtered:
-                promos = PromotionService.applicable_promotions_for_product(
-                    r, promotions
-                )
-
-                promo_boost = 0.15 if promos else 0.0
-                base_score = r.get("score", 1.0)
-
-                enriched.append(
-                    {
-                        **r,
-                        "promo_score": promo_boost,
-                        "final_score": base_score + promo_boost,
-                        "applicable_promotions": [
-                            {
-                                "code": p["code"],
-                                "discount_type": p["discount_type"],
-                                "discount_value": p["discount_value"],
-                                "summary": p["name"],
-                            }
-                            for p in promos
-                        ],
-                    }
-                )
-
-            enriched.sort(key=lambda x: x["final_score"], reverse=True)
-            enriched = enriched[:limit]
-
-            # ---------- AGENT EXPLANATIONS ----------
-            context = (
-                RecommendationService._get_user_context_text(user_id)
-                if user_id
-                else ""
+            ranked = RecommendationService._rank_with_promotions(
+                available, promotions
             )
 
-            final: List[Dict[str, Any]] = []
-            for r in enriched:
-                reason = RecommendationService._generate_agent_reason(r, context)
-                final.append({**r, "agent_reason": reason})
-
-            return final
+            return ranked[:limit]
 
         except Exception:
-            logger.exception("Personalized recommendation pipeline failed")
-            return RecommendationService.get_trending_products(limit)
+            logger.exception("Personalized pipeline failed")
+            return RecommendationService._trending_inventory(limit)
 
     # =========================================================
-    # PROMO + AGENT REASONING
+    # HELPERS
     # =========================================================
 
     @staticmethod
-    def _generate_agent_reason(rec: dict, user_context: str) -> str:
-        reasons: List[str] = []
+    def _get_precomputed_embedding(user_id: str) -> Optional[List[float]]:
+        row = (
+            supabase.table("user_embeddings")
+            .select("embedding")
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        )
+        return row.data.get("embedding") if row.data else None
 
-        if user_context:
-            reasons.append(f"Based on recent interest: {user_context}")
+    @staticmethod
+    def _rank_with_promotions(
+        products: List[Dict[str, Any]],
+        promotions: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
 
-        if rec.get("applicable_promotions"):
-            p = rec["applicable_promotions"][0]
-            reasons.append(
-                f"Eligible for {p['code']} ({p['discount_value']} off)"
+        ranked = []
+
+        for p in products:
+            promos = PromotionService.applicable_promotions_for_product(
+                p, promotions
             )
 
-        return " | ".join(reasons)
+            boost = 0.15 if promos else 0.0
+            base_score = p.get("score", 1.0)
 
-    # =========================================================
-    # AVAILABILITY FILTERING
-    # =========================================================
+            ranked.append(
+                {
+                    **p,
+                    "final_score": base_score + boost,
+                    "applicable_promotions": promos,
+                    "agent_reason": (
+                        "Recommended based on your activity"
+                        if promos
+                        else "Matched to your interests"
+                    ),
+                }
+            )
+
+        ranked.sort(key=lambda x: x["final_score"], reverse=True)
+        return ranked
 
     @staticmethod
     def _filter_available_products(
         recs: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-
-        if not recs:
-            return []
 
         product_ids = [r["id"] for r in recs if r.get("id")]
         if not product_ids:
@@ -289,9 +196,7 @@ class RecommendationService:
             .execute()
         ).data or []
 
-        available_variants = {
-            row["product_variant_id"] for row in inventory
-        }
+        available_variants = {i["product_variant_id"] for i in inventory}
 
         available_products = {
             v["product_id"]
@@ -302,7 +207,7 @@ class RecommendationService:
         return [r for r in recs if r.get("id") in available_products]
 
     # =========================================================
-    # VECTOR SEARCH
+    # VECTOR
     # =========================================================
 
     @staticmethod
@@ -321,10 +226,6 @@ class RecommendationService:
             logger.exception("Vector RPC failed")
             return []
 
-    # =========================================================
-    # LIVE USER CONTEXT
-    # =========================================================
-
     @staticmethod
     def _compute_live_vector(user_id: str) -> Optional[List[float]]:
         footprints = (
@@ -336,53 +237,15 @@ class RecommendationService:
             .execute()
         )
 
-        tokens: List[str] = []
+        tokens = []
         for row in footprints.data or []:
-            ed = row.get("event_data") or {}
             tokens.extend(
-                str(v) for v in ed.values() if isinstance(v, (str, int))
+                str(v)
+                for v in (row.get("event_data") or {}).values()
+                if isinstance(v, (str, int))
             )
 
         if not tokens:
             return None
 
         return AIService.generate_embedding(" ".join(tokens)[:1800])
-
-    @staticmethod
-    def _get_user_context_text(user_id: str) -> str:
-        footprints = (
-            supabase.table("user_footprints")
-            .select("event_data")
-            .eq("user_id", user_id)
-            .order("captured_at", desc=True)
-            .limit(5)
-            .execute()
-        )
-
-        parts = []
-        for row in footprints.data or []:
-            ed = row.get("event_data") or {}
-            if ed.get("name"):
-                parts.append(ed["name"])
-            elif ed.get("query"):
-                parts.append(ed["query"])
-
-        return "; ".join(parts)
-
-    # =========================================================
-    # TRENDING
-    # =========================================================
-
-    @staticmethod
-    def get_trending_products(limit: int = 8):
-        try:
-            res = (
-                supabase.table("trending_products_weekly_cards")
-                .select("*")
-                .limit(limit)
-                .execute()
-            )
-            return res.data or []
-        except Exception:
-            logger.exception("Trending fallback failed")
-            return []
