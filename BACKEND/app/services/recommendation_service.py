@@ -1,6 +1,5 @@
 import logging
 from typing import Optional, List, Dict, Any
-
 from app.database import supabase
 from app.services.ai_service import AIService
 from app.services.promotion_service import PromotionService
@@ -17,9 +16,127 @@ class RecommendationService:
     Promotion-aware, inventory-safe.
     """
 
+
+    """
+    IMPORTANT:
+    - for_home() is UX-first, deterministic, agent-facing
+    - get_personalized_recommendations() is ML-first, model-facing
+
+    They must NEVER call each other.
+    """
+
+
+
+
+
+
+
     # =========================================================
     # PUBLIC API
     # =========================================================
+# app/services/recommendation_service.py
+
+
+
+
+
+
+    # =========================================================
+    # HOME — PERSONALIZED
+    # =========================================================
+    @staticmethod
+    def for_home(user_context: dict, limit: int = 8) -> List[Dict]:
+        """
+        Deterministic today.
+        ML/Vector tomorrow.
+        """
+
+        user_type = user_context["user_type"]
+
+        # ---------------------------------------------
+        # 1. Guest fallback (no personalization)
+        # ---------------------------------------------
+        if user_type == "guest":
+            return RecommendationService.trending_global(limit)
+
+        # ---------------------------------------------
+        # 2. Use recent behavior (views / cart / orders)
+        # ---------------------------------------------
+        user_id = user_context.get("user_id")
+        categories = RecommendationService._recent_categories(user_id)
+
+        if not categories:
+            return RecommendationService.trending_global(limit)
+
+        res = (
+            supabase.table("products")
+            .select(
+                "id, name, base_price, image_url, category_id"
+            )
+            .in_("category_id", categories)
+            .eq("is_active", True)
+            .limit(limit)
+            .execute()
+        )
+
+        products = res.data or []
+
+        return [
+            RecommendationService._shape_product(
+                p,
+                reason=f"Because you explored {categories[0]} products",
+            )
+            for p in products
+        ]
+
+    # =========================================================
+    # TRENDING — GLOBAL
+    # =========================================================
+    @staticmethod
+    def trending_global(limit: int = 8) -> List[Dict]:
+        res = (
+            supabase.rpc(
+                "get_trending_products",
+                {"p_limit": limit}
+            ).execute()
+        )
+
+        return [
+            RecommendationService._shape_product(
+                p,
+                reason="Trending with customers right now",
+            )
+            for p in (res.data or [])
+        ]
+
+    # =========================================================
+    # HELPERS
+    # =========================================================
+    @staticmethod
+    def _recent_categories(user_id: str) -> list:
+        if not user_id:
+            return []
+
+        res = (
+            supabase.rpc(
+                "get_user_recent_categories",
+                {"p_user_id": user_id}
+            ).execute()
+        )
+
+        return [r["category_id"] for r in (res.data or [])]
+
+    @staticmethod
+    def _shape_product(product: dict, reason: str) -> dict:
+        return {
+            "id": product["id"],
+            "name": product["name"],
+            "base_price": product["base_price"],
+            "image_url": product.get("image_url"),
+            "badge": product.get("badge"),
+            "agent_reason": reason,
+            "applicable_promotions": [],  # keep slot, even if empty
+        }
 
     @staticmethod
     def get_personalized_recommendations(

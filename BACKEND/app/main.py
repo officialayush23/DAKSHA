@@ -22,7 +22,10 @@ from app.routers import (
     admin_support,
     admin_promotions,
     admin_rbac,
-    admin_warehouse_inventory,  # ✅ NEW
+    admin_warehouse_inventory, 
+    home,
+
+ # ✅ NEW
 )
 
 app = FastAPI(
@@ -47,6 +50,7 @@ app.include_router(catalog.router)
 app.include_router(analytics.router)
 
 
+app.include_router(home.router)
 app.include_router(cart.router)
 app.include_router(orders.router)
 app.include_router(payments.router)

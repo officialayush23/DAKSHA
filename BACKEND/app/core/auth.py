@@ -4,6 +4,7 @@ from fastapi import HTTPException, Header, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional, Dict, Any
 
+from app.core.auth_optional import get_optional_user_id
 
 from app.config import settings
 
@@ -57,3 +58,23 @@ async def get_current_user_id(
     return payload["sub"]
 
 
+async def get_current_user_optional(
+    user_id: str | None = Depends(get_optional_user_id),
+):
+    """
+    Returns:
+    - full user dict if logged in
+    - None if guest
+    """
+    if not user_id:
+        return None
+
+    user = (
+        supabase.table("users")
+        .select("*")
+        .eq("id", user_id)
+        .maybe_single()
+        .execute()
+    ).data
+
+    return user
