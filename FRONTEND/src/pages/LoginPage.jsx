@@ -1,8 +1,7 @@
-// src/pages/LoginPage.jsx
-import React, { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { useAuth } from "@/context/AuthContext";
+import React, { useState, useEffect } from "react";
+import { useNavigate, Link, useLocation } from "react-router-dom";
 import { toast } from "sonner";
+import { supabase } from "@/lib/supabaseClient"; // Import Supabase directly
 
 import {
   Card,
@@ -19,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 import { AuthLayout } from "@/components/layout/AuthLayout";
 
+// --- SKELETON COMPONENT ---
 function LoginSkeleton() {
   return (
     <AuthLayout>
@@ -46,39 +46,68 @@ function LoginSkeleton() {
   );
 }
 
+// --- MAIN PAGE COMPONENT ---
 export function LoginPage() {
-  const { login, loading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(false); // Local loading state
+  const [pageLoading, setPageLoading] = useState(true); // Page load check
 
-  if (loading) return <LoginSkeleton />;
+  // Check if already logged in
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        navigate("/", { replace: true });
+      }
+      setPageLoading(false);
+    };
+    checkSession();
+  }, [navigate]);
+
+  if (pageLoading) return <LoginSkeleton />;
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    setLoading(true);
+
     try {
-      setSubmitting(true);
-      await login(email, password);
-      toast.success("Signed in.");
-      navigate("/register");
+      // 1. Direct Supabase Call (Fixes "login is not a function")
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password,
+      });
+
+      if (error) throw error;
+
+      // 2. Success Logic
+      toast.success("Signed in successfully");
+      
+      // 3. Determine specific redirect based on role (Optional)
+      // For now, go to where they came from or home
+      const returnTo = location.state?.from?.pathname || "/";
+      navigate(returnTo, { replace: true });
+
     } catch (err) {
-      toast.error(err?.message || "Login failed.");
+      console.error("Login Error:", err);
+      toast.error(err.message || "Invalid credentials.");
     } finally {
-      setSubmitting(false);
+      setLoading(false);
     }
   };
 
   return (
     <AuthLayout>
-      <Card className="border border-border/60 bg-background">
+      <Card className="border border-border/60 bg-background shadow-lg">
         <CardHeader>
           <CardTitle className="text-xl font-semibold tracking-tight">
             Sign in
           </CardTitle>
           <CardDescription className="text-xs text-muted-foreground">
-            Use your Supabase email & password.
+            Enter your credentials to access your account.
           </CardDescription>
         </CardHeader>
 
@@ -90,6 +119,7 @@ export function LoginPage() {
                 id="loginEmail"
                 type="email"
                 autoComplete="email"
+                placeholder="name@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="bg-background"
@@ -98,7 +128,15 @@ export function LoginPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="loginPassword">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="loginPassword">Password</Label>
+                <Link 
+                  to="/forgot-password" 
+                  className="text-[10px] text-muted-foreground hover:text-primary transition-colors"
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <Input
                 id="loginPassword"
                 type="password"
@@ -112,20 +150,20 @@ export function LoginPage() {
 
             <Button
               type="submit"
-              className="w-full"
-              disabled={submitting || loading}
+              className="w-full font-medium"
+              disabled={loading}
             >
-              {submitting || loading ? "Signing in..." : "Sign in"}
+              {loading ? "Signing in..." : "Sign in"}
             </Button>
           </form>
         </CardContent>
 
-        <CardFooter className="flex flex-col gap-2 items-start">
+        <CardFooter className="flex flex-col gap-2 items-start border-t border-border/40 pt-4 bg-muted/20">
           <p className="text-[11px] text-muted-foreground">
             Don&apos;t have an account?{" "}
             <Link
               to="/signup"
-              className="underline underline-offset-4 hover:text-foreground"
+              className="underline underline-offset-4 hover:text-foreground font-medium text-foreground/80"
             >
               Sign up
             </Link>

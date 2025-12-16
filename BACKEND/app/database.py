@@ -9,7 +9,6 @@ supabase: Client = create_client(
     settings.SUPABASE_SERVICE_ROLE_KEY,
 )
 
-
 class RedisBus:
     def __init__(self):
         self.redis = redis.from_url(settings.REDIS_URL, decode_responses=True)

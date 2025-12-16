@@ -5,16 +5,15 @@ from datetime import time
 
 # --- Catalog Management ---
 
-
 class ProductCreate(BaseModel):
     name: str
     description: str
-    base_price: float
     category_id: str
-    gender: str  # 'men', 'women', 'kids', 'unisex' (product.gender_enum)
-    usage_type: str  # 'casual', 'formal', etc.
-    style_tags: List[str]
-
+    base_price: float
+    gender: str
+    season: str      # Added
+    usage_type: str  # Added
+    style_tags: List[str] = []
 
 class VariantCreate(BaseModel):
     product_id: str

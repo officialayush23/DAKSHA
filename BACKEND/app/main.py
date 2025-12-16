@@ -22,6 +22,7 @@ from app.routers import (
     admin_support,
     admin_promotions,
     admin_rbac,
+    admin_fulfillment,
     admin_warehouse_inventory, 
     home,
 
@@ -36,7 +37,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten later for prod
+    # Allow the local frontend dev servers explicitly so credentials work in dev
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -66,6 +68,7 @@ app.include_router(admin_inventory.router)
 app.include_router(admin_support.router)
 app.include_router(admin_promotions.router)
 app.include_router(admin_rbac.router)
+app.include_router(admin_fulfillment.router)
 
 app.include_router(admin_warehouse_inventory.router)  # ✅ NEW
 

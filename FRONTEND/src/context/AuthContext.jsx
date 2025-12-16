@@ -1,150 +1,88 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
-import api, { setAuthToken } from "@/lib/apiClient";
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabaseClient'; // Import the singleton
+import api from '@/lib/apiClient'; // Your Axios instance
 
-const AuthContext = createContext(undefined);
+const AuthContext = createContext({});
 
-export function AuthProvider({ children }) {
-  const [session, setSession] = useState(null);
+export const useAuth = () => useContext(AuthContext);
+
+export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [profile, setProfile] = useState(null);
+  const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const syncBackend = async (accessToken) => {
-    setAuthToken(accessToken);
-    try {
-      await api.post("/auth/sync");
-    } catch (err) {
-      console.error("auth/sync failed", err);
-    }
-  };
-
-  const fetchProfile = async () => {
-    try {
-      const res = await api.get("/users/me");
-      setProfile(res.data);
-    } catch (err) {
-      console.error("fetch profile failed", err);
+  // Helper to log token for Swagger (Development only)
+  const printTokenForSwagger = (session) => {
+    if (session?.access_token) {
+      console.log("%c📋 COPY THIS TOKEN FOR SWAGGER:", "color: yellow; font-size: 14px; font-weight: bold;");
+      console.log(session.access_token); 
+      console.log("%c-----------------------------------", "color: yellow;");
     }
   };
 
   useEffect(() => {
-    const init = async () => {
-      const { data } = await supabase.auth.getSession();
-      const currentSession = data.session;
-      setSession(currentSession || null);
-      setUser(currentSession?.user ?? null);
-
-      const token = currentSession?.access_token || null;
-
-      // 🔐 Log initial token (page load / refresh)
-      if (token) {
-        console.log("🔐 [INIT] Bearer token:", token);
-      } else {
-        console.log("🔐 [INIT] No token");
+    // 1. Check active session on startup
+    const checkSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session) {
+          console.log("✅ [Auth] Session found:", session.user.email);
+          setUser(session.user);
+          setToken(session.access_token);
+          printTokenForSwagger(session); // Log on initial load
+        } else {
+          console.log("⚠️ [Auth] No active session");
+        }
+      } catch (error) {
+        console.error("❌ [Auth] Error checking session:", error);
+      } finally {
+        setLoading(false); // CRITICAL: Runs to remove "Loading..." screen
       }
-
-      setAuthToken(token || null);
-
-      if (token) {
-        await syncBackend(token);
-        await fetchProfile();
-      }
-
-      setLoading(false);
     };
 
-    init();
+    checkSession();
 
-    const { data: subscription } = supabase.auth.onAuthStateChange(
-      async (event, newSession) => {
-        setSession(newSession);
-        setUser(newSession?.user ?? null);
-
-        const token = newSession?.access_token || null;
-
-        // 🔐 Log on every auth state change
-        console.log(`🔐 [AUTH EVENT: ${event}] token:`, token || "NULL");
-
-        setAuthToken(token || null);
-
-        if (token) {
-          await syncBackend(token);
-          await fetchProfile();
-        } else {
-          setProfile(null);
-        }
+    // 2. Listen for auth changes (Login, Logout, etc.)
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log(`🔐 [Auth Event]: ${event}`);
+      
+      if (session) {
+        setUser(session.user);
+        setToken(session.access_token);
+        setLoading(false);
+        printTokenForSwagger(session); // Log on updates (login/refresh)
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setToken(null);
+        setLoading(false);
       }
-    );
+    });
 
     return () => {
-      subscription.subscription.unsubscribe();
+      authListener.subscription.unsubscribe();
     };
   }, []);
 
-  const login = async (email, password) => {
-    setLoading(true);
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (error) {
-      setLoading(false);
-      throw error;
-    }
-    const accessToken = data.session?.access_token;
-
-    // 🔐 Log on explicit login call
-    console.log("🔐 [LOGIN] Bearer token:", accessToken || "NULL");
-
-    if (accessToken) {
-      await syncBackend(accessToken);
-      await fetchProfile();
-    }
-    setLoading(false);
-  };
-
-  const signUp = async (email, password) => {
-    setLoading(true);
-    const { error } = await supabase.auth.signUp({ email, password });
-    if (error) {
-      setLoading(false);
-      throw error;
-    }
-    setLoading(false);
-  };
-
-  const logout = async () => {
-    await supabase.auth.signOut();
-    setAuthToken(null);
-    setSession(null);
-    setUser(null);
-    setProfile(null);
-    console.log("🔐 [LOGOUT] Cleared token");
-  };
-
-  const refreshProfile = async () => {
-    await fetchProfile();
+  // Helper to get token manually if needed
+  const getToken = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token || null;
   };
 
   const value = {
-    session,
     user,
-    profile,
+    token,         // Direct property access
     loading,
-    login,
-    signUp,
-    logout,
-    refreshProfile,
+    getToken,      // Helper function access
+    accessToken: token, 
+    signIn: (data) => supabase.auth.signInWithPassword(data),
+    signOut: () => supabase.auth.signOut(),
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
-
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) {
-    throw new Error("useAuth must be used within AuthProvider");
-  }
-  return ctx;
-}
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
