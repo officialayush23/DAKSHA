@@ -21,20 +21,23 @@ async def home(
     )
 
     return {
-        "hero": {
-            "title": "Picked just for you",
-            "subtitle": "AI-curated products you’ll love",
-            "cta": {
-                "label": "Start shopping",
-                "href": "/products",
-            },
-        },
-        "sections": [
-            {
-                "id": "trending",
-                "title": "Trending now",
-                "subtitle": "Popular with customers",
-                "items": items,
-            }
-        ],
+    "hero": {
+        "title": "Picked just for you",
+        "subtitle": "AI-curated products you’ll love",
+        "cta": {
+        "label": "Start shopping",
+        "href": "/products"
+        }
+    },
+    "sections": [
+        {
+        "id": "trending",
+        "type": "rail",
+        "title": "Trending now",
+        "subtitle": "Popular with customers",
+        "tracking_id": "home_trending",
+        "items": items
+        }
+    ]
     }
+

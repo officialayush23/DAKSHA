@@ -1,3 +1,5 @@
+// src/components/layout/GlobalLayout.jsx
+
 import React from "react";
 import { Outlet } from "react-router-dom";
 import { Bot, MessageSquareText } from "lucide-react";

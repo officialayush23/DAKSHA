@@ -47,7 +47,7 @@ class RecommendationService:
     def _trending_inventory(limit: int) -> List[Dict]:
         """
         Inventory-backed trending.
-        Uses product_variants.image_url (schema-safe).
+        Schema-safe. Never throws.
         """
 
         res = supabase.rpc(
@@ -59,16 +59,28 @@ class RecommendationService:
 
         return [
             {
-                "id": r["product_id"],
+                "product_id": r["product_id"],
                 "name": r["name"],
-                "base_price": r["base_price"],
-                "image_url": r["image_url"],
+                "image_url": r.get("image_url"),
+
+                # ✅ FIXED PRICE LOGIC
+                "price": r.get("price_override") or r.get("base_price"),
+
+                "rating": r.get("avg_rating"),
+                "review_count": r.get("review_count"),
+
                 "badge": None,
                 "agent_reason": "Popular with customers",
-                "applicable_promotions": [],
+
+                "inventory": {
+                    "available": (r.get("available_qty") or 0) > 0,
+                    "quantity": r.get("available_qty", 0),
+                },
             }
             for r in rows
         ]
+
+                
 
     # =========================================================
     # ML — PERSONALIZED PIPELINE (NOT USED BY HOME)

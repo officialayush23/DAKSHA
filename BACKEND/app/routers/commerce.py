@@ -16,6 +16,3 @@ async def search(q: str):
     # Better to call /catalog/search from frontend; leaving minimal here
     return {"status": "deprecated"}
 
-@router.post("/cart/add")
-async def add_item(payload: AddToCartRequest, user_id: str = Depends(get_current_user_id)):
-    return await CommerceService.add_to_cart(user_id, payload.variant_id, payload.store_id, payload.quantity)
