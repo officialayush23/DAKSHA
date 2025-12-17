@@ -15,7 +15,11 @@ venv/
 env/
 ENV/
 *.env.bak
-
+daksha/
+BACKEND/daksha/
+venv/
+__pycache__/
+*.pyc
 # Python cache
 *.egg-info/
 .eggs/
