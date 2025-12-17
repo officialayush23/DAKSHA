@@ -22,7 +22,7 @@ export default function BottomNav() {
   );
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 md:hidden border-t bg-background backdrop-blur">
+    <div className="fixed bottom-0 left-0 z-1000 right-0 md:hidden border-t bg-background backdrop-blur">
       <div className="flex justify-around py-2">
         <Item icon={Home} label="Home" to="/home" />
         <Item icon={Search} label="Search" to="/products" />

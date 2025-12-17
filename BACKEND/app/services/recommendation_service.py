@@ -58,27 +58,28 @@ class RecommendationService:
         rows = res.data or []
 
         return [
-            {
-                "product_id": r["product_id"],
-                "name": r["name"],
-                "image_url": r.get("image_url"),
+        {
+            "id": r["product_id"],          # 🔥 normalize
+            "name": r["name"],
+            "gender": r.get("gender"),      # 🔥 REQUIRED
+            "image_url": r.get("image_url"),
 
-                # ✅ FIXED PRICE LOGIC
-                "price": r.get("price_override") or r.get("base_price"),
+            "price": r.get("price_override") or r.get("base_price"),
 
-                "rating": r.get("avg_rating"),
-                "review_count": r.get("review_count"),
+            "rating": r.get("avg_rating"),
+            "review_count": r.get("review_count"),
 
-                "badge": None,
-                "agent_reason": "Popular with customers",
+            "badge": None,
+            "agent_reason": "Popular with customers",
 
-                "inventory": {
-                    "available": (r.get("available_qty") or 0) > 0,
-                    "quantity": r.get("available_qty", 0),
-                },
-            }
-            for r in rows
-        ]
+            "inventory": {
+                "available": (r.get("available_qty") or 0) > 0,
+                "quantity": r.get("available_qty", 0),
+            },
+        }
+        for r in rows
+    ]
+
 
                 
 
@@ -184,7 +185,8 @@ class RecommendationService:
         recs: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
 
-        product_ids = [r["id"] for r in recs if r.get("id")]
+        product_ids = [r["product_id"] for r in recs if r.get("product_id")]
+
         if not product_ids:
             return []
 
@@ -216,7 +218,8 @@ class RecommendationService:
             if v["id"] in available_variants
         }
 
-        return [r for r in recs if r.get("id") in available_products]
+        return [r for r in recs if r.get("product_id") in available_products]
+
 
     # =========================================================
     # VECTOR

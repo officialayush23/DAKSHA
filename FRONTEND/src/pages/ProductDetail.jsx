@@ -1,95 +1,80 @@
-import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { supabase } from "@/lib/supabaseClient";
-import {
-  trackEvent,
-  trackProductView,
-  flush
-} from "@/lib/analytics";
+import { useEffect, useState } from "react";
+import api from "@/lib/apiClient";
+import { trackProductView, flush } from "@/lib/analytics";
 
+import PDPSkeleton from "@/components/product/PDPSkeleton";
 import VariantCarousel from "@/components/product/VariantCarousel";
 import VariantSelector from "@/components/product/VariantSelector";
 import ProductMeta from "@/components/product/ProductMeta";
 import PDPActions from "@/components/product/PDPActions";
-import PDPSkeleton from "@/components/product/PDPSkeleton";
+import ReviewSection from "@/components/product/ReviewSection";
 
 export default function ProductDetailPage() {
   const { id } = useParams();
-  const [product, setProduct] = useState(null);
-  const [variants, setVariants] = useState([]);
+  const [data, setData] = useState(null);
   const [activeVariant, setActiveVariant] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    trackEvent("page_enter", { page: "product_detail", product_id: id });
+    api.get(`/products/${id}`)
+      .then(res => {
+        setData(res.data);
+        setActiveVariant(res.data.variants[0] || null);
 
-    let mounted = true;
-
-    async function load() {
-      const { data, error } = await supabase
-        .from("products")
-        .select(`
-          id, name, description, base_price, gender, style_tags,
-          variants:product_variants(
-            id, image_url, price_override, color_name, size_label
-          )
-        `)
-        .eq("id", id)
-        .single();
-
-      if (!error && mounted) {
-        setProduct(data);
-        setVariants(data.variants || []);
-        setActiveVariant(data.variants?.[0] || null);
-        trackProductView(data);
-      }
-
-      setLoading(false);
-    }
-
-    load();
-
-    return () => {
-      flush();
-      mounted = false;
-    };
+        trackProductView({
+          id: res.data.product.id,
+          price: res.data.product.base_price,
+        });
+      })
+      .finally(() => {
+        flush();
+        setLoading(false);
+      });
   }, [id]);
 
   if (loading) return <PDPSkeleton />;
-  if (!product) return null;
+  if (!data) return null;
 
-  const effectivePrice =
-    activeVariant?.price_override ?? product.base_price;
+  const { product, variants, reviews } = data;
 
   return (
-    <div className="min-h-screen bg-background text-foreground px-4 pb-24 md:pb-8">
-      <div className="max-w-6xl mx-auto grid md:grid-cols-2 gap-10 pt-6">
-
-        {/* LEFT — MEDIA */}
+    <div className="max-w-6xl mx-auto px-4 py-8 grid md:grid-cols-2 gap-10">
+      
+      {/* LEFT */}
+      <div className="space-y-4">
         <VariantCarousel
           variants={variants}
           activeVariant={activeVariant}
           onChange={setActiveVariant}
         />
+      </div>
 
-        {/* RIGHT — DETAILS */}
-        <div className="space-y-6">
-          <ProductMeta
-            product={product}
-            price={effectivePrice}
-          />
+      {/* RIGHT */}
+      <div className="space-y-6">
+        <ProductMeta
+          product={product}
+          price={activeVariant?.price}
+        />
 
-          <VariantSelector
-            variants={variants}
-            activeVariant={activeVariant}
-            onChange={setActiveVariant}
-          />
+        <VariantSelector
+          variants={variants}
+          activeVariant={activeVariant}
+          onChange={setActiveVariant}
+        />
 
-          <PDPActions
-            product={product}
-            variant={activeVariant}
-          />
-        </div>
+        <PDPActions
+          product={product}
+          variant={activeVariant}
+        />
+      </div>
+
+      {/* REVIEWS */}
+      <div className="md:col-span-2">
+        <ReviewSection
+          productId={product.id}
+          reviews={reviews}
+        />
       </div>
     </div>
   );

@@ -3,7 +3,7 @@ from cachetools import TTLCache
 from fastapi import HTTPException, Header, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional, Dict, Any
-
+from app.database import supabase
 from app.core.auth_optional import get_optional_user_id
 
 from app.config import settings

@@ -3,16 +3,16 @@
 import asyncio
 import logging
 from app.database import supabase
-
-logger = logging.getLogger("reservation_cleanup")
-
-CLEANUP_INTERVAL_SECONDS = 120  # 2 minutes
-
+logger = logging.getLogger(__name__)
 
 async def reservation_cleanup_loop():
+    await asyncio.sleep(10)  # allow app + DNS to settle
+
     while True:
         try:
             supabase.rpc("release_expired_inventory_reservations").execute()
         except Exception as e:
-            logger.exception("Reservation cleanup failed")
-        await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
+            logger.warning("Reservation cleanup skipped", exc_info=e)
+
+        await asyncio.sleep(60)
+

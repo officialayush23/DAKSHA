@@ -1,17 +1,22 @@
 from app.database import supabase
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 
 class PromotionService:
 
     @staticmethod
-    def get_active_promotions() -> List[dict]:
-        res = (
+    def get_active_promotions(limit: Optional[int] = None) -> List[dict]:
+        query = (
             supabase.table("promotions")
             .select("*")
             .eq("is_active", True)
-            .execute()
+            .order("priority", desc=True)
         )
+
+        if limit:
+            query = query.limit(limit)
+
+        res = query.execute()
         return res.data or []
 
     @staticmethod
