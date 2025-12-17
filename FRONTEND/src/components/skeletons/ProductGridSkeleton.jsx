@@ -1,3 +1,5 @@
+// FRONTEND/src/components/skeletons/ProductGridSkeleton.jsx
+
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function ProductGridSkeleton({ count = 8 }) {

@@ -1,3 +1,5 @@
+# app/services/inventory_service.py
+
 from fastapi import HTTPException
 from app.database import supabase
 from app.core.redis_bus import EventBus

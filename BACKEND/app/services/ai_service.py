@@ -1,10 +1,8 @@
 # app/services/ai_service.py
 
-
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from app.config import settings
 from tenacity import retry, stop_after_attempt, wait_exponential
-
 
 class AIService:
     @staticmethod
@@ -15,7 +13,7 @@ class AIService:
         )
 
     @staticmethod
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=5))
+    @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=2, min=2, max=60)) # Increased patience
     def generate_embedding(text: str) -> list[float]:
         model = AIService.get_embeddings()
         return model.embed_query(text)
@@ -26,4 +24,6 @@ class AIService:
             model=settings.LLM_MODEL,
             google_api_key=settings.GOOGLE_API_KEY,
             temperature=0.3,
+            max_retries=6, # Built-in retry
+            request_timeout=60, # Allow longer waits
         )

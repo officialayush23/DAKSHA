@@ -1,3 +1,5 @@
+// FRONTEND/src/pages/Support.jsx
+
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
@@ -146,8 +148,8 @@ export default function SupportPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <Button variant="ghost" className="pl-0 gap-2 mb-1" onClick={() => navigate("/dashboard")}>
-            <ArrowLeft className="h-4 w-4" /> Dashboard
+          <Button variant="ghost" className="pl-0 gap-2 mb-1" onClick={() => navigate("/home")}>
+            <ArrowLeft className="h-4 w-4" /> Home
           </Button>
           <h1 className="text-3xl font-bold tracking-tight">Support & Help</h1>
           <p className="text-muted-foreground">Track your tickets and get help with your orders.</p>

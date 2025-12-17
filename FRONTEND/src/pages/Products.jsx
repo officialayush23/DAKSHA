@@ -228,7 +228,7 @@ export default function ProductsPage() {
               variant="ghost" 
               size="icon" 
               className="rounded-full hover:bg-white/10 text-slate-400 hover:text-white" 
-              onClick={() => navigate("/dashboard")}
+              onClick={() => navigate("/home")}
             >
               <ArrowLeft className="h-5 w-5" />
             </Button>

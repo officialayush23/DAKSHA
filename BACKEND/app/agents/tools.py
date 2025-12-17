@@ -1,267 +1,223 @@
 # app/agents/tools.py
-from typing import Optional
 
+import json
+import logging
 from langchain.tools import tool
-from app.services.ai_service import AIService
+from typing import List, Optional
+
+# 🧠 SERVICE INTEGRATIONS
 from app.services.catalog_service import CatalogService
-from app.services.commerce_service import CommerceService
-from app.services.loyalty_service import LoyaltyService
 from app.services.recommendation_service import RecommendationService
-from app.services.support_service import SupportService
-from app.services.user_service import UserService
-from app.services.payment_service import PaymentService
+from app.services.commerce_service import CommerceService
 from app.services.store_service import StoreService
+from app.services.human_handoff_service import HumanHandoffService
+from app.services.loyalty_service import LoyaltyService
 from app.services.notification_service import NotificationService
+from app.services.ai_service import AIService
 from app.database import supabase
 
+logger = logging.getLogger("daksha.tools")
 
-# ===============================
-# 1. RECOMMENDATION / CATALOG
-# ===============================
-
-
-@tool
-def search_products_tool(query: str, limit: int = 6) -> list:
-    """
-    Search for products using hybrid search (text + semantic) on the products table.
-    """
-    embedding = AIService.generate_embedding(query)
-    return CatalogService.search_products(query, embedding, limit)
-
+# ==============================================================================
+# 🛍️ DISCOVERY & RECOMMENDATION
+# ==============================================================================
 
 @tool
-def get_personalized_recommendations_tool(user_id: str, limit: int = 6) -> list:
+def search_products_tool(query: str, limit: int = 5):
     """
-    Suggest products based on user browsing history (user_footprints).
+    Search products using Hybrid Search (Vector + Text).
+    Use for: "black shoes", "wedding dress", "running gear".
     """
-    return RecommendationService.get_personalized_recommendations(user_id, limit)
+    print(f"🔎 [Tool] Search: {query}")
+    try:
+        # 1. Try Vector (Smart)
+        embedding = AIService.generate_embedding(query)
+    except Exception:
+        # 2. Fallback (Dumb)
+        embedding = []
 
+    try:
+        results = CatalogService.search_products(query, embedding, limit)
+        return json.dumps(results)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 @tool
-def get_active_campaigns_tool(user_id: str) -> list:
+def get_personalized_recommendations_tool(user_id: str, limit: int = 5):
     """
-    Fetch active ad campaigns / special collections.
-    Currently not deeply personalized, just returns active campaigns.
+    Get AI-curated recommendations based on user footprints.
+    Use for: "What should I buy?", "Show me something new".
     """
-    return RecommendationService.get_active_campaigns(user_id)
+    print(f"✨ [Tool] Personalizing for: {user_id}")
+    try:
+        items = RecommendationService.get_personalized_recommendations(user_id, limit)
+        return json.dumps(items)
+    except Exception:
+        # Fallback to trending if ML pipeline fails
+        return json.dumps(RecommendationService._trending_inventory(limit))
 
-
-# ===============================
-# 2. INVENTORY / STORES
-# ===============================
-
+# ==============================================================================
+# 📦 INVENTORY & STORES
+# ==============================================================================
 
 @tool
-def check_stock_tool(sku: str, store_id: str):
-    """
-    Check real-time stock availability and display_location for a SKU at a store.
-    Returns quantity_on_hand, reserved, aisle/bay/shelf, section_id, etc.
-    """
-    return CommerceService.get_stock_by_sku(sku, store_id)
+def find_nearest_store_tool(lat: float, lng: float):
+    """Find physical stores near the user."""
+    try:
+        stores = StoreService.find_nearest_stores(lat, lng)
+        return json.dumps(stores)
+    except Exception as e:
+        return f"Location error: {e}"
 
 @tool
-def find_nearest_store_tool(lat: float, long: float, limit: int = 5):
+def check_product_availability_nearby_tool(product_variant_id: str, lat: float, lng: float):
     """
-    Find nearest stores to a given lat/long using the Postgres PostGIS function
-    find_nearest_stores(). Distance is computed in the DB, not Python.
+    Find which nearby store has a specific product in stock.
+    Use for: "Where can I buy this today?", "Is this available nearby?"
     """
-    stores = StoreService.find_nearest_stores(lat=lat, lng=long, limit=limit)
-    return [
-        {
-            "store_id": s["id"],
-            "store_code": s["store_code"],
-            "name": s["name"],
-            "city": s["city"],
-            "distance_meters": s["distance_meters"],
-        }
-        for s in (stores or [])
-    ]
+    try:
+        stores = StoreService.find_nearest_stores(lat, lng, limit=5)
+        results = []
+        for s in stores:
+            inv = (
+                supabase.table("inventory")
+                .select("quantity_on_hand")
+                .eq("product_variant_id", product_variant_id)
+                .eq("fulfillment_location_id", s["fulfillment_location_id"])
+                .maybe_single()
+                .execute()
+            ).data
+            if inv and inv["quantity_on_hand"] > 0:
+                s["qty"] = inv["quantity_on_hand"]
+                results.append(s)
+        
+        return json.dumps(results) if results else "Out of stock in nearby stores."
+    except Exception as e:
+        return f"Stock check failed: {e}"
 
-# ===============================
-# 3. CART & CHECKOUT
-# ===============================
-
+# ==============================================================================
+# 🛒 COMMERCE (CART & CHECKOUT)
+# ==============================================================================
 
 @tool
-async def add_to_cart_tool(
-    user_id: str,
-    variant_id: str,
-    store_id: str,
-    quantity: int = 1,
-):
-    """
-    Reserve stock with optimistic locking and add to user's cart.
-    """
-    return await CommerceService.add_to_cart(user_id, variant_id, store_id, quantity)
-
+def get_cart_tool(user_id: str):
+    """Fetch the user's active shopping cart items."""
+    if user_id == "guest": return "Please log in to view cart."
+    try:
+        res = supabase.table("carts").select("*, cart_items(*, product_variants(*, products(name)))").eq("user_id", user_id).eq("status", "active").maybe_single().execute()
+        return json.dumps(res.data) if res.data else "Cart is empty."
+    except Exception as e:
+        return f"Cart error: {e}"
 
 @tool
-async def checkout_tool(
-    user_id: str,
-    order_type: str,
-    store_id: Optional[str] = None,
-    address_id: Optional[str] = None,
-    promotion_code: Optional[str] = None,
-):
-    """
-    Create an order from the cart and compute discounts; does NOT confirm payment.
-    Payment confirmation is handled via PaymentService.
-    """
-    return CommerceService.checkout(
-        user_id=user_id,
-        order_type=order_type,
-        store_id=store_id,
-        address_id=address_id,
-        promotion_code=promotion_code,
-    )
-
-
-# ===============================
-# 4. LOYALTY
-# ===============================
-
+def add_to_cart_tool(user_id: str, variant_id: str, quantity: int = 1):
+    """Add an item to the cart."""
+    if user_id == "guest": return "Login required."
+    try:
+        # Get/Create Cart
+        cart = supabase.table("carts").select("id").eq("user_id", user_id).eq("status", "active").maybe_single().execute()
+        cart_id = cart.data['id'] if cart.data else supabase.table("carts").insert({"user_id": user_id, "status": "active"}).execute().data[0]['id']
+        
+        # Add Item
+        supabase.table("cart_items").upsert({
+            "cart_id": cart_id, "product_variant_id": variant_id, "quantity": quantity
+        }, on_conflict="cart_id,product_variant_id").execute()
+        return "Added to cart."
+    except Exception as e:
+        return f"Failed to add: {e}"
 
 @tool
-def check_loyalty_status_tool(user_id: str):
+def get_user_context_tool(user_id: str):
     """
-    Check the user's loyalty points balance and available reward offers.
-    Use when user asks "How many points do I have?" or "Any rewards?"
+    Fetch addresses and payment methods for checkout context.
+    ALWAYS call this before checkout_tool.
     """
-    return LoyaltyService.get_loyalty_summary(user_id)
-
-
-# ===============================
-# 5. SUPPORT / ORDERS
-# ===============================
-
+    if user_id == "guest": return "Guest"
+    try:
+        addrs = supabase.table("user_addresses").select("*").eq("user_id", user_id).execute().data
+        cards = supabase.table("user_payment_methods").select("id, card_last4, card_brand").eq("user_id", user_id).execute().data
+        return json.dumps({"addresses": addrs, "cards": cards})
+    except: return "{}"
 
 @tool
-async def create_support_ticket_tool(
-    user_id: str,
-    issue_summary: str,
-    conversation_summary: str,
-    sentiment_score: float,
-    order_id: Optional[str] = None,
-):
+def checkout_tool(user_id: str, address_id: str = None):
     """
-    Create a support ticket and publish to support dashboard channel.
+    Create an order from the cart.
+    Requires user confirmation of address_id first.
     """
-    ticket = await SupportService.create_ticket(
-        user_id=user_id,
-        issue=issue_summary,
-        summary=conversation_summary,
-        sentiment=sentiment_score,
-        order_id=order_id,
-    )
-    return ticket
+    try:
+        res = CommerceService.checkout(user_id=user_id, order_type="delivery", address_id=address_id)
+        return json.dumps({
+            "success": True, 
+            "order_id": res["order"]["id"], 
+            "total": res["order"]["total_amount"]
+        })
+    except Exception as e:
+        return f"Checkout Failed: {e}"
 
+# ==============================================================================
+# 📋 ORDERS & SUPPORT
+# ==============================================================================
+
+@tool
+def get_order_history_tool(user_id: str, limit: int = 5):
+    """
+    Fetch past orders for the user.
+    Use for: "Show my orders", "What did I buy last?"
+    """
+    if user_id == "guest": return "Login to see orders."
+    try:
+        res = supabase.table("orders").select("id, status, total_amount, created_at, order_items(count)").eq("user_id", user_id).order("created_at", desc=True).limit(limit).execute()
+        return json.dumps(res.data)
+    except Exception as e:
+        return f"History error: {e}"
 
 @tool
 def track_order_tool(order_id: str):
-    """
-    Return basic order status for tracking (status + latest fulfillment).
-    """
-    return CommerceService.track_order(order_id)
-
-
-# ===============================
-# 6. USER PROFILE
-# ===============================
-
-
-@tool
-async def update_user_profile_tool(user_id: str, field: str, value: str) -> str:
-    """
-    Update a user profile field (full_name, phone_number, gender, date_of_birth).
-    NOTE: `gender` here is user.gender (varchar), NOT the product gender_enum.
-    """
-    valid = {"full_name", "phone_number", "gender", "date_of_birth"}
-    if field not in valid:
-        return f"Error: Cannot update field '{field}'."
-
+    """Get specific order status."""
     try:
-        await UserService.update_profile(user_id, {field: value})
-        return f"Successfully updated {field}."
+        res = supabase.table("orders").select("status, total_amount, created_at").eq("id", order_id).single().execute()
+        return json.dumps(res.data) if res.data else "Order not found."
+    except: return "Order not found."
+
+@tool
+def lodge_complaint_tool(user_id: str, issue: str, description: str):
+    """
+    Lodge a formal complaint or return request.
+    Triggers Human Handoff immediately.
+    """
+    try:
+        # Create Ticket
+        HumanHandoffService.trigger(
+            session_id=None,
+            user_id=user_id,
+            reason=issue,
+            summary=description
+        )
+        return "Complaint lodged. A human agent will review this shortly."
     except Exception as e:
-        return f"Update failed: {str(e)}"
-
-
-# ===============================
-# 7. NOTIFICATIONS
-# ===============================
-
+        return f"Failed to lodge complaint: {e}"
 
 @tool
-async def send_notification_tool(
-    user_id: str,
-    title: str,
-    body: str,
-    type: str = "info",
-) -> str:
+def handoff_to_human_tool(user_id: str, reason: str, summary: str):
     """
-    Sends an in-app notification to the user and pushes via WebSocket.
-    Use when you want to proactively confirm actions (order placed, coupon applied, etc.).
+    Escalate the conversation to a human agent.
+    Use when the user is angry, confused, or asks for a human.
     """
-    record = await NotificationService.send_to_user(user_id, title, body, type)
-    return f"Notification sent with id={record['id']}"
-
-
-# ===============================
-# 8. FULFILLMENT (DELIVERY / PICKUP)
-# ===============================
-
+    try:
+        HumanHandoffService.trigger(
+            session_id=None,
+            user_id=user_id, 
+            reason=reason, 
+            summary=summary
+        )
+        return "I have notified a human agent. They will take over shortly."
+    except: return "Handoff failed."
 
 @tool
-def schedule_fulfillment_tool(
-    order_id: str,
-    fulfillment_type: str = "delivery",   # 'delivery' | 'pickup' | 'reservation'
-    scheduled_for: Optional[str] = None,  # ISO datetime string
-    location_note: Optional[str] = None,
-) -> dict:
-    """
-    Schedule fulfillment for an order. Use this when user chooses delivery/pickup time & location.
-
-    - fulfillment_type: 'delivery', 'pickup', or 'reservation'
-    - scheduled_for: optional datetime string
-    - location_note: note like "Store #23 - Pickup Counter"
-    """
-    res = (
-        supabase.table("orders")
-        .select("id, user_id, status")
-        .eq("id", order_id)
-        .single()
-        .execute()
-    )
-    if not res.data:
-        return {"error": "Order not found"}
-
-    # You can add status checks here (only 'paid' should be schedulable, etc.)
-    payload = {
-        "order_id": order_id,
-        "status": "scheduled",
-        "fulfillment_type": fulfillment_type,
-        "scheduled_for": scheduled_for,
-        "location_note": location_note,
-    }
-
-    created = supabase.table("fulfillments").insert(payload).execute()
-    return created.data[0]
-
-
-@tool
-def get_fulfillment_status_tool(order_id: str) -> dict:
-    """
-    Check fulfillment status for a given order.
-    Use when user asks 'Where is my order?' or 'Is my pickup ready?'
-    """
-    res = (
-        supabase.table("fulfillments")
-        .select("*")
-        .eq("order_id", order_id)
-        .order("shipped_at", desc=True)
-        .maybe_single()
-        .execute()
-    )
-    if not res.data:
-        return {"status": "not_scheduled"}
-    return res.data
+def check_loyalty_tool(user_id: str):
+    """Check loyalty points and available rewards."""
+    try:
+        summary = LoyaltyService.get_loyalty_summary(user_id)
+        return json.dumps(summary) if summary else "No loyalty data."
+    except: return "Loyalty check failed."

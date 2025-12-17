@@ -1,3 +1,5 @@
+#   app/routers/home.py
+
 from fastapi import APIRouter, Depends
 from app.services.home_service import HomeService
 from app.core.auth import get_current_user_optional

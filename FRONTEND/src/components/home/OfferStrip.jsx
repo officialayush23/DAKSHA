@@ -1,3 +1,5 @@
+// FRONTEND/src/components/home/OfferStrip.jsx
+
 import { Button } from "@/components/ui/button";
 import { trackEvent } from "@/lib/analytics";
 import { useNavigate } from "react-router-dom";

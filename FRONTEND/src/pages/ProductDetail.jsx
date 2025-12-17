@@ -1,3 +1,5 @@
+// FRONTEND/src/pages/ProductDetail.jsx
+
 import { useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 import api from "@/lib/apiClient";
@@ -10,12 +12,45 @@ import ProductMeta from "@/components/product/ProductMeta";
 import PDPActions from "@/components/product/PDPActions";
 import ReviewSection from "@/components/product/ReviewSection";
 
+import { useInventorySocket } from "@/hooks/useInventorySocket"; // Import new hook
+
 export default function ProductDetailPage() {
   const { id } = useParams();
+  const navigate = useNavigate(); // Added navigate
   const [data, setData] = useState(null);
   const [activeVariant, setActiveVariant] = useState(null);
   const [loading, setLoading] = useState(true);
+const activeLocationId = activeVariant?.inventory?.[0]?.fulfillment_location_id;
 
+useInventorySocket(activeLocationId, (update) => {
+    // Check if the update is for THIS variant
+    if (update.product_variant_id === activeVariant?.id) {
+       // Optimistically update the quantity in the UI
+       setData(prev => {
+          const newVariants = prev.variants.map(v => {
+             if (v.id === update.product_variant_id) {
+                // Update the inventory list inside the variant
+                const newInv = v.inventory.map(invItem => {
+                   // If we are tracking multiple stores, check store ID too. 
+                   // For now, simple update:
+                   return { ...invItem, available_qty: update.quantity_on_hand };
+                });
+                return { ...v, inventory: newInv };
+             }
+             return v;
+          });
+          return { ...prev, variants: newVariants };
+       });
+       setActiveVariant(prev => {
+          if (prev.id === update.product_variant_id) {
+             const newInv = prev.inventory.map(invItem => ({ ...invItem, available_qty: update.quantity_on_hand }));
+             return { ...prev, inventory: newInv };
+          }
+          return prev;
+       });
+    }
+  });
+  
   useEffect(() => {
     api.get(`/products/${id}`)
       .then(res => {

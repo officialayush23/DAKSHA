@@ -1,3 +1,5 @@
+// FRONTEND/src/components/skeletons/ProductDetailSkeleton.jsx
+
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function ProductDetailSkeleton() {

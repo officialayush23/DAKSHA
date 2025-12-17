@@ -26,8 +26,17 @@ from app.routers import (
     admin_rbac,
     admin_warehouse_inventory, 
     home,
-
- # ✅ NEW
+    # Additional routers
+    omni,
+    fulfillment,
+    recommendations,
+    products,
+    commerce,
+    notifications,
+    catalog_readonly,
+    admin_fulfillment,
+    admin_catalog_read,
+    admin_inventory_onboarding,
 )
 
 app = FastAPI(
@@ -49,9 +58,8 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(profile.router)
 app.include_router(catalog.router)
+app.include_router(catalog_readonly.router)
 app.include_router(analytics.router)
-
-
 app.include_router(home.router)
 app.include_router(cart.router)
 app.include_router(orders.router)
@@ -61,15 +69,23 @@ app.include_router(feedback.router)
 app.include_router(support.router)
 app.include_router(realtime.router)
 app.include_router(channels.router)
+app.include_router(omni.router)
+app.include_router(fulfillment.router)
+app.include_router(recommendations.router)
+app.include_router(products.router)
+app.include_router(commerce.router)
+app.include_router(notifications.router)
 
 # Admin
 app.include_router(admin_catalog.router)
+app.include_router(admin_catalog_read.router)
 app.include_router(admin_inventory.router)
+app.include_router(admin_inventory_onboarding.router)
 app.include_router(admin_support.router)
 app.include_router(admin_promotions.router)
 app.include_router(admin_rbac.router)
-
-app.include_router(admin_warehouse_inventory.router)  # ✅ NEW
+app.include_router(admin_warehouse_inventory.router)
+app.include_router(admin_fulfillment.router)
 
 @app.on_event("startup")
 async def start_background_tasks():

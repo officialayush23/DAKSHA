@@ -1,3 +1,5 @@
+//  FRONTEND/src/pages/Order.jsx
+
 import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import api from "@/lib/apiClient";
@@ -91,7 +93,7 @@ export default function OrdersPage() {
       
       {/* Header */}
       <div className="flex items-center gap-4 mb-2">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/dashboard")}>
+        <Button variant="ghost" size="icon" onClick={() => navigate("/home")}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <h1 className="text-2xl font-bold tracking-tight">My Orders</h1>

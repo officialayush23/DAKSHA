@@ -1,3 +1,5 @@
+// FRONTEND/src/components/skeletons/CartSkeleton.jsx
+
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function CartSkeleton() {
