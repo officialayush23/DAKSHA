@@ -1,3 +1,5 @@
+// src/modules/store_manager/components/InventoryCard.jsx
+
 import React from "react";
 import { 
   MapPin, 

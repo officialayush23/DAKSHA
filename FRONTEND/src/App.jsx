@@ -12,6 +12,7 @@ import OrdersPage from "@/pages/Order";
 import ProfilePage from "@/pages/Profile";
 import CartPage from "@/pages/Cart";
 import ProductPage from "@/pages/Products";
+import ProductDetailPage from "@/pages/ProductDetail";
 import SupportPage from "@/pages/Support";
 import Payment from "@/pages/Payment";
 import Chat from "@/pages/Chat";
@@ -82,6 +83,7 @@ function AppInner() {
         <Route path="/home" element={user ? <HomePage /> : <Navigate to="/login" replace />} />
         <Route path="/orders" element={user ? <OrdersPage /> : <Navigate to="/login" replace />} />
         <Route path="/products" element={user ? <ProductPage /> : <Navigate to="/login" replace />} />
+        <Route path="/products/:id" element={user ? <ProductDetailPage /> : <Navigate to="/login" replace />} />
         <Route path="/cart" element={user ? <CartPage /> : <Navigate to="/login" replace />} />
         <Route path="/support" element={user ? <SupportPage /> : <Navigate to="/login" replace />} />
         <Route path="/profile" element={user ? <ProfilePage /> : <Navigate to="/login" replace />} />

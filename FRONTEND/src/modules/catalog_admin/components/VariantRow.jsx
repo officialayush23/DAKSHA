@@ -1,3 +1,5 @@
+//src/modules/catalog_admin/components/VariantRow.jsx
+
 import React from "react";
 import { Edit, Trash2, Copy } from "lucide-react";
 import { toast } from "sonner";

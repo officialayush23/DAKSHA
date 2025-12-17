@@ -100,16 +100,11 @@ export default function PaymentPage() {
   const handlePlaceOrder = async () => {
     setProcessing(true);
     try {
-      const res = await api.post("/commerce/checkout", {
+      const res = await api.post("/orders/checkout", {
         order_type: "delivery",
-        delivery_address_id: addressId,
-        pickup_location_id: null,
+        address_id: addressId,
+        pickup_fulfillment_location_id: null,
         promotion_code: summary?.promoCode || null,
-        payment_method: {
-          type: paymentMethod === "cod" ? "cod" : "card",
-          payment_method_id:
-            paymentMethod === "cod" ? null : paymentMethod,
-        },
       });
 
       toast.success("Order confirmed");

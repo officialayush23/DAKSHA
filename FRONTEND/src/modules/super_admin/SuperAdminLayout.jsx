@@ -1,3 +1,5 @@
+//  src/modules/super_admin/SuperAdminLayout.jsx
+
 import React from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
 import { ShieldCheck, MapPin, Users, Package, LogOut } from "lucide-react";

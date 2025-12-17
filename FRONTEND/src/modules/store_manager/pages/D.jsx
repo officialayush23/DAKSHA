@@ -1,3 +1,5 @@
+// src/modules/store_manager/pages/D.jsx
+
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { 

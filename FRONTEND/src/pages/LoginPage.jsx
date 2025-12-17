@@ -1,8 +1,9 @@
 // src/pages/LoginPage.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
+import api from "@/lib/apiClient";
 
 import {
   Card,
@@ -47,7 +48,7 @@ function LoginSkeleton() {
 }
 
 export function LoginPage() {
-  const { login, loading } = useAuth();
+  const { login, loading, profile, refreshProfile } = useAuth();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
@@ -56,13 +57,31 @@ export function LoginPage() {
 
   if (loading) return <LoginSkeleton />;
 
+  // Redirect after login based on profile completion
+  useEffect(() => {
+    if (!loading && profile !== null) {
+      // Profile has been loaded, check if user should go to register
+      if (profile && profile.phone_number) {
+        // User has completed profile, but don't auto-redirect here
+        // Let the login handler do it
+      }
+    }
+  }, [profile, loading]);
+
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
       setSubmitting(true);
       await login(email, password);
+      await refreshProfile();
       toast.success("Signed in.");
-      navigate("/register");
+      // Fetch fresh profile data
+      const freshProfile = await api.get("/users/me").then(res => res.data).catch(() => null);
+      if (freshProfile && freshProfile.phone_number) {
+        navigate("/home");
+      } else {
+        navigate("/register");
+      }
     } catch (err) {
       toast.error(err?.message || "Login failed.");
     } finally {

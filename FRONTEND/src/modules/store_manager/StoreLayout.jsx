@@ -1,3 +1,5 @@
+// src/modules/store_manager/StoreLayout.jsx
+
 import React, { useState, useEffect } from "react";
 import { Outlet, useOutletContext, useNavigate, useLocation } from "react-router-dom";
 import api from "@/lib/apiClient"; 

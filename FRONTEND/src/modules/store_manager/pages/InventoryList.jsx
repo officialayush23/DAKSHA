@@ -1,3 +1,5 @@
+// src/modules/store_manager/pages/InventoryList.jsx
+
 import React, { useState, useEffect } from "react";
 import { useOutletContext } from "react-router-dom"; // 1. Use Context
 import api from "@/lib/apiClient"; 

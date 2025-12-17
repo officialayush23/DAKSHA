@@ -1,3 +1,5 @@
+// src/modules/store_manager/pages/OrderQueue.jsx
+
 import React, { useState, useEffect } from "react";
 import { useOutletContext } from "react-router-dom"; 
 import api from "@/lib/apiClient"; // 1. Use API Client

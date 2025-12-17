@@ -66,8 +66,10 @@ class ProductService:
         # --------------------------------------------------
         reviews = (
             supabase.table("product_reviews")
-            .select("rating")
+            .select("id, rating, review_text, created_at, users(full_name)")
             .eq("product_id", product_id)
+            .order("created_at", desc=True)
+            .limit(50)
             .execute()
         ).data or []
 
@@ -75,6 +77,18 @@ class ProductService:
             round(sum(r["rating"] for r in reviews) / len(reviews), 2)
             if reviews else None
         )
+        
+        # Format reviews for frontend
+        review_items = [
+            {
+                "id": r["id"],
+                "rating": r["rating"],
+                "review_text": r.get("review_text") or "",
+                "created_at": r.get("created_at"),
+                "user_name": r.get("users", {}).get("full_name") if isinstance(r.get("users"), dict) else None,
+            }
+            for r in reviews
+        ]
 
         # --------------------------------------------------
         # FINAL SHAPE
@@ -105,6 +119,7 @@ class ProductService:
             "reviews": {
                 "average_rating": avg_rating,
                 "review_count": len(reviews),
+                "items": review_items,
             },
             "agent_context": {
                 "inventory_strategy": "warehouse_first",

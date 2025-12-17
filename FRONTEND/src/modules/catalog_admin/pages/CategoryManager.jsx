@@ -1,3 +1,5 @@
+// src/modules/catalog_admin/pages/CategoryManager.jsx
+
 import React, { useState, useEffect } from "react";
 import { 
   Plus, FolderTree, Search, LayoutGrid, Loader2

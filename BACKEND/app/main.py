@@ -85,6 +85,8 @@ app.include_router(admin_support.router)
 app.include_router(admin_promotions.router)
 app.include_router(admin_rbac.router)
 app.include_router(admin_warehouse_inventory.router)
+app.include_router(admin_warehouse_inventory.router_outbound)
+app.include_router(admin_warehouse_inventory.router_dashboard)
 app.include_router(admin_fulfillment.router)
 
 @app.on_event("startup")

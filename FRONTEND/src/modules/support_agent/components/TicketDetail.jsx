@@ -1,3 +1,5 @@
+//  src/modules/support_agent/components/TicketDetail.jsx
+
 import React from "react";
 import { 
   CheckCircle, Clock, User, MoreVertical, Loader2, MessageSquare, AlertCircle 

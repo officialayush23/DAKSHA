@@ -1,3 +1,5 @@
+// src/modules/store_manager/pages/HistoryLog.jsx
+
 import React, { useState, useEffect } from "react";
 import { useOutletContext } from "react-router-dom"; // 1. Use Context
 import api from "@/lib/apiClient"; // 2. Use API Client

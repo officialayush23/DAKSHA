@@ -1,3 +1,5 @@
+// src/modules/store_manager/pages/StoreDashboard.jsx
+
 import React, { useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import api from '@/lib/apiClient'; 

@@ -1,3 +1,5 @@
+// src/modules/store_manager/components/OrderRow.jsx
+
 import React from "react";
 import { format } from "date-fns";
 import { 

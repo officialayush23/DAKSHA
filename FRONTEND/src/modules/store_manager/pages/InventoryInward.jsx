@@ -1,3 +1,5 @@
+// src/modules/store_manager/pages/InventoryInward.jsx
+
 import React, { useState, useEffect, useMemo } from "react";
 import { useOutletContext } from "react-router-dom"; // Optimization: Use Context
 import api from "@/lib/apiClient"; 

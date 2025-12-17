@@ -1,6 +1,6 @@
 // FRONTEND/src/pages/ProductDetail.jsx
 
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import api from "@/lib/apiClient";
 import { trackProductView, flush } from "@/lib/analytics";
@@ -52,24 +52,47 @@ useInventorySocket(activeLocationId, (update) => {
   });
   
   useEffect(() => {
+    if (!id) {
+      setLoading(false);
+      return;
+    }
+    
     api.get(`/products/${id}`)
       .then(res => {
-        setData(res.data);
-        setActiveVariant(res.data.variants[0] || null);
+        if (res.data && res.data.product) {
+          setData(res.data);
+          setActiveVariant(res.data.variants?.[0] || null);
 
-        trackProductView({
-          id: res.data.product.id,
-          price: res.data.product.base_price,
-        });
+          trackProductView({
+            id: res.data.product.id,
+            price: res.data.product.base_price,
+          });
+        } else {
+          console.error("Invalid product data:", res.data);
+          navigate("/products");
+        }
+      })
+      .catch(err => {
+        console.error("Failed to load product:", err);
+        navigate("/products");
       })
       .finally(() => {
         flush();
         setLoading(false);
       });
-  }, [id]);
+  }, [id, navigate]);
 
   if (loading) return <PDPSkeleton />;
-  if (!data) return null;
+  if (!data || !data.product) {
+    return (
+      <div className="max-w-6xl mx-auto px-4 py-8 text-center">
+        <p className="text-zinc-400">Product not found</p>
+        <button onClick={() => navigate("/products")} className="mt-4 text-emerald-400 hover:underline">
+          Browse Products
+        </button>
+      </div>
+    );
+  }
 
   const { product, variants, reviews } = data;
 

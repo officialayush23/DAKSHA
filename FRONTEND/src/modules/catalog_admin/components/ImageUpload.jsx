@@ -1,3 +1,5 @@
+// ImageUpload.jsx
+
 import React, { useState } from "react";
 import { UploadCloud, X, Loader2, Image as ImageIcon } from "lucide-react";
 import { catalogService } from "@/services/catalogService";

@@ -1,3 +1,6 @@
+
+// src/modules/store_manager/components/StoreSidebar.jsx
+
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
