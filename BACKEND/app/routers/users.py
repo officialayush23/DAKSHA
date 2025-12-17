@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends
 from app.core.auth import get_current_user_id
 from app.models.users import UserProfileUpdate, PaymentMethodCreate
 from app.services.user_service import UserService
-
+from http.client import HTTPException
 router = APIRouter(prefix="/users", tags=["Users"])
-
+from app.database import supabase
 
 @router.get("/me")
 async def get_my_profile(user_id: str = Depends(get_current_user_id)):
@@ -48,3 +48,50 @@ async def register_profile(
 
     update_data = {k: v for k, v in data.dict().items() if v is not None}
     return await UserService.update_profile(user_id, update_data)
+
+
+@router.get("/me/operational-role")
+async def get_my_operational_roles(user_id: str = Depends(get_current_user_id)):
+    """
+    Return operational roles assigned to the current user.
+    """
+    rows = (
+        supabase.table("user_roles")
+        .select("role, store_id, warehouse_id, created_at")
+        .eq("user_id", user_id)
+        .execute()
+    ).data or []
+
+    return {"operational_roles": rows}
+
+
+@router.get("/me/stores")
+def get_my_stores(user_id: str = Depends(get_current_user_id)):
+    """
+    Returns a list of all stores assigned to the current user via the user_roles table.
+    """
+    try:
+        # 1. Select store_id from user_roles where user_id matches
+        # 2. Join with the 'stores' table to get name, code, etc.
+        response = supabase.table("user_roles").select(
+            "store_id, stores(id, name, store_code, is_active, city)"
+        ).eq("user_id", user_id).not_.is_("store_id", "null").execute()
+
+        # 3. Format the data for the frontend
+        stores = []
+        for item in response.data:
+            if item.get('stores'):
+                store_data = item['stores']
+                stores.append({
+                    "id": store_data['id'],
+                    "name": store_data['name'],
+                    "code": store_data['store_code'],
+                    "city": store_data['city'],
+                    "is_active": store_data['is_active']
+                })
+        
+        return stores
+
+    except Exception as e:
+        print(f"Error fetching user stores: {e}")
+        raise HTTPException(status_code=500, detail="Could not load assigned stores.")

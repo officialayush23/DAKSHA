@@ -1,5 +1,5 @@
 # app/routers/admin_warehouse_inventory.py
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from app.core.rbac import require_warehouse_access
 from app.models.management import InventoryFullUpdate
 from app.services.inventory_service import InventoryService

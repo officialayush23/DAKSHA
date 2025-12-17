@@ -12,8 +12,9 @@ class ProductCreate(BaseModel):
     base_price: float
     category_id: str
     gender: str  # 'men', 'women', 'kids', 'unisex' (product.gender_enum)
-    usage_type: str  # 'casual', 'formal', etc.
-    style_tags: List[str]
+    season: str = "all_season"
+    usage_type: str = "casual"  # 'casual', 'formal', etc.
+    style_tags: List[str] = []
 
 
 class VariantCreate(BaseModel):
@@ -21,13 +22,20 @@ class VariantCreate(BaseModel):
     sku: str
     color_name: str
     size_label: str
-    material: str
+    color_hex: Optional[str] = "#000000"
+    # --- NEW FIELDS MATCHING DB ---
+    material: Optional[str] = None
     price_override: Optional[float] = None
-    attributes: Dict = {}
+    attributes: Optional[dict] = {} 
+    fit_type: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 # --- Store Management ---
-
+class CategoryCreate(BaseModel):
+    name: str
+    slug: str
+    parent_id: Optional[str] = None
 
 class StoreCreate(BaseModel):
     store_code: str
@@ -38,7 +46,11 @@ class StoreCreate(BaseModel):
     latitude: float
     longitude: float
 
-
+class StockAdjustment(BaseModel):
+    warehouse_id: str
+    variant_id: str
+    quantity_change: int # Can be negative (shrinkage) or positive (restock)
+    reason: str
 class InventoryFullUpdate(BaseModel):
     """
     Used by Store Managers to move items or correct counts.
@@ -71,3 +83,10 @@ class PromotionCreate(BaseModel):
     discount_value: float
     constraints: Dict = {}
     max_usage_global: int
+
+
+class OrderStatusUpdate(BaseModel):
+    status: str
+
+
+ 

@@ -1,3 +1,5 @@
+# app/core/auth.py
+
 import jwt
 from cachetools import TTLCache
 from fastapi import HTTPException, Header, Depends
