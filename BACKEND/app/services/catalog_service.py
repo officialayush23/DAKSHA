@@ -7,30 +7,39 @@ from typing import List
 class CatalogService:
 
     @staticmethod
-    def search_products(query: str, embedding: List[float], limit: int = 10):
+    def search_products(query: str, embedding: list = None, limit: int = 5):
         """
-        Hybrid search:
-        - text search
-        - vector similarity
+        Robust search: Uses Vector Search if embedding provided, 
+        otherwise falls back to Keyword Search (ILIKE) for free text-only mode.
         """
-
         try:
-            res = supabase.rpc(
-                "search_products_hybrid",
-                {
-                    "query_text": query,
-                    "query_embedding": embedding,
-                    "match_count": limit,
-                },
-            ).execute()
+            # 1. IF Embedding exists -> Vector Search (Better accuracy)
+            if embedding:
+                print(f"🔍 Searching with Vector Embedding...")
+                response = supabase.rpc(
+                    "match_products",
+                    {
+                        "query_embedding": embedding,
+                        "match_threshold": 0.5,
+                        "match_count": limit
+                    }
+                ).execute()
+                return response.data
 
-            return res.data or []
-        except Exception:
-            # fallback: text-only
-            return (
-                supabase.table("products")
-                .select("*")
-                .ilike("name", f"%{query}%")
-                .limit(limit)
+            # 2. ELSE -> Text Search (Fallback / Free Tier)
+            # Breaks query into keywords: "red shoes" -> "red" & "shoes"
+            print(f"🔍 Searching via Text (No Embedding)...")
+            keywords = query.replace(" ", "%")
+            
+            # Simple ILIKE search on name or description
+            response = supabase.table("products")\
+                .select("id, name, base_price, description, category_id")\
+                .or_(f"name.ilike.%{keywords}%,description.ilike.%{keywords}%")\
+                .limit(limit)\
                 .execute()
-            ).data
+                
+            return response.data
+
+        except Exception as e:
+            print(f"❌ Catalog Search Error: {e}")
+            return []

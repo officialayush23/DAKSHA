@@ -25,8 +25,15 @@ from app.routers import (
     admin_fulfillment,
     admin_warehouse_inventory, 
     home,
+    auth, users, profile, catalog, analytics, cart, orders, payments,
+    inventory, feedback, support, realtime, channels, home,
+    omni, fulfillment, recommendations, commerce, notifications,
+    catalog_readonly,
+    catalog_readonly,chat,
+    # Admin
+    admin_catalog, admin_inventory, admin_support, admin_promotions,
+    admin_rbac, admin_warehouse_inventory, admin_fulfillment,
 
- # ✅ NEW
 )
 
 app = FastAPI(
@@ -60,7 +67,15 @@ app.include_router(inventory.router)
 app.include_router(feedback.router)
 app.include_router(support.router)
 app.include_router(realtime.router)
-app.include_router(channels.router)
+# app.include_router(channels.router)
+# app.include_router(channels.router)
+app.include_router(chat.router)
+app.include_router(omni.router)
+app.include_router(fulfillment.router)
+app.include_router(recommendations.router)
+app.include_router(commerce.router)
+app.include_router(notifications.router)
+
 
 # Admin
 app.include_router(admin_catalog.router)
