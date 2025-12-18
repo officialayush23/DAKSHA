@@ -1,10 +1,8 @@
-# app/models/management.py
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 from datetime import time
 
 # --- Catalog Management ---
-
 
 class ProductCreate(BaseModel):
     name: str
@@ -51,31 +49,32 @@ class StockAdjustment(BaseModel):
     variant_id: str
     quantity_change: int # Can be negative (shrinkage) or positive (restock)
     reason: str
+class StockUpdate(BaseModel):
+    """
+    Used for Inward Stock (adding new inventory).
+    """
+    product_variant_id: str
+    quantity: int
+    aisle: Optional[int] = None
+    shelf: Optional[int] = None
+    bay: Optional[int] = None      # ✅ Added matching schema
+    section_id: Optional[str] = None # ✅ Added matching schema
+    reason: Optional[str] = "Inward Stock"
+
+class InventoryAdjustRequest(BaseModel):
+    variant_id: str
+    quantity_change: int 
+    reason: Optional[str] = None
+
 class InventoryFullUpdate(BaseModel):
-    """
-    Used by Store Managers to move items or correct counts.
-
-    This maps directly to the inventory table:
-      - store_id
-      - product_variant_id
-      - quantity_on_hand / reserved
-      - location fields (aisle / bay / shelf / display_location / section_id)
-    """
-
     variant_id: str
     store_id: str
-
     quantity_on_hand: Optional[int] = None
     section_id: Optional[str] = None
     aisle_number: Optional[int] = None
     bay_number: Optional[int] = None
     shelf_height: Optional[int] = None
-    display_location: Optional[str] = None  # e.g. "Rack 4"
-
-
-# --- Promotion Management ---
-
-
+    display_location: Optional[str] = None
 class PromotionCreate(BaseModel):
     code: str
     name: str
@@ -87,6 +86,3 @@ class PromotionCreate(BaseModel):
 
 class OrderStatusUpdate(BaseModel):
     status: str
-
-
- 

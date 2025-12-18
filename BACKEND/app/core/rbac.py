@@ -1,122 +1,110 @@
-# app/core/rbac.py
-
-from fastapi import Depends, HTTPException, status
-from app.database import supabase
+from fastapi import Request, Depends, HTTPException, status
 from app.core.auth import get_current_user_id
-
-
-# --------------------------------------------------
-# LOAD RBAC CONTEXT
-# --------------------------------------------------
-def get_user_rbac(user_id: str) -> dict:
-    user = (
-        supabase.table("users")
-        .select("id, role")
-        .eq("id", user_id)
-        .single()
-        .execute()
-    ).data
-
-    if not user:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid user")
-
-    scopes = (
-        supabase.table("user_roles")
-        .select("role, store_id, warehouse_id")
-        .eq("user_id", user_id)
-        .execute()
-    ).data or []
-
-    return {
-        "user_id": user_id,
-        "identity": user["role"],  # customer | super_admin
-        "scopes": scopes,
-    }
-
+from app.database import supabase
+from typing import List
 
 # --------------------------------------------------
 # ROLE CHECK (GLOBAL + SCOPED)
 # --------------------------------------------------
-def require_role(*allowed_roles: str):
-    def dependency(user_id: str = Depends(get_current_user_id)):
-        rbac = get_user_rbac(user_id)
 
-        # super_admin bypass
-        if rbac["identity"] == "super_admin":
-            return rbac
+def require_role(*required_roles: str):
+    """
+    Dependency to check if user has ANY of the required roles.
+    Now accepts multiple arguments like: require_role("admin", "store_manager")
+    """
+    async def dependency(user_id: str = Depends(get_current_user_id)):
+        # 1. Fetch User Roles
+        res = supabase.table("user_roles").select("role").eq("user_id", user_id).execute()
+        user_roles = [r['role'] for r in res.data] if res.data else []
+        
+        # 2. Check Role (Allow super_admin bypass)
+        if "super_admin" in user_roles:
+            return user_id
+            
+        # Check if user has ANY of the required roles
+        # If no roles required (empty), allow access (or block, depending on policy. Here we block empty).
+        if not required_roles:
+             return user_id
 
-        # global operational roles (catalog, support, fulfillment)
-        for scope in rbac["scopes"]:
-            if scope["role"] in allowed_roles:
-                return rbac
-
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            "Insufficient permissions"
-        )
-
+        has_required = any(role in user_roles for role in required_roles)
+        
+        if not has_required:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Missing required role(s): {', '.join(required_roles)}"
+            )
+        return user_id
     return dependency
 
-
-# --------------------------------------------------
-# STORE ACCESS
-# --------------------------------------------------
-def require_store_access(store_id_param: str = "store_id"):
-    def dependency(
-        user_id: str = Depends(get_current_user_id),
-        **kwargs
-    ):
-        store_id = kwargs.get(store_id_param)
+def require_store_access(id_param_name: str = "store_id"):
+    """
+    Checks if user has access to the store_id in the path parameters.
+    """
+    async def dependency(request: Request, user_id: str = Depends(get_current_user_id)):
+        # 1. Extract Store ID from Path (Preferred)
+        store_id = request.path_params.get(id_param_name)
+        
+        # 2. Fallback: Check Query Params (if not in path)
         if not store_id:
-            raise HTTPException(400, "store_id required")
+            store_id = request.query_params.get(id_param_name)
+            
+        if not store_id:
+            # If we can't find the ID, we assume the Route will handle the 404/422 validation.
+            return user_id
 
-        rbac = get_user_rbac(user_id)
+        # 3. Check Permissions
+        res = supabase.table("user_roles")\
+            .select("role, store_id")\
+            .eq("user_id", user_id)\
+            .execute()
+            
+        roles_data = res.data or []
+        
+        # Super Admin Bypass
+        if any(r['role'] == 'super_admin' for r in roles_data):
+            return user_id
 
-        if rbac["identity"] == "super_admin":
-            return rbac
-
-        for scope in rbac["scopes"]:
-            if (
-                scope["role"] == "store_manager"
-                and scope["store_id"] == store_id
-            ):
-                return rbac
-
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            "No access to this store"
-        )
-
+        # Specific Access Check
+        has_access = any(r['role'] == 'store_manager' and str(r['store_id']) == str(store_id) for r in roles_data)
+        
+        if not has_access:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have access to this store."
+            )
+        
+        return user_id
     return dependency
 
-
-# --------------------------------------------------
-# WAREHOUSE ACCESS
-# --------------------------------------------------
-def require_warehouse_access(warehouse_id_param: str = "warehouse_id"):
-    def dependency(
-        user_id: str = Depends(get_current_user_id),
-        **kwargs
-    ):
-        warehouse_id = kwargs.get(warehouse_id_param)
+def require_warehouse_access(id_param_name: str = "warehouse_id"):
+    """
+    Checks if user has access to the warehouse_id in the path parameters.
+    """
+    async def dependency(request: Request, user_id: str = Depends(get_current_user_id)):
+        warehouse_id = request.path_params.get(id_param_name)
         if not warehouse_id:
-            raise HTTPException(400, "warehouse_id required")
+            warehouse_id = request.query_params.get(id_param_name)
 
-        rbac = get_user_rbac(user_id)
+        if not warehouse_id:
+            return user_id
 
-        if rbac["identity"] == "super_admin":
-            return rbac
+        res = supabase.table("user_roles")\
+            .select("role, warehouse_id")\
+            .eq("user_id", user_id)\
+            .execute()
+            
+        roles_data = res.data or []
+        
+        if any(r['role'] == 'super_admin' for r in roles_data):
+            return user_id
 
-        for scope in rbac["scopes"]:
-            if (
-                scope["role"] == "warehouse_manager"
-                and scope["warehouse_id"] == warehouse_id
-            ):
-                return rbac
-
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            "No access to this warehouse"
-        )
-
+        has_access = any(r['role'] == 'warehouse_manager' and str(r['warehouse_id']) == str(warehouse_id) for r in roles_data)
+        
+        if not has_access:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have access to this warehouse."
+            )
+        
+        return user_id
     return dependency

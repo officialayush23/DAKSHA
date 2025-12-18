@@ -1,3 +1,5 @@
+// FRONTEND/src/inventory/InventoryLayout.jsx
+
 import React from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";

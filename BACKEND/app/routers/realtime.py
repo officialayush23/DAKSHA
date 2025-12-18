@@ -47,3 +47,19 @@ async def inventory_alert_stream(websocket: WebSocket, fulfillment_location_id: 
             await asyncio.sleep(0.1)
     except WebSocketDisconnect:
         await pubsub.unsubscribe()
+
+
+@router.websocket("/ws/notifications/{user_id}")
+async def notification_stream(websocket: WebSocket, user_id: str):
+    await websocket.accept()
+    # Subscribe to user-specific channel
+    pubsub = await redis_client.subscribe(f"user:{user_id}:notifications")
+    
+    try:
+        while True:
+            msg = await pubsub.get_message(ignore_subscribe_messages=True)
+            if msg:
+                await websocket.send_text(msg["data"])
+            await asyncio.sleep(0.1)
+    except WebSocketDisconnect:
+        await pubsub.unsubscribe()

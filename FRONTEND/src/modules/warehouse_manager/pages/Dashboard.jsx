@@ -1,3 +1,5 @@
+// FRONTEND/src/modules/warehouse_manager/pages/Dashboard.jsx
+
 import React, { useEffect, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import api from "@/lib/apiClient";

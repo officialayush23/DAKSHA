@@ -1,162 +1,107 @@
-# app/services/payment_service.py
 from datetime import datetime
 from fastapi import HTTPException
 from app.database import supabase
-from app.core.redis_bus import EventBus
 from app.services.human_handoff_service import HumanHandoffService
+import logging
+import uuid
 
+logger = logging.getLogger("payment_service")
 
 class PaymentService:
 
-    # ---------------------------------------------------------
-    # 1️⃣ AUTHORIZE + CAPTURE PAYMENT
-    # ---------------------------------------------------------
+    @staticmethod
+    def create_payment_intent(order_id: str, user_id: str):
+        # 1. Fetch Order
+        order = supabase.table("orders").select("total_amount, status").eq("id", order_id).single().execute().data
+        if not order: raise HTTPException(404, "Order not found")
+        
+        # 2. Check existing intent
+        existing = supabase.table("payments").select("id, provider_reference").eq("order_id", order_id).eq("status", "initiated").maybe_single().execute()
+        if existing.data:
+            return {"payment_id": existing.data['id'], "client_secret": existing.data['provider_reference']}
+
+        # 3. Create Intent
+        gateway_id = f"pi_{uuid.uuid4().hex[:16]}"
+        payment = supabase.table("payments").insert({
+            "order_id": order_id,
+            "user_id": user_id,
+            "amount": order['total_amount'],
+            "currency": "INR",
+            "provider": "razorpay_sim",
+            "provider_reference": gateway_id,
+            "status": "initiated",
+            "created_at": datetime.utcnow().isoformat()
+        }).execute().data[0]
+
+        return {"payment_id": payment['id'], "client_secret": gateway_id}
+
     @staticmethod
     def capture_payment(order_id: str, provider: str, provider_ref: str, amount: float):
-        order = (
-            supabase.table("orders")
-            .select("*")
-            .eq("id", order_id)
-            .single()
-            .execute()
-        ).data
+        # 1. Validate Order
+        order = supabase.table("orders").select("*").eq("id", order_id).single().execute().data
+        if not order: raise HTTPException(404, "Order not found")
+        if order["status"] in ["paid", "shipped", "delivered"]: return {"status": "already_paid"}
 
-        if not order:
-            raise HTTPException(404, "Order not found")
-
-        if order["status"] != "pending":
-            raise HTTPException(409, "Order already paid or cancelled")
-
-        payment = (
-            supabase.table("payments")
-            .insert({
+        # 2. Update Payment Record
+        intent = supabase.table("payments").select("id").eq("order_id", order_id).eq("status", "initiated").maybe_single().execute()
+        
+        if intent.data:
+            payment = supabase.table("payments").update({
+                "status": "captured",
+                "captured_at": datetime.utcnow().isoformat(),
+                "provider_reference": provider_ref
+            }).eq("id", intent.data['id']).execute().data[0]
+        else:
+            payment = supabase.table("payments").insert({
                 "order_id": order_id,
                 "amount": amount,
-                "currency": "INR",
+                "user_id": order['user_id'],
                 "provider": provider,
                 "provider_reference": provider_ref,
                 "status": "captured",
-                "captured_at": datetime.utcnow(),
-            })
-            .execute()
-        ).data[0]
+                "captured_at": datetime.utcnow().isoformat()
+            }).execute().data[0]
 
-        # Escrow credit (LOCKED)
-        PaymentService._credit_escrow(order_id, amount)
+        # 3. Escrow & Loyalty (Safe Mode)
+        try:
+            PaymentService._credit_escrow(order_id, amount)
+            PaymentService._upgrade_loyalty(order['user_id'], amount)
+        except Exception as e:
+            logger.error(f"Post-payment hook failed: {e}")
 
-        # Move order forward
-        supabase.table("orders") \
-            .update({"status": "paid"}) \
-            .eq("id", order_id) \
-            .execute()
-
+        # 4. Finalize Order
+        supabase.table("orders").update({"status": "paid"}).eq("id", order_id).execute()
         return payment
 
-    # ---------------------------------------------------------
-    # 2️⃣ CREDIT ESCROW WALLET
-    # ---------------------------------------------------------
     @staticmethod
-    def _credit_escrow(order_id: str, amount: float):
-        wallet = (
-            supabase.table("wallets")
-            .select("*")
-            .eq("type", "escrow")
-            .single()
-            .execute()
-        ).data
-
-        if not wallet:
-            raise HTTPException(500, "Escrow wallet missing")
-
-        supabase.table("wallet_transactions").insert({
-            "wallet_id": wallet["id"],
-            "amount": amount,
-            "type": "credit",
-            "status": "locked",
-            "reference_type": "order",
-            "reference_id": order_id,
-            "created_at": datetime.utcnow(),
+    def record_failure(order_id: str, reason: str):
+        supabase.table("payment_attempts").insert({
+            "gateway_transaction_id": f"fail_{uuid.uuid4().hex[:8]}",
+            "status": "failed",
+            "error_message": reason,
+            "gateway_response_json": {"order_id": order_id},
+            "attempted_at": datetime.utcnow().isoformat()
         }).execute()
 
-    # ---------------------------------------------------------
-    # 3️⃣ RELEASE PAYOUT AFTER DELIVERY
-    # ---------------------------------------------------------
     @staticmethod
-    def release_payout(order_id: str):
-        fulfillment = (
-            supabase.table("fulfillments")
-            .select("*")
-            .eq("order_id", order_id)
-            .maybe_single()
-            .execute()
-        ).data
+    def _credit_escrow(order_id: str, amount: float):
+        wallet = supabase.table("wallets").select("id").eq("type", "escrow").maybe_single().execute().data
+        if wallet:
+            supabase.table("wallet_transactions").insert({
+                "wallet_id": wallet["id"],
+                "amount": amount,
+                "type": "credit",
+                "status": "locked",
+                "reference_type": "order",
+                "reference_id": order_id
+            }).execute()
 
-        if not fulfillment or fulfillment["status"] != "delivered":
-            raise HTTPException(409, "Order not delivered")
-
-        tx = (
-            supabase.table("wallet_transactions")
-            .select("*")
-            .eq("reference_id", order_id)
-            .eq("status", "locked")
-            .maybe_single()
-            .execute()
-        ).data
-
-        if not tx:
-            raise HTTPException(409, "No escrow transaction found")
-
-        # Unlock escrow
-        supabase.table("wallet_transactions") \
-            .update({"status": "released"}) \
-            .eq("id", tx["id"]) \
-            .execute()
-
-        # Schedule payout
-        payout = (
-            supabase.table("payouts")
-            .insert({
-                "order_id": order_id,
-                "amount": tx["amount"],
-                "status": "scheduled",
-                "scheduled_at": datetime.utcnow(),
-            })
-            .execute()
-        ).data[0]
-
-        return payout
-
-    # ---------------------------------------------------------
-    # 4️⃣ REFUND (FAILURE / CANCELLATION)
-    # ---------------------------------------------------------
     @staticmethod
-    def refund(order_id: str, reason: str):
-        tx = (
-            supabase.table("wallet_transactions")
-            .select("*")
-            .eq("reference_id", order_id)
-            .eq("status", "locked")
-            .maybe_single()
-            .execute()
-        ).data
-
-        if not tx:
-            raise HTTPException(409, "No refundable escrow")
-
-        supabase.table("wallet_transactions").update({
-            "status": "reversed",
-            "metadata": {"reason": reason},
-        }).eq("id", tx["id"]).execute()
-
-        supabase.table("orders").update({
-            "status": "refunded"
-        }).eq("id", order_id).execute()
-
-        HumanHandoffService.trigger(
-            session_id=None,
-            user_id=None,
-            reason="payment_refund",
-            summary=reason,
-        )
-
-        return {"status": "refunded"}
+    def _upgrade_loyalty(user_id: str, amount: float):
+        points_row = supabase.table("users").select("loyalty_points").eq("id", user_id).single().execute().data
+        if points_row:
+            new_pts = (points_row.get("loyalty_points") or 0) + int(amount / 10)
+            tier = "bronze"
+            if new_pts > 5000: tier = "gold"
+            elif new_pts > 1000: tier = "silver"
+            supabase.table("users").update({"loyalty_points": new_pts, "loyalty_tier": tier}).eq("id", user_id).execute()

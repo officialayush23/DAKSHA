@@ -1,3 +1,4 @@
+# src/app/routers/admin_inventory_onboarding.py
 from fastapi import APIRouter, Depends, HTTPException
 from app.core.rbac import require_store_access, require_warehouse_access
 from app.database import supabase

@@ -1,3 +1,5 @@
+//  FRONTEND/src/modules/warehouse_manager/pages/Outbound.jsx
+
 import React, { useState, useEffect } from "react";
 import { useOutletContext } from "react-router-dom";
 import api from "@/lib/apiClient";

@@ -1,3 +1,5 @@
+// FRONTEND/src/modules/warehouse_manager/pages/Inventory.jsx
+
 import React, { useState, useEffect } from "react";
 import { useOutletContext } from "react-router-dom";
 import api from "@/lib/apiClient";
@@ -134,22 +136,25 @@ function AdjustStockDialog({ item, warehouseId, onSuccess }) {
   const handleAdjust = async () => {
     setLoading(true);
     try {
+      // ✅ Corrected Payload structure
       await api.post("/admin/warehouse/inventory/adjust", {
-        warehouse_id: warehouseId,
-        variant_id: item.variant_id,
-        quantity_change: parseInt(adjustment),
-        reason: reason
+          variant_id: item.variant_id, // Ensure this matches backend expected field
+          quantity_change: parseInt(adjustment),
+          reason: reason
+      }, {
+          params: { warehouse_id: warehouseId } // Passed as query param
       });
+
       toast.success("Stock updated successfully");
       setOpen(false);
-      onSuccess(); // Refresh parent table
+      onSuccess();
     } catch (error) {
       toast.error("Adjustment failed");
+      console.error(error);
     } finally {
       setLoading(false);
     }
   };
-
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>

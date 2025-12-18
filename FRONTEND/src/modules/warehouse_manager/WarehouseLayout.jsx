@@ -1,7 +1,9 @@
+// FRONTEND/src/modules/warehouse_manager/WarehouseLayout.jsx
+
 import React, { useEffect, useState } from "react";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import { 
-  Factory, LayoutDashboard, PackageSearch, Truck, LogOut, Check, ChevronsUpDown, AlertTriangle, Loader2 
+  Factory, LayoutDashboard, PackageSearch, Truck, LogOut, Check, ChevronsUpDown, AlertTriangle, Loader2 ,MoveDown
 } from "lucide-react";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarHeader, SidebarFooter, SidebarProvider, SidebarTrigger
@@ -136,6 +138,11 @@ export default function WarehouseLayout() {
                   <SidebarMenuItem>
                     <SidebarMenuButton asChild isActive={location.pathname.includes("/inventory")} className="hover:bg-zinc-900 text-zinc-400 data-[active=true]:text-white data-[active=true]:bg-zinc-900">
                       <Link to="/warehouse-manager/inventory"><PackageSearch className="h-4 w-4" /> <span>Inventory</span></Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild isActive={location.pathname === "/warehouse-manager/inbound"} className="hover:bg-zinc-900 text-zinc-400 data-[active=true]:text-white data-[active=true]:bg-zinc-900">
+                      <Link to="/warehouse-manager/inbound"><MoveDown className="h-4 w-4" /> <span>Inbound Stock</span></Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                   <SidebarMenuItem>

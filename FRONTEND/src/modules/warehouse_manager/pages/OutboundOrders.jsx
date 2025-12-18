@@ -3,7 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import api from "@/lib/apiClient";
 import { toast } from "sonner";
 import { 
-  Truck, Package, CheckCircle, Loader2, Calendar, MapPin 
+  Truck, Package, CheckCircle, Loader2, Calendar, MapPin, Hash 
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -14,7 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 
 export default function OutboundOrders() {
-  const { warehouseId } = useOutletContext();
+  const { warehouseId } = useOutletContext(); // Ensure layout provides this
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState([]);
   const [processingId, setProcessingId] = useState(null);
@@ -23,6 +23,7 @@ export default function OutboundOrders() {
     if (!warehouseId) return;
     setLoading(true);
     try {
+      // ✅ Corrected URL structure to match backend
       const res = await api.get(`/admin/warehouse/outbound/orders/${warehouseId}`);
       setOrders(res.data || []);
     } catch (error) {
@@ -38,9 +39,10 @@ export default function OutboundOrders() {
   }, [warehouseId]);
 
   const handleShip = async (orderId) => {
+    if (!confirm("Confirm dispatch?")) return;
     setProcessingId(orderId);
     try {
-      // Calls POST /admin/warehouse/outbound/ship/{order_id}?warehouse_id=...
+      // ✅ Corrected POST URL structure
       await api.post(`/admin/warehouse/outbound/ship/${orderId}`, null, {
         params: { warehouse_id: warehouseId }
       });
@@ -49,13 +51,13 @@ export default function OutboundOrders() {
       setOrders((prev) => prev.filter((o) => o.id !== orderId));
     } catch (error) {
       console.error(error);
-      toast.error("Shipping failed. Check console.");
+      toast.error("Shipping failed.");
     } finally {
       setProcessingId(null);
     }
   };
 
-  if (!warehouseId) return null;
+  if (!warehouseId) return <div className="p-10 text-center text-zinc-500">Select a warehouse.</div>;
 
   return (
     <div className="space-y-6 animate-in fade-in">
@@ -64,7 +66,7 @@ export default function OutboundOrders() {
           <h2 className="text-2xl font-bold text-white flex items-center gap-2">
             <Truck className="h-6 w-6 text-red-500" /> Outbound Shipments
           </h2>
-          <p className="text-zinc-400 text-sm">Review and dispatch orders assigned to this facility.</p>
+          <p className="text-zinc-400 text-sm">Review and dispatch orders.</p>
         </div>
         <Button onClick={fetchOutbound} variant="outline" className="border-zinc-800 text-zinc-400 hover:text-white">
           Refresh
@@ -77,7 +79,7 @@ export default function OutboundOrders() {
         <div className="flex flex-col items-center justify-center p-12 border border-dashed border-zinc-800 rounded-xl bg-zinc-900/20 text-zinc-500">
           <CheckCircle className="h-12 w-12 mb-4 text-zinc-700" />
           <h3 className="text-lg font-medium text-white">All Clear</h3>
-          <p>No pending shipments for this warehouse.</p>
+          <p>No pending shipments.</p>
         </div>
       ) : (
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
@@ -130,17 +132,6 @@ export default function OutboundOrders() {
                         ))}
                       </div>
                     </ScrollArea>
-                    
-                    <div className="mt-4 pt-3 border-t border-zinc-800 flex items-center justify-between text-xs text-zinc-500">
-                       <div className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          {new Date(order.created_at).toLocaleDateString()}
-                       </div>
-                       <div className="flex items-center gap-1">
-                          <MapPin className="h-3 w-3" />
-                          Zone A
-                       </div>
-                    </div>
                   </CardContent>
 
                   <CardFooter className="p-4 bg-zinc-950/50 border-t border-zinc-800">

@@ -1,4 +1,4 @@
-# app/main.py
+# src/app/main.py
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,54 +6,32 @@ import asyncio
 from app.workers.reservation_cleanup import reservation_cleanup_loop
 
 from app.routers import (
-    auth,
-    users,
-    profile,
-    catalog,
-    analytics,
-    cart,
-    orders,
-    payments,
-    inventory,
-    feedback,
-    support,
-    realtime,
-    channels,
-    admin_catalog,
-    admin_inventory,
-    admin_support,
-    admin_promotions,
-    admin_rbac,
-    admin_warehouse_inventory, 
-    home,
-    # Additional routers
-    omni,
-    fulfillment,
-    recommendations,
-    products,
-    commerce,
-    notifications,
+    auth, users, profile, catalog, analytics, cart, orders, payments,
+    inventory, feedback, support, realtime, channels, home,
+    omni, fulfillment, recommendations, products, commerce, notifications,
     catalog_readonly,
-    admin_fulfillment,
-    admin_catalog_read,
-    admin_inventory_onboarding,
+    # Admin
+    admin_catalog, admin_inventory, admin_support, admin_promotions,
+    admin_rbac, admin_warehouse_inventory, admin_fulfillment,
+     admin_inventory_onboarding,admin_knowledge, 
+    kiosk,dummy_payment
 )
 
 app = FastAPI(
     title="Daksha Retail API",
     version="Production-v1",
-    description="Service-Oriented AI Retail Backend with Multi-Agent Orchestration",
+    description="Service-Oriented AI Retail Backend",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten later for prod
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Public / user-facing
+# --- USER FACING ---
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(profile.router)
@@ -75,30 +53,28 @@ app.include_router(recommendations.router)
 app.include_router(products.router)
 app.include_router(commerce.router)
 app.include_router(notifications.router)
+app.include_router(dummy_payment.router)
 
-# Admin
+# --- ADMIN ---
 app.include_router(admin_catalog.router)
-app.include_router(admin_catalog_read.router)
 app.include_router(admin_inventory.router)
 app.include_router(admin_inventory_onboarding.router)
 app.include_router(admin_support.router)
 app.include_router(admin_promotions.router)
 app.include_router(admin_rbac.router)
+app.include_router(admin_fulfillment.router)
+app.include_router(admin_knowledge.router)
+app.include_router(kiosk.router)
+
+# ✅ WAREHOUSE ROUTERS (Distinct)
 app.include_router(admin_warehouse_inventory.router)
 app.include_router(admin_warehouse_inventory.router_outbound)
 app.include_router(admin_warehouse_inventory.router_dashboard)
-app.include_router(admin_fulfillment.router)
 
 @app.on_event("startup")
 async def start_background_tasks():
     asyncio.create_task(reservation_cleanup_loop())
 
-
-
 @app.get("/")
 def health():
-    return {
-        "status": "operational",
-        "auth": "jwt-bearer",
-        "multi_agent": True,
-    }
+    return {"status": "operational", "multi_agent": True}

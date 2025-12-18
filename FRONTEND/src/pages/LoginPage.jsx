@@ -48,6 +48,7 @@ function LoginSkeleton() {
 }
 
 export function LoginPage() {
+  // 1. ALL HOOKS MUST BE DECLARED AT THE TOP LEVEL
   const { login, loading, profile, refreshProfile } = useAuth();
   const navigate = useNavigate();
 
@@ -55,15 +56,11 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  if (loading) return <LoginSkeleton />;
-
-  // Redirect after login based on profile completion
+  // 2. useEffect is now safe because it runs before any return statement
   useEffect(() => {
     if (!loading && profile !== null) {
-      // Profile has been loaded, check if user should go to register
       if (profile && profile.phone_number) {
-        // User has completed profile, but don't auto-redirect here
-        // Let the login handler do it
+        // Logic if needed
       }
     }
   }, [profile, loading]);
@@ -75,7 +72,7 @@ export function LoginPage() {
       await login(email, password);
       await refreshProfile();
       toast.success("Signed in.");
-      // Fetch fresh profile data
+      
       const freshProfile = await api.get("/users/me").then(res => res.data).catch(() => null);
       if (freshProfile && freshProfile.phone_number) {
         navigate("/home");
@@ -88,6 +85,9 @@ export function LoginPage() {
       setSubmitting(false);
     }
   };
+
+  // 3. CONDITIONAL RENDERING MUST HAPPEN AFTER ALL HOOKS
+  if (loading) return <LoginSkeleton />;
 
   return (
     <AuthLayout>

@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { useOutletContext } from "react-router-dom"; // Optimization: Use Context
-import api from "@/lib/apiClient"; 
-import { 
+import api from "@/lib/apiClient";
+import {
   Search, PackagePlus, Loader2, Box, ChevronRight, Store, Layers, AlertTriangle
 } from "lucide-react";
 import { toast } from "sonner";
@@ -22,12 +22,12 @@ export default function InventoryInward() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const [productList, setProductList] = useState([]); 
+  const [productList, setProductList] = useState([]);
   const [allProducts, setAllProducts] = useState([]); // For Dropdown
-  
+
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [productVariants, setProductVariants] = useState([]);
-  
+
   // Selection State
   const [selectedColor, setSelectedColor] = useState(null);
   const [selectedSize, setSelectedSize] = useState(null);
@@ -54,7 +54,7 @@ export default function InventoryInward() {
     try {
       const res = await api.get("/admin/inventory/products/search", { params: { q: searchQuery } });
       setProductList(res.data || []);
-    } catch (err) { toast.error("Search failed"); } 
+    } catch (err) { toast.error("Search failed"); }
     finally { setIsSearching(false); }
   };
 
@@ -67,7 +67,7 @@ export default function InventoryInward() {
     setProductVariants([]);
     setSelectedColor(null);
     setSelectedSize(null);
-    
+
     // Fetch Variants (Necessary API call)
     try {
       const res = await api.get(`/admin/inventory/products/${product.id}/variants`);
@@ -77,7 +77,7 @@ export default function InventoryInward() {
 
   // --- COMPUTED HELPERS ---
   const availableColors = useMemo(() => [...new Set(productVariants.map(v => v.color_name).filter(Boolean))], [productVariants]);
-  
+
   const availableSizes = useMemo(() => {
     let filtered = productVariants;
     if (selectedColor) filtered = filtered.filter(v => v.color_name === selectedColor);
@@ -93,39 +93,48 @@ export default function InventoryInward() {
   const handleConfirmUpdate = async () => {
     if (!store_id) return toast.error("No Active Store Selected.");
     if (!activeVariant) return toast.error("Select Color & Size.");
-    if (!stockForm.quantity || parseInt(stockForm.quantity) <= 0) return toast.error("Invalid Quantity.");
+
+    // Ensure quantity is an integer
+    const qty = parseInt(stockForm.quantity);
+    if (isNaN(qty) || qty <= 0) return toast.error("Invalid Quantity.");
 
     setSubmitting(true);
     try {
-      // Single Optimized API call to handle Update OR Insert
+      // Payload matches Backend StockUpdate model exactly
       await api.post(`/admin/inventory/inward/${store_id}`, {
         product_variant_id: activeVariant.id,
-        quantity: parseInt(stockForm.quantity),
+        quantity: qty,
         aisle: stockForm.aisle ? parseInt(stockForm.aisle) : null,
-        shelf: stockForm.shelf ? parseInt(stockForm.shelf) : null
+        shelf: stockForm.shelf ? parseInt(stockForm.shelf) : null,
+        // Optional: add these if you add inputs for them later
+        // bay: null, 
+        // section_id: null
       });
 
       toast.success("Stock Updated Successfully");
+      // Reset only quantity so user can add more of same item if needed
       setStockForm(prev => ({ ...prev, quantity: "" }));
-      
+
     } catch (err) {
-      toast.error("Failed to update stock");
-      console.error(err);
+      // Improved Error Handling
+      console.error("Inward Error:", err);
+      const msg = err.response?.data?.detail || "Failed to update stock";
+      toast.error(msg);
     } finally {
       setSubmitting(false);
     }
   };
 
   if (!store_id) return (
-      <div className="h-full flex flex-col items-center justify-center text-zinc-500 pt-20">
-          <AlertTriangle className="h-10 w-10 mb-2 opacity-50"/>
-          <p>Please select a store from the top menu.</p>
-      </div>
+    <div className="h-full flex flex-col items-center justify-center text-zinc-500 pt-20">
+      <AlertTriangle className="h-10 w-10 mb-2 opacity-50" />
+      <p>Please select a store from the top menu.</p>
+    </div>
   );
 
   return (
     <div className="space-y-8 animate-in fade-in">
-      
+
       {/* HEADER */}
       <div className="flex items-center justify-between border-b border-zinc-900 pb-6">
         <div>
@@ -134,20 +143,20 @@ export default function InventoryInward() {
             Inward Stock
           </h2>
           <div className="flex items-center gap-2 mt-2 text-sm text-zinc-400">
-             <Store className="h-4 w-4" />
-             <span>Location: <span className="text-white font-medium">{store_name}</span></span>
-             <Badge variant="outline" className="ml-2 text-[10px] border-emerald-900/30 text-emerald-500">Active</Badge>
+            <Store className="h-4 w-4" />
+            <span>Location: <span className="text-white font-medium">{store_name}</span></span>
+            <Badge variant="outline" className="ml-2 text-[10px] border-emerald-900/30 text-emerald-500">Active</Badge>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        
+
         {/* --- LEFT: SEARCH (Catalog View) --- */}
         <div className="lg:col-span-5 space-y-6">
           <Card className="bg-zinc-950 border-zinc-800 shadow-sm">
             <CardContent className="p-4 space-y-4">
-              
+
               <div className="space-y-2">
                 <Label className="text-xs font-bold text-zinc-500 uppercase">Select Product</Label>
                 <Select onValueChange={handleProductSelect}>
@@ -161,9 +170,9 @@ export default function InventoryInward() {
               <div className="relative text-center"><span className="bg-zinc-950 px-2 text-xs uppercase text-zinc-500 relative z-10">Or Search</span><div className="absolute top-1/2 w-full border-t border-zinc-900"></div></div>
 
               <form onSubmit={handleSearch} className="flex gap-2">
-                <Input placeholder="Type Name..." className="bg-black border-zinc-800 text-white" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}/>
+                <Input placeholder="Type Name..." className="bg-black border-zinc-800 text-white" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
                 <Button type="submit" className="bg-zinc-800 hover:bg-zinc-700 text-white">
-                  {isSearching ? <Loader2 className="h-4 w-4 animate-spin"/> : <Search className="h-4 w-4"/>}
+                  {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                 </Button>
               </form>
             </CardContent>
@@ -189,7 +198,7 @@ export default function InventoryInward() {
                 <CardDescription className="text-zinc-400">Configure Stock Entry</CardDescription>
               </CardHeader>
               <CardContent className="p-6 space-y-8">
-                
+
                 {/* Variant Selectors */}
                 <div className="grid grid-cols-2 gap-8">
                   <div className="space-y-3">
@@ -216,25 +225,25 @@ export default function InventoryInward() {
                 {activeVariant ? (
                   <div className="space-y-6 animate-in slide-in-from-bottom-2">
                     <div className="flex items-center gap-4 bg-emerald-950/20 p-4 rounded-xl border border-emerald-900/30">
-                       <div className="h-12 w-12 rounded bg-black border border-zinc-800 flex items-center justify-center overflow-hidden">
-                          {activeVariant.image_url ? <img src={activeVariant.image_url} className="h-full w-full object-cover"/> : <Box className="h-6 w-6 text-emerald-600"/>}
-                       </div>
-                       <div><p className="text-sm text-emerald-400 font-semibold">Variant Selected</p><p className="text-xs text-zinc-400 font-mono">SKU: {activeVariant.sku}</p></div>
+                      <div className="h-12 w-12 rounded bg-black border border-zinc-800 flex items-center justify-center overflow-hidden">
+                        {activeVariant.image_url ? <img src={activeVariant.image_url} className="h-full w-full object-cover" /> : <Box className="h-6 w-6 text-emerald-600" />}
+                      </div>
+                      <div><p className="text-sm text-emerald-400 font-semibold">Variant Selected</p><p className="text-xs text-zinc-400 font-mono">SKU: {activeVariant.sku}</p></div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-6">
                       <div className="space-y-2">
                         <Label className="text-zinc-400">Quantity to Add</Label>
-                        <Input type="number" autoFocus className="h-12 text-lg bg-black border-zinc-800 font-mono" value={stockForm.quantity} onChange={e => setStockForm({...stockForm, quantity: e.target.value})} />
+                        <Input type="number" autoFocus className="h-12 text-lg bg-black border-zinc-800 font-mono" value={stockForm.quantity} onChange={e => setStockForm({ ...stockForm, quantity: e.target.value })} />
                       </div>
                       <div className="grid grid-cols-2 gap-2">
-                          <div className="space-y-2"><Label className="text-zinc-500">Aisle</Label><Input className="h-12 bg-black border-zinc-800" value={stockForm.aisle} onChange={e => setStockForm({...stockForm, aisle: e.target.value})} /></div>
-                          <div className="space-y-2"><Label className="text-zinc-500">Shelf</Label><Input className="h-12 bg-black border-zinc-800" value={stockForm.shelf} onChange={e => setStockForm({...stockForm, shelf: e.target.value})} /></div>
+                        <div className="space-y-2"><Label className="text-zinc-500">Aisle</Label><Input className="h-12 bg-black border-zinc-800" value={stockForm.aisle} onChange={e => setStockForm({ ...stockForm, aisle: e.target.value })} /></div>
+                        <div className="space-y-2"><Label className="text-zinc-500">Shelf</Label><Input className="h-12 bg-black border-zinc-800" value={stockForm.shelf} onChange={e => setStockForm({ ...stockForm, shelf: e.target.value })} /></div>
                       </div>
                     </div>
 
                     <Button onClick={handleConfirmUpdate} disabled={submitting || !stockForm.quantity} className="w-full h-14 bg-white text-black hover:bg-zinc-200 font-bold text-base rounded-xl">
-                      {submitting ? <Loader2 className="animate-spin mr-2"/> : <PackagePlus className="mr-2 h-5 w-5"/>} Add to Inventory
+                      {submitting ? <Loader2 className="animate-spin mr-2" /> : <PackagePlus className="mr-2 h-5 w-5" />} Add to Inventory
                     </Button>
                   </div>
                 ) : (
@@ -245,7 +254,7 @@ export default function InventoryInward() {
               </CardContent>
             </Card>
           ) : (
-             <div className="h-[400px] flex flex-col items-center justify-center border-2 border-dashed border-zinc-900 rounded-xl text-zinc-600">
+            <div className="h-[400px] flex flex-col items-center justify-center border-2 border-dashed border-zinc-900 rounded-xl text-zinc-600">
               <Layers className="h-12 w-12 mb-4 opacity-20" />Select a product to begin.
             </div>
           )}

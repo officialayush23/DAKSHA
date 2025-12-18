@@ -63,6 +63,8 @@ import FulfillmentQueue from "./modules/fulfillment_agent/pages/Queue";
 import FulfillmentHistory from "./modules/fulfillment_agent/pages/History";
 
 import { GlobalLayout } from "@/components/layout/GlobalLayout";
+import KioskLogin from "./modules/kiosk/page/KioskLogin";
+import StoreGuide from "./modules/kiosk/page/StoreGuide";
 
 function AppInner() {
   const { user } = useAuth();
@@ -94,29 +96,29 @@ function AppInner() {
 
       </Route>
 
-       {/* --- 🛡️ ROLE PROTECTED ROUTES (ADMIN PORTALS) --- */}
-        
-        {/* 1. STORE MANAGER PORTAL */}
-        <Route element={<RoleProtectedRoute allowedRoles={['store_manager', 'super_admin']} />}>
-          <Route path="/store-manager" element={<StoreLayout />}>
-            <Route index element={<StoreManagerDashboard />} />
-            <Route path="inward" element={<InventoryInward />} />
-            <Route path="orders" element={<OrderQueue />} />
-            <Route path="list" element={<InventoryList />} />
-            <Route path="history" element={<HistoryLogs />} />
-          </Route>
-        </Route>
+      {/* --- 🛡️ ROLE PROTECTED ROUTES (ADMIN PORTALS) --- */}
 
-        <Route element={<RoleProtectedRoute allowedRoles={['warehouse_manager', 'super_admin']} />}>
-          <Route path="/warehouse-manager" element={<WarehouseLayout />}>
-            <Route index element={<WarehouseDashboard />} />
-            <Route path="inventory" element={<WarehouseInventory />} />
-            <Route path="inbound" element={<Inbound />} />
-            <Route path="Outbound" element={<Outbound />} />
-          </Route>
+      {/* 1. STORE MANAGER PORTAL */}
+      <Route element={<RoleProtectedRoute allowedRoles={['store_manager', 'super_admin']} />}>
+        <Route path="/store-manager" element={<StoreLayout />}>
+          <Route index element={<StoreManagerDashboard />} />
+          <Route path="inward" element={<InventoryInward />} />
+          <Route path="orders" element={<OrderQueue />} />
+          <Route path="list" element={<InventoryList />} />
+          <Route path="history" element={<HistoryLogs />} />
         </Route>
+      </Route>
 
-        {/* 2. WAREHOUSE / INVENTORY PORTAL
+      <Route element={<RoleProtectedRoute allowedRoles={['warehouse_manager', 'super_admin']} />}>
+        <Route path="/warehouse-manager" element={<WarehouseLayout />}>
+          <Route index element={<WarehouseDashboard />} />
+          <Route path="inventory" element={<WarehouseInventory />} />
+          <Route path="inbound" element={<Inbound />} />
+          <Route path="Outbound" element={<Outbound />} />
+        </Route>
+      </Route>
+
+      {/* 2. WAREHOUSE / INVENTORY PORTAL
         <Route element={<RoleProtectedRoute allowedRoles={['warehouse_manager', 'super_admin']} />}>
           <Route path="/inventory" element={<InventoryLayout />}>
             <Route index element={<WarehouseDashboard />} />
@@ -125,49 +127,53 @@ function AppInner() {
           </Route>
         </Route> */}
 
-        {/* 3. CATALOG ADMIN PORTAL */}
-        <Route element={<RoleProtectedRoute allowedRoles={['catalog_admin', 'super_admin']} />}>
-          <Route path="/catalog" element={<CatalogLayout />}>
-            <Route index element={<CatalogDashboard />} />
-            <Route path="list" element={<ProductList />} />
-            <Route path="search" element={<ProductList />} />
-            <Route path="create-product" element={<CreateProduct />} />
-            <Route path="create-variant" element={<CreateVariant />} />
-            <Route path="categories" element={<CategoryManager />} />
-          </Route>
+      {/* 3. CATALOG ADMIN PORTAL */}
+      <Route element={<RoleProtectedRoute allowedRoles={['catalog_admin', 'super_admin']} />}>
+        <Route path="/catalog" element={<CatalogLayout />}>
+          <Route index element={<CatalogDashboard />} />
+          <Route path="list" element={<ProductList />} />
+          <Route path="search" element={<ProductList />} />
+          <Route path="create-product" element={<CreateProduct />} />
+          <Route path="create-variant" element={<CreateVariant />} />
+          <Route path="categories" element={<CategoryManager />} />
         </Route>
+      </Route>
 
-        {/* 4. SUPER ADMIN PORTAL */}
-        <Route element={<RoleProtectedRoute allowedRoles={['super_admin']} />}>
-          <Route path="/super-admin" element={<SuperAdminLayout />}>
-            <Route path="" element={<CreateLocation />} />
-            <Route path="rbac" element={<AccessControl />} />
-          </Route>
+      {/* 4. SUPER ADMIN PORTAL */}
+      <Route element={<RoleProtectedRoute allowedRoles={['super_admin']} />}>
+        <Route path="/super-admin" element={<SuperAdminLayout />}>
+          <Route path="" element={<CreateLocation />} />
+          <Route path="rbac" element={<AccessControl />} />
         </Route>
+      </Route>
+      <Route path="/kiosk/login" element={<KioskLogin />} />
 
-        {/* 5. SUPPORT AGENT PORTAL */}
-        <Route element={<RoleProtectedRoute allowedRoles={['support_agent' , 'super_admin']} />}>
-          <Route path="support-agent" element={<SupportLayout />}>
+      <Route element={<RoleProtectedRoute allowedRoles={['customer', 'super_admin']} />}>
+        <Route path="/kiosk/guide" element={<StoreGuide />} />
+      </Route>
+      {/* 5. SUPPORT AGENT PORTAL */}
+      <Route element={<RoleProtectedRoute allowedRoles={['support_agent', 'super_admin']} />}>
+        <Route path="support-agent" element={<SupportLayout />}>
           <Route index element={<SupportDashboard />} />
-            <Route path="tickets" element={< SupportTicketList/>} />
-            <Route path="history" element={<SupportHistory />} />
-          </Route>
+          <Route path="tickets" element={< SupportTicketList />} />
+          <Route path="history" element={<SupportHistory />} />
         </Route>
+      </Route>
 
-        {/* 6. FULFILLMENT AGENT PORTAL */}
-        <Route path="/fulfillment-agent" element={<FulfillmentLayout />}>
-          <Route index element={<FulfillmentQueue />} />
-          <Route path="history" element={<FulfillmentHistory />} />
-        </Route>
+      {/* 6. FULFILLMENT AGENT PORTAL */}
+      <Route path="/fulfillment-agent" element={<FulfillmentLayout />}>
+        <Route index element={<FulfillmentQueue />} />
+        <Route path="history" element={<FulfillmentHistory />} />
+      </Route>
 
-        {/* --- 404 FALLBACK --- */}
-        <Route path="*" element={
-          <div className="flex h-screen flex-col items-center justify-center text-zinc-400">
-            <h1 className="text-4xl font-bold text-red-600 mb-2">404</h1>
-            <p>Page Not Found</p>
-            <Button variant="link" onClick={() => window.location.href = "/"}>Go Home</Button>
-          </div>
-        } />
+      {/* --- 404 FALLBACK --- */}
+      <Route path="*" element={
+        <div className="flex h-screen flex-col items-center justify-center text-zinc-400">
+          <h1 className="text-4xl font-bold text-red-600 mb-2">404</h1>
+          <p>Page Not Found</p>
+          <Button variant="link" onClick={() => window.location.href = "/"}>Go Home</Button>
+        </div>
+      } />
     </Routes>
   );
 }

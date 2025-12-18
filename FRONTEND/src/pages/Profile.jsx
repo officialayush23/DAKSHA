@@ -218,8 +218,8 @@ export default function ProfilePage() {
       
       {/* Header */}
       <div className="flex items-center justify-between">
-        <Button variant="ghost" className="gap-2 pl-0 hover:pl-2 transition-all" onClick={() => navigate("/dashboard")}>
-          <ArrowLeft className="h-5 w-5" /> Back to Dashboard
+        <Button variant="ghost" className="gap-2 pl-0 hover:pl-2 transition-all" onClick={() => navigate("/home")}>
+          <ArrowLeft className="h-5 w-5" /> Back to home
         </Button>
         <Button variant="outline" onClick={logout} className="text-destructive hover:bg-destructive/10 border-destructive/20">
           <LogOut className="h-4 w-4 mr-2" /> Sign Out

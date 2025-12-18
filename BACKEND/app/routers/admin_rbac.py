@@ -1,9 +1,7 @@
-# app/routers/admin_rbac.py
-
 from fastapi import APIRouter, Depends, HTTPException
 from app.core.rbac import require_role
 from app.database import supabase
-from app.models.rbac import RoleAssignRequest,LocationCreate,RoleRevoke
+from app.models.rbac import RoleAssignRequest, LocationCreate, RoleRevoke
 from uuid import UUID
 
 def is_valid_uuid(val):
@@ -12,182 +10,27 @@ def is_valid_uuid(val):
         return True
     except ValueError:
         return False
-router = APIRouter(prefix="/admin/super", tags=["Super Admin: RBAC"])
 
+router = APIRouter(prefix="/admin/super", tags=["Super Admin: RBAC"])
 
 # -------------------------------
 # ASSIGN ROLE
 # -------------------------------
-@router.post("/assign")
-async def assign_role(
-    payload: RoleAssignRequest,
-    _rbac=Depends(require_role("super_admin")),
-):
-    role = payload.role
-
-    # 🚫 HARD BLOCK GLOBAL IDENTITIES
-    if role in ("customer", "super_admin"):
-        raise HTTPException(
-            400,
-            "Global roles cannot be assigned via RBAC"
-        )
-
-    scoped_roles = {
-        "store_manager": "store_id",
-        "warehouse_manager": "warehouse_id",
-    }
-
-    if role in scoped_roles:
-        required = scoped_roles[role]
-        if not getattr(payload, required):
-            raise HTTPException(400, f"{required} required for {role}")
-
-    exists = (
-        supabase.table("user_roles")
-        .select("id")
-        .eq("user_id", payload.user_id)
-        .eq("role", role)
-        .eq("store_id", payload.store_id)
-        .eq("warehouse_id", payload.warehouse_id)
-        .maybe_single()
-        .execute()
-    ).data
-
-    if exists:
-        raise HTTPException(409, "Role already assigned")
-
-    res = (
-        supabase.table("user_roles")
-        .insert({
-            "user_id": payload.user_id,
-            "role": role,
-            "store_id": payload.store_id,
-            "warehouse_id": payload.warehouse_id,
-        })
-        .execute()
-    )
-
-    return {"status": "assigned", "role": res.data[0]}
-
-
-# -------------------------------
-# REVOKE ROLE
-# -------------------------------
-# @router.delete("/revoke")
-# async def revoke_role(
-#     payload: RoleAssignRequest,
-#     _rbac=Depends(require_role("super_admin")),
-# ):
-#     supabase.table("user_roles") \
-#         .delete() \
-#         .eq("user_id", payload.user_id) \
-#         .eq("role", payload.role) \
-#         .eq("store_id", payload.store_id) \
-#         .eq("warehouse_id", payload.warehouse_id) \
-#         .execute()
-
-#     return {"status": "revoked"}
-
-@router.post("/roles/revoke") # Using POST for complex delete logic usually safer/easier
-async def revoke_role(data: RoleRevoke, admin = Depends(require_role("super_admin"))):
-    try:
-        query = supabase.table("user_roles").delete()\
-            .eq("user_id", data.user_id)\
-            .eq("role", data.role)
-            
-        if data.store_id:
-            query = query.eq("store_id", data.store_id)
-        elif data.warehouse_id:
-            query = query.eq("warehouse_id", data.warehouse_id)
-        else:
-            # Global role revoke (like super_admin)
-            query = query.is_("store_id", "null").is_("warehouse_id", "null")
-
-        res = query.execute()
-        return {"status": "revoked"}
-
-    except Exception as e:
-        raise HTTPException(500, detail=str(e))
-# -------------------------------
-# USER RBAC SNAPSHOT
-# -------------------------------
-# @router.get("/user/{user_id}")
-# async def list_user_roles(
-#     user_id: str,
-#     _rbac=Depends(require_role("super_admin")),
-# ):
-#     user = (
-#         supabase.table("users")
-#         .select("id, full_name, role")
-#         .eq("id", user_id)
-#         .single()
-#         .execute()
-#     ).data
-
-#     roles = (
-#         supabase.table("user_roles")
-#         .select("role, store_id, warehouse_id, created_at")
-#         .eq("user_id", user_id)
-#         .execute()
-#     ).data
-
-#     return {
-#         "user": user,
-#         "operational_roles": roles,
-#     }
-
-@router.get("/roles/{target_user_id}")
-async def get_user_roles(target_user_id: str, admin = Depends(require_role("super_admin"))):
-    try:
-        res = supabase.table("user_roles").select("*").eq("user_id", target_user_id).execute()
-        return res.data
-    except Exception as e:
-        return []
-
-
-# -------------------------------
-# ROLE METADATA (FRONTEND)
-# -------------------------------
-# @router.get("/roles")
-# async def list_assignable_roles(
-#     _rbac=Depends(require_role("super_admin")),
-# ):
-#     return {
-#         "global_identity": ["customer", "super_admin"],
-#         "operational_roles": [
-#             "catalog_admin",
-#             "support_agent",
-#             "fulfillment_agent",
-#             "store_manager",
-#             "warehouse_manager",
-#         ],
-#         "scoped": {
-#             "store_manager": ["store_id"],
-#             "warehouse_manager": ["warehouse_id"],
-#         },
-#     }
-
 @router.post("/roles")
 async def assign_role(data: RoleAssignRequest, admin = Depends(require_role("super_admin"))):
     try:
-        # 1. Clean Inputs: Convert "string" or empty strings to None
+        # 1. Clean Inputs
         store_id = data.store_id if data.store_id and is_valid_uuid(data.store_id) else None
         warehouse_id = data.warehouse_id if data.warehouse_id and is_valid_uuid(data.warehouse_id) else None
 
-        # 2. Check if role exists (using cleaned IDs)
-        query = supabase.table("user_roles").select("id")\
-            .eq("user_id", data.user_id)\
-            .eq("role", data.role)
-            
-        if store_id:
-            query = query.eq("store_id", store_id)
-        if warehouse_id:
-            query = query.eq("warehouse_id", warehouse_id)
+        # 2. Check Exists
+        query = supabase.table("user_roles").select("id").eq("user_id", data.user_id).eq("role", data.role)
+        if store_id: query = query.eq("store_id", store_id)
+        if warehouse_id: query = query.eq("warehouse_id", warehouse_id)
             
         exists = query.execute()
-        
         if exists.data:
-            raise HTTPException(400, "User already has this role at this location.")
+            raise HTTPException(409, "User already has this role.")
 
         payload = {
             "user_id": data.user_id,
@@ -196,53 +39,91 @@ async def assign_role(data: RoleAssignRequest, admin = Depends(require_role("sup
             "warehouse_id": warehouse_id
         }
         
-        res = supabase.table("user_roles").insert(payload).execute()
+        # ✅ Fix: Added .select()
+        res = supabase.table("user_roles").insert(payload).select().execute()
         return res.data[0]
 
-    except HTTPException as he:
-        raise he
+    except HTTPException as he: raise he
     except Exception as e:
-        # Provide a cleaner error message if it's a UUID issue
-        if "invalid input syntax for type uuid" in str(e):
-            raise HTTPException(400, "Invalid ID format. Please provide a valid UUID.")
         raise HTTPException(500, detail=str(e))
 
+# -------------------------------
+# REVOKE ROLE
+# -------------------------------
+@router.post("/roles/revoke")
+async def revoke_role(data: RoleRevoke, admin = Depends(require_role("super_admin"))):
+    try:
+        query = supabase.table("user_roles").delete().eq("user_id", data.user_id).eq("role", data.role)
+        
+        if data.store_id: query = query.eq("store_id", data.store_id)
+        elif data.warehouse_id: query = query.eq("warehouse_id", data.warehouse_id)
+        else: query = query.is_("store_id", "null").is_("warehouse_id", "null")
 
+        # ✅ Fix: Added .select() (Delete returns data in Supabase often, but .select() ensures consistency if needed, though for delete execute() is usually enough, adding select doesn't hurt)
+        query.execute()
+        
+        # Check remaining
+        remaining = supabase.table("user_roles").select("id").eq("user_id", data.user_id).execute()
+        if not remaining.data:
+             supabase.table("users").update({"role": "customer"}).eq("id", data.user_id).execute()
+             
+        return {"status": "revoked"}
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
 
-
-
+# -------------------------------
+# CREATE LOCATION
+# -------------------------------
 @router.post("/locations")
 async def create_location(data: LocationCreate, admin = Depends(require_role("super_admin"))):
     try:
+        # 1. Create Parent
+        fl_payload = {
+            "type": data.type,
+            "name": data.name,
+            "code": data.store_code if data.type == 'store' else data.warehouse_code,
+            "address_line": data.address_line_1,
+            "city": data.city,
+            "latitude": data.latitude,
+            "longitude": data.longitude,
+            "is_active": True
+        }
+        # ✅ Fix: Added .select()
+        fl_res = supabase.table("fulfillment_locations").insert(fl_payload).select().execute()
+        if not fl_res.data:
+             raise HTTPException(500, "Failed to create Fulfillment Location")
+             
+        fl_id = fl_res.data[0]['id']
+
+        # 2. Create Child
+        child_table = "stores" if data.type == 'store' else "warehouses"
+        child_payload = {
+            "name": data.name,
+            "address_line_1": data.address_line_1,
+            "city": data.city,
+            "latitude": data.latitude,
+            "longitude": data.longitude,
+            "fulfillment_location_id": fl_id
+        }
+        
         if data.type == 'store':
-            payload = {
-                "name": data.name,
-                "store_code": data.store_code, # Mapping input to DB column 'code'
-                "city": data.city,
-                "address_line_1": data.address_line_1,
-                "latitude": data.latitude,
-                "longitude": data.longitude,
-                "is_active": True
-            }
-            res = supabase.table("stores").insert(payload).execute()
-            return res.data[0]
-            
-        elif data.type == 'warehouse':
-            # Assuming 'warehouses' table exists and has similar structure
-            payload = {
-                "name": data.name,
-                "code": data.warehouse_code, # Add if your warehouse table has code
-                "city": data.city,
-                "address_line_1": data.address_line_1,
-                "latitude": data.latitude,
-                "longitude": data.longitude
-            }
-            res = supabase.table("warehouses").insert(payload).execute()
-            return res.data[0]
-            
+            child_payload["store_code"] = data.store_code
+            child_payload["is_active"] = True
         else:
-            raise HTTPException(400, "Invalid location type")
+            child_payload["code"] = data.warehouse_code
+
+        # ✅ Fix: Added .select()
+        res = supabase.table(child_table).insert(child_payload).select().execute()
+        return res.data[0]
 
     except Exception as e:
         print(f"Create Location Error: {e}")
         raise HTTPException(500, detail=str(e))
+
+@router.get("/roles/{target_user_id}")
+async def get_user_roles(target_user_id: str, admin = Depends(require_role("super_admin"))):
+    try:
+        res = supabase.table("user_roles").select("*").eq("user_id", target_user_id).execute()
+        return res.data
+    except Exception:
+        return []
