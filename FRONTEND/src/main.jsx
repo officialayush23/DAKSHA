@@ -10,7 +10,7 @@ import { ThemeProvider } from "./components/use_ui/ThemeProvider.jsx";
 import { Toaster } from "sonner";
 
 createRoot(document.getElementById("root")).render(
-  <StrictMode>
+ <>
     <ThemeProvider>
       <AuthProvider>
         <BrowserRouter>
@@ -19,5 +19,5 @@ createRoot(document.getElementById("root")).render(
       </AuthProvider>
     </ThemeProvider>
     <Toaster richColors closeButton />
-  </StrictMode>
+</>
 );
