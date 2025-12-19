@@ -4,6 +4,7 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/apiClient";
 import { toast } from "sonner";
+import { Navigate, useNavigate } from "react-router-dom";
 
 import {
   Card,
@@ -47,6 +48,7 @@ function RegisterSkeleton() {
 
 export function RegisterProfilePage() {
   const { user, profile, refreshProfile, loading } = useAuth();
+  const navigate = useNavigate();
 
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("+91");
@@ -75,14 +77,18 @@ export function RegisterProfilePage() {
     e.preventDefault();
     try {
       setSaving(true);
+
       await api.post("/users/register", {
         full_name: fullName || null,
         phone_number: phone || null,
         gender: gender || null,
         date_of_birth: dob || null,
       });
+
       await refreshProfile();
       toast.success("Profile saved.");
+
+      navigate("/home", { replace: true }); // ✅ REDIRECT HERE
     } catch (err) {
       console.error(err);
       toast.error("Failed to update profile.");
@@ -90,6 +96,10 @@ export function RegisterProfilePage() {
       setSaving(false);
     }
   };
+
+  if (profile?.phone_number && !loading) {
+    return <Navigate to="/home" replace />;
+  }
 
   if (loading || initializing) return <RegisterSkeleton />;
 
