@@ -1,3 +1,4 @@
+# app/routers/dummy_payment.py
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.services.payment_service import PaymentService
@@ -22,7 +23,7 @@ async def process_dummy_payment(payload: DummyPaymentRequest):
     if not order.data:
         raise HTTPException(404, "Order not found")
     
-    if order.data['status'] != 'pending_payment':
+    if order.data['status'] != 'pending':
         return {"status": "ignored", "message": f"Order is already {order.data['status']}"}
 
     # 2. Simulate Provider Logic
