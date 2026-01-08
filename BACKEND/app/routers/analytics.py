@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, BackgroundTasks, Depends
 from typing import List, Optional
-from app.models.analytics import FootprintCreate
+from app.schemas.schemas import FootprintCreate
 from app.services.analytics_service import AnalyticsService
 from app.core.auth_optional import get_optional_user_id
 

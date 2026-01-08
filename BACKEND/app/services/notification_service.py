@@ -1,6 +1,6 @@
 # app/services/notification_service.py
 
-from app.database import supabase
+from app.core.database import supabase
 from app.core.redis_bus import EventBus
 
 

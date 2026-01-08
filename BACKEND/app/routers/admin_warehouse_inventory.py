@@ -1,7 +1,8 @@
+# app/routers/admin_warehouse_inventory.py
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
-from app.database import supabase
+from app.core.database import supabase
 from app.core.rbac import require_warehouse_access
-from app.models.management import InventoryAdjustRequest, InventoryFullUpdate
+from app.schemas.schemas import InventoryAdjustRequest, InventoryFullUpdate
 from app.services.inventory_service import InventoryService
 from datetime import datetime, timezone
 import logging
@@ -113,37 +114,41 @@ async def adjust_warehouse_inventory(
             .limit(1)\
             .execute()
         
-        # 2. Logic: Update or Insert
-        if inv_query.data and len(inv_query.data) > 0:
-            # Update Existing
-            existing_item = inv_query.data[0]
-            current_qty = existing_item["quantity_on_hand"]
-            new_qty = max(0, current_qty + data.quantity_change)
-            
-            res = supabase.table("inventory").update({
-                "quantity_on_hand": new_qty,
-                # removed updated_at to prevent schema errors if column missing
-            }).eq("id", existing_item["id"]).execute()
-            
-            # Safety return
-            updated_data = res.data[0] if (res.data and len(res.data) > 0) else {"quantity_on_hand": new_qty}
-            return {"status": "updated", "data": updated_data}
-            
+        # Use RPC for inventory adjustment
+        from app.core.rpc import RPCService
+        
+        reason = data.reason or f"Inventory adjustment by warehouse manager"
+        RPCService.adjust_inventory(
+            variant_id=data.variant_id,
+            location_id=fl_id,
+            delta=data.quantity_change,
+            reason=reason,
+        )
+        
+        # Read back updated inventory
+        updated = (
+            supabase.table("inventory")
+            .select("*")
+            .eq("product_variant_id", data.variant_id)
+            .eq("fulfillment_location_id", fl_id)
+            .maybe_single()
+            .execute()
+        ).data
+        
+        if updated:
+            return {"status": "updated", "data": updated}
         else:
-            # Insert New (Inbound Logic)
-            if data.quantity_change < 0:
-                raise HTTPException(400, "Cannot reduce stock for item that doesn't exist")
-                
-            payload = {
-                "fulfillment_location_id": fl_id,
-                "product_variant_id": data.variant_id,
-                "quantity_on_hand": data.quantity_change
-            }
-            res = supabase.table("inventory").insert(payload).execute()
-            
-            # Safety return
-            new_data = res.data[0] if (res.data and len(res.data) > 0) else payload
-            return {"status": "created", "data": new_data}
+            # If doesn't exist and delta is positive, RPC should have created it
+            # Re-read to confirm
+            updated = (
+                supabase.table("inventory")
+                .select("*")
+                .eq("product_variant_id", data.variant_id)
+                .eq("fulfillment_location_id", fl_id)
+                .maybe_single()
+                .execute()
+            ).data
+            return {"status": "created", "data": updated or {"quantity_on_hand": data.quantity_change}}
 
     except Exception as e:
         print(f"Adjust Error: {e}")
@@ -201,23 +206,27 @@ async def ship_warehouse_order(
     try:
         fl_id = get_fl_id(warehouse_id)
         
-        # 1. Update Fulfillment Record
-        f_res = supabase.table("fulfillments").update({
-            "status": "shipped"
-            # Removed updated_at/shipped_at here to be safe
-        }).eq("order_id", order_id).eq("fulfillment_location_id", fl_id).execute()
-
-        if not f_res.data:
-            # Fallback create if missing
-            supabase.table("fulfillments").insert({
-                "order_id": order_id,
-                "fulfillment_location_id": fl_id,
-                "status": "shipped",
-                "fulfillment_type": "ship"
-            }).execute()
-
-        # 2. Update Global Order
-        supabase.table("orders").update({"status": "shipped"}).eq("id", order_id).execute()
+        # Use RPCs for order state transition
+        from app.core.rpc import RPCService
+        
+        # 1. Transition order state to shipped
+        RPCService.transition_order_state(
+            order_id=order_id,
+            from_state="processing",
+            to_state="shipped",
+        )
+        
+        # 2. Ensure fulfillment exists (create if missing)
+        fulfillment = (
+            supabase.table("fulfillments")
+            .select("id")
+            .eq("order_id", order_id)
+            .maybe_single()
+            .execute()
+        ).data
+        
+        if not fulfillment:
+            RPCService.create_fulfillment_for_order(order_id)
         
         return {"status": "shipped"}
     except Exception as e:

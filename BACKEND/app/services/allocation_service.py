@@ -1,7 +1,7 @@
 # app/services/allocation_service.py
 
 from fastapi import HTTPException
-from app.database import supabase
+from app.core.database import supabase
 from typing import List, Dict, Optional
 import math
 

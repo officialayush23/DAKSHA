@@ -1,6 +1,6 @@
 # app/services/store_service.py
 
-from app.database import supabase
+from app.core.database import supabase
 
 
 class StoreService:

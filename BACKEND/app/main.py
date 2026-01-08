@@ -6,15 +6,15 @@ import asyncio
 from app.workers.reservation_cleanup import reservation_cleanup_loop
 
 from app.routers import (
-    auth, users, profile, catalog, analytics, cart, orders, payments,
+    auth, users, profile,analytics, cart, orders, payments,
     inventory, feedback, support, realtime, channels, home,
-    omni, fulfillment, recommendations, products, commerce, notifications,
-    catalog_readonly,
+    omni, fulfillment, recommendations, commerce, notifications,
+    catalog_readonly,catalog,
     # Admin
     admin_catalog, admin_inventory, admin_support, admin_promotions,
     admin_rbac, admin_warehouse_inventory, admin_fulfillment,
      admin_inventory_onboarding,admin_knowledge, 
-    kiosk,dummy_payment
+    kiosk,dummy_payment,dev_auth
 )
 
 app = FastAPI(
@@ -50,7 +50,7 @@ app.include_router(channels.router)
 app.include_router(omni.router)
 app.include_router(fulfillment.router)
 app.include_router(recommendations.router)
-app.include_router(products.router)
+app.include_router(dev_auth.router)
 app.include_router(commerce.router)
 app.include_router(notifications.router)
 app.include_router(dummy_payment.router)

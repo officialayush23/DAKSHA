@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from datetime import datetime
-from app.database import supabase
+from app.core.database import supabase
 from app.core.auth import get_current_user_id
 from app.core.rbac import require_store_access, require_warehouse_access
 from app.services.human_handoff_service import HumanHandoffService

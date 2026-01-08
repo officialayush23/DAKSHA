@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from fastapi import HTTPException
-from app.database import supabase
+from app.core.database import supabase
 from app.core.redis_bus import EventBus
 import logging
 
@@ -50,64 +50,31 @@ class InventoryReservationService:
     @staticmethod
     def _release_single(reservation: dict):
         """
-        Atomic release:
-        - decrement quantity_reserved
-        - increment quantity_on_hand
-        - mark reservation as released
+        Release reservation using RPC.
         """
-
-        # 2) Fetch inventory row
+        from app.core.rpc import RPCService
+        
+        # Use RPC to release reservation
+        RPCService.release_inventory_reservation(reservation["id"])
+        
+        # Realtime push (read current state after release)
         inv = (
             supabase.table("inventory")
-            .select("id, quantity_on_hand, quantity_reserved, version")
+            .select("id, quantity_on_hand, quantity_reserved")
             .eq("product_variant_id", reservation["product_variant_id"])
-            .eq(
-                "fulfillment_location_id",
+            .eq("fulfillment_location_id", reservation["fulfillment_location_id"])
+            .maybe_single()
+            .execute()
+        ).data
+        
+        if inv:
+            EventBus.notify_inventory_update(
                 reservation["fulfillment_location_id"],
-            )
-            .single()
-            .execute()
-        ).data
-
-        if not inv:
-            raise HTTPException(500, "Inventory row missing")
-
-        # 3) Optimistic update
-        updated = (
-            supabase.table("inventory")
-            .update(
                 {
-                    "quantity_on_hand": inv["quantity_on_hand"]
-                    + reservation["quantity"],
-                    "quantity_reserved": max(
-                        0,
-                        inv["quantity_reserved"] - reservation["quantity"],
-                    ),
-                    "version": inv["version"] + 1,
-                }
+                    "inventory_id": inv["id"],
+                    "product_variant_id": reservation["product_variant_id"],
+                    "quantity_on_hand": inv["quantity_on_hand"],
+                    "quantity_reserved": inv.get("quantity_reserved", 0),
+                    "reason": "reservation_expired",
+                },
             )
-            .eq("id", inv["id"])
-            .eq("version", inv["version"])
-            .execute()
-        ).data
-
-        if not updated:
-            # Another worker beat us → safe skip
-            return
-
-        # 4) Mark reservation released
-        supabase.table("inventory_reservations").update(
-            {"status": "released"}
-        ).eq("id", reservation["id"]).execute()
-
-        # 5) Realtime push
-        EventBus.notify_inventory_update(
-            reservation["fulfillment_location_id"],
-            {
-                "inventory_id": inv["id"],
-                "product_variant_id": reservation["product_variant_id"],
-                "quantity_on_hand": updated[0]["quantity_on_hand"],
-                "quantity_reserved": updated[0]["quantity_reserved"],
-                "reason": "reservation_expired",
-            },
-        )

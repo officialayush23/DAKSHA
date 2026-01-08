@@ -3,7 +3,7 @@
 from typing import Optional
 from app.services.recommendation_service import RecommendationService
 from app.services.promotion_service import PromotionService
-from app.database import supabase
+from app.core.database import supabase
 import logging
 
 logger = logging.getLogger("daksha.home")

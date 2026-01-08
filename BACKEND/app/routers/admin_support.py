@@ -1,5 +1,7 @@
+# app/routers/admin_support.py
+
 from fastapi import APIRouter, Depends, HTTPException
-from app.database import supabase
+from app.core.database import supabase
 from app.core.rbac import require_role
 from pydantic import BaseModel
 from typing import Optional

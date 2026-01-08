@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { supabase } from "@/lib/supabaseClient"; 
+import api from "@/lib/apiClient"; 
 import { toast } from "sonner";
 import { 
   User, MapPin, CreditCard, Save, Loader2, Crown, Sparkles, LogOut, 
@@ -67,26 +67,37 @@ export default function ProfilePage() {
     is_default: false
   });
 
-  // --- 1. FETCH DATA ---
+  // --- 1. FETCH DATA via API ---
   const fetchAllData = async () => {
     try {
       if (!user) return;
       if (!personalData.id) setLoading(true);
 
-      const { data: userData } = await supabase.from('users').select('*').eq('id', user.id).single();
-      if (userData) setPersonalData(userData);
+      // Fetch user profile
+      const profileRes = await api.get("/users/me");
+      if (profileRes.data) setPersonalData(profileRes.data);
 
-      const { data: style } = await supabase.from('user_style_profile').select('*').eq('user_id', user.id).maybeSingle();
-      if (style) setStyleData(style);
+      // Fetch addresses via API
+      const addrRes = await api.get("/users/me/addresses");
+      setAddresses(addrRes.data.addresses || []);
 
-      const { data: addrList } = await supabase.from('user_addresses').select('*').eq('user_id', user.id).order('is_default', { ascending: false });
-      setAddresses(addrList || []);
+      // Fetch payment methods via API
+      const payRes = await api.get("/users/me/payment-methods");
+      setPayments(payRes.data.payment_methods || []);
 
-      const { data: payList } = await supabase.from('user_payment_methods').select('*').eq('user_id', user.id).order('is_default', { ascending: false });
-      setPayments(payList || []);
+      // Fetch notifications via API
+      const notifRes = await api.get("/users/me/notifications");
+      setNotifications(notifRes.data.notifications || []);
 
-      const { data: notifList } = await supabase.from('user_notifications').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
-      setNotifications(notifList || []);
+      // Style profile - still direct for now (no API yet)
+      // TODO: Add API endpoint for style profile
+      try {
+        const { supabase } = await import("@/lib/supabaseClient");
+        const { data: style } = await supabase.from('user_style_profile').select('*').eq('user_id', user.id).maybeSingle();
+        if (style) setStyleData(style);
+      } catch (e) {
+        console.warn("Style profile fetch failed:", e);
+      }
 
     } catch (err) {
       console.error("Profile load error:", err);
@@ -104,16 +115,15 @@ export default function ProfilePage() {
 
   const handleSavePersonal = async () => {
     try {
-      const { error } = await supabase.from('users').update({
+      await api.patch("/users/me", {
         full_name: personalData.full_name,
         date_of_birth: personalData.date_of_birth,
         gender: personalData.gender
-      }).eq('id', user.id);
-
-      if (error) throw error;
+      });
       toast.success("Personal details saved.");
+      await fetchAllData(); // Refresh
     } catch (err) {
-      toast.error("Failed to save.");
+      toast.error(err.response?.data?.detail || "Failed to save.");
     }
   };
 
@@ -124,16 +134,13 @@ export default function ProfilePage() {
         return;
       }
       
-      const { error } = await supabase.from('user_addresses').insert({
-        user_id: user.id,
+      await api.post("/users/me/addresses", {
         type: newAddress.type,
         address_line: newAddress.address_line,
         city: newAddress.city,
         pincode: newAddress.pincode,
         is_default: newAddress.is_default
       });
-
-      if (error) throw error;
       
       await fetchAllData(); 
       setIsAddressOpen(false);
@@ -141,7 +148,7 @@ export default function ProfilePage() {
       toast.success("Address added");
     } catch (err) {
       console.error(err);
-      toast.error("Failed to add address");
+      toast.error(err.response?.data?.detail || "Failed to add address");
     }
   };
 
@@ -154,45 +161,39 @@ export default function ProfilePage() {
       const brand = cleanNum.startsWith("4") ? "visa" : cleanNum.startsWith("5") ? "mastercard" : "generic";
       const last4 = cleanNum.slice(-4);
 
-      const { error } = await supabase.from('user_payment_methods').insert({
-        user_id: user.id,
-        provider: "stripe_mock",
+      // Use API to add payment method
+      await api.post("/users/payment-methods", {
         gateway_token_id: mockToken,
         card_last4: last4,
-        card_brand: brand,
-        is_default: cardInput.is_default
+        card_brand: brand
       });
-
-      if (error) throw error;
       
       await fetchAllData();
       setIsCardOpen(false);
       setCardInput({ number: "", expiry: "", cvc: "", is_default: false });
       toast.success("Card securely saved");
     } catch (err) {
-      toast.error("Failed to save card");
+      toast.error(err.response?.data?.detail || "Failed to save card");
     }
   };
 
   const handleDeleteAddress = async (id) => {
     try {
-      const { error } = await supabase.from('user_addresses').delete().eq('id', id);
-      if (error) throw error;
+      await api.delete(`/users/me/addresses/${id}`);
       setAddresses(prev => prev.filter(a => a.id !== id));
       toast.success("Address removed");
     } catch (err) {
-      toast.error("Failed to delete address");
+      toast.error(err.response?.data?.detail || "Failed to delete address");
     }
   };
 
   const handleDeleteCard = async (id) => {
     try {
-      const { error } = await supabase.from('user_payment_methods').delete().eq('id', id);
-      if (error) throw error;
+      await api.delete(`/users/me/payment-methods/${id}`);
       setPayments(prev => prev.filter(p => p.id !== id));
       toast.success("Card removed");
     } catch (err) {
-      toast.error("Failed to delete card");
+      toast.error(err.response?.data?.detail || "Failed to delete card");
     }
   };
 

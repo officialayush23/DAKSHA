@@ -1,7 +1,7 @@
 # src/app/routers/admin_fulfillment.py
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Dict, Optional
-from app.database import supabase
+from app.core.database import supabase
 from app.core.auth import get_current_user_id
 
 router = APIRouter(prefix="/admin/fulfillment", tags=["Admin: Fulfillment Agent"])
@@ -73,10 +73,10 @@ async def get_fulfillment_queue(ctx: Dict = Depends(get_agent_context)):
     try:
         # Fetch orders for this specific location
         res = (
-            supabase.table("fulfillment_sources")
+            supabase.table("fulfillments")
             .select("order_id, orders!inner(*, order_items(*, product_variants(*, products(name))))")
-            .eq("source_id", location_id)
-            .in_("orders.status", ["pending", "processing"])
+            .eq("fulfillment_location_id", location_id)
+            .in_("orders.status", ["pending_payment", "paid", "processing"])
             .execute()
         )
         
@@ -97,21 +97,55 @@ async def process_order(
     ctx: Dict = Depends(get_agent_context)
 ):
     try:
+        from app.core.rpc import RPCService
+        
         if action == 'start_picking':
-             supabase.table("orders").update({"status": "processing"}).eq("id", order_id).execute()
-             return {"status": "processing"}
+            # Transition order to processing
+            RPCService.transition_order_state(
+                order_id=order_id,
+                from_state="paid",
+                to_state="processing",
+            )
+            return {"status": "processing"}
 
         elif action == 'ship':
-            supabase.table("fulfillments").insert({
-                "order_id": order_id,
-                "status": "shipped",
-                "fulfillment_type": "ship",
-                "tracking_number": tracking_number,
-                "shipped_at": "now()",
-                "store_id": ctx['location_id'] # Log which store shipped it
-            }).execute()
+            # Transition order to shipped
+            RPCService.transition_order_state(
+                order_id=order_id,
+                from_state="processing",
+                to_state="shipped",
+            )
             
-            supabase.table("orders").update({"status": "shipped"}).eq("id", order_id).execute()
+            # Update fulfillment tracking (read-only field update)
+            fulfillment = (
+                supabase.table("fulfillments")
+                .select("id")
+                .eq("order_id", order_id)
+                .maybe_single()
+                .execute()
+            ).data
+            
+            if fulfillment:
+                # Only update tracking_reference (non-transactional field)
+                supabase.table("fulfillments").update({
+                    "tracking_reference": tracking_number,
+                }).eq("id", fulfillment["id"]).execute()
+            else:
+                # Create fulfillment if missing
+                RPCService.create_fulfillment_for_order(order_id)
+                # Then update tracking
+                fulfillment = (
+                    supabase.table("fulfillments")
+                    .select("id")
+                    .eq("order_id", order_id)
+                    .maybe_single()
+                    .execute()
+                ).data
+                if fulfillment:
+                    supabase.table("fulfillments").update({
+                        "tracking_reference": tracking_number,
+                    }).eq("id", fulfillment["id"]).execute()
+            
             return {"status": "shipped"}
             
     except Exception as e:

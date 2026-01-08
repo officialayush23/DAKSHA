@@ -1,7 +1,8 @@
+# app/routers/admin_rbac.py
 from fastapi import APIRouter, Depends, HTTPException
 from app.core.rbac import require_role
-from app.database import supabase
-from app.models.rbac import RoleAssignRequest, LocationCreate, RoleRevoke
+from app.core.database import supabase
+from app.schemas.schemas import RoleAssignRequest, LocationCreate, RoleRevoke
 from uuid import UUID
 
 def is_valid_uuid(val):
@@ -39,8 +40,8 @@ async def assign_role(data: RoleAssignRequest, admin = Depends(require_role("sup
             "warehouse_id": warehouse_id
         }
         
-        # ✅ Fix: Added .select()
-        res = supabase.table("user_roles").insert(payload).select().execute()
+        # In Supabase v2, insert() already returns data - no need for .select()
+        res = supabase.table("user_roles").insert(payload).execute()
         return res.data[0]
 
     except HTTPException as he: raise he
@@ -88,8 +89,8 @@ async def create_location(data: LocationCreate, admin = Depends(require_role("su
             "longitude": data.longitude,
             "is_active": True
         }
-        # ✅ Fix: Added .select()
-        fl_res = supabase.table("fulfillment_locations").insert(fl_payload).select().execute()
+        # In Supabase v2, insert() already returns data - no need for .select()
+        fl_res = supabase.table("fulfillment_locations").insert(fl_payload).execute()
         if not fl_res.data:
              raise HTTPException(500, "Failed to create Fulfillment Location")
              
@@ -112,8 +113,8 @@ async def create_location(data: LocationCreate, admin = Depends(require_role("su
         else:
             child_payload["code"] = data.warehouse_code
 
-        # ✅ Fix: Added .select()
-        res = supabase.table(child_table).insert(child_payload).select().execute()
+        # In Supabase v2, insert() already returns data - no need for .select()
+        res = supabase.table(child_table).insert(child_payload).execute()
         return res.data[0]
 
     except Exception as e:

@@ -4,7 +4,6 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/apiClient";
-import {supabase} from "@/lib/supabaseClient";
 import { toast } from "sonner";
 import { 
   ShoppingBag, Trash2, Plus, Minus, ArrowRight, MapPin, 
@@ -30,87 +29,59 @@ export default function CartPage() {
   const [orderSummary, setOrderSummary] = useState({ subtotal: 0, tax: 0, total: 0 });
   const [debugMsg, setDebugMsg] = useState(null); // For troubleshooting
 
-  // --- 1. Robust Fetch Logic ---
+  // --- 1. Robust Fetch Logic via API ---
   const fetchCart = async () => {
     try {
       setLoading(true);
       if (!user) return;
 
-      // A. Fetch Addresses
-      const { data: addrData } = await supabase
-        .from('user_addresses')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('is_default', { ascending: false });
-      
-      setAddresses(addrData || []);
-      if (addrData?.length > 0) setSelectedAddressId(addrData[0].id);
-
-      // B. Fetch Active Cart ID
-      const { data: cartData, error: cartError } = await supabase
-        .from('carts')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('status', 'active')
-        .maybeSingle(); // Use maybeSingle to avoid 406 errors if 0 rows
-
-      if (cartError) {
-        console.error("Error finding cart:", cartError);
-        return;
+      // A. Fetch Addresses via API
+      try {
+        const addrRes = await api.get("/users/me/addresses");
+        const addrData = addrRes.data.addresses || [];
+        setAddresses(addrData);
+        if (addrData?.length > 0) setSelectedAddressId(addrData[0].id);
+      } catch (e) {
+        console.warn("Failed to fetch addresses:", e);
+        setAddresses([]);
       }
 
-      if (!cartData) {
-        setCartItems([]);
-        return;
-      }
-
-      // C. Fetch Items with Join
-      const { data: items, error: itemsError } = await supabase
-        .from('cart_items')
-        .select(`
-          id,
-          quantity,
-          product_variant_id,
-          product_variants (
-            id,
-            price_override,
-            size_label,
-            color_name,
-            image_url,
-            products (
-              name,
-              base_price
-            )
-          )
-        `)
-        .eq('cart_id', cartData.id)
-        .order('id', { ascending: true });
-
-      if (itemsError) {
-        console.error("Error fetching items:", itemsError);
-        setDebugMsg("Could not load items. Check RLS policies.");
-        return;
-      }
-
-      // D. Transform Data (Handle missing relations gracefully)
-      const formatted = items.map(item => {
-        const variant = item.product_variants || {};
-        const product = variant.products || {};
+      // B. Fetch Cart via API
+      try {
+        const cartRes = await api.get("/cart");
+        const cartData = cartRes.data;
         
-        // Fallback pricing logic
-        const price = variant.price_override || product.base_price || 0;
+        if (!cartData || !cartData.cart || !cartData.items) {
+          setCartItems([]);
+          return;
+        }
 
-        return {
-          id: item.id,
-          product_name: product.name || "Item Loaded (No Details)",
-          variant_name: variant.color_name ? `${variant.color_name} / ${variant.size_label}` : "Standard",
-          price: Number(price),
-          quantity: item.quantity,
-          image_url: variant.image_url
-        };
-      });
+        // C. Transform Items (API returns structured data)
+        const formatted = cartData.items.map(item => {
+          const variant = item.product_variants || {};
+          const product = variant.products || {};
+          
+          // Fallback pricing logic
+          const price = variant.attributes?.price_override || product.base_price || 0;
 
-      setCartItems(formatted);
+          return {
+            id: item.id,
+            product_name: product.name || "Item Loaded (No Details)",
+            variant_name: variant.attributes?.color_name 
+              ? `${variant.attributes.color_name} / ${variant.attributes.size_label || 'Standard'}` 
+              : "Standard",
+            price: Number(price),
+            quantity: item.quantity,
+            image_url: variant.attributes?.image_url || variant.image_url
+          };
+        });
+
+        setCartItems(formatted);
+      } catch (e) {
+        console.error("Error fetching cart:", e);
+        setDebugMsg("Could not load cart. Please try again.");
+        setCartItems([]);
+      }
 
     } catch (err) {
       console.error("Cart crash:", err);
@@ -132,29 +103,38 @@ export default function CartPage() {
     setOrderSummary({ subtotal, tax, shipping, total: subtotal + tax + shipping });
   }, [cartItems]);
 
-  // --- 3. Handlers ---
+  // --- 3. Handlers via API ---
   const handleRemoveItem = async (itemId) => {
-    // Optimistic
+    // Optimistic update
     const prev = [...cartItems];
     setCartItems(curr => curr.filter(i => i.id !== itemId));
 
-    const { error } = await supabase.from('cart_items').delete().eq('id', itemId);
-    if (error) {
-      setCartItems(prev);
-      toast.error("Failed to delete");
-    } else {
+    try {
+      await api.delete(`/cart/items/${itemId}`);
       toast.success("Item removed");
+      // Refresh cart to get updated totals
+      await fetchCart();
+    } catch (error) {
+      setCartItems(prev);
+      toast.error(error.response?.data?.detail || "Failed to remove item");
     }
   };
 
   const handleUpdateQty = async (itemId, newQty) => {
     if (newQty < 1) return;
     
-    // Optimistic
+    // Optimistic update
+    const prev = cartItems.map(i => ({ ...i }));
     setCartItems(curr => curr.map(i => i.id === itemId ? { ...i, quantity: newQty } : i));
     
-    // DB
-    await supabase.from('cart_items').update({ quantity: newQty }).eq('id', itemId);
+    try {
+      await api.patch(`/cart/items/${itemId}`, { quantity: newQty });
+      // Refresh cart to get updated totals
+      await fetchCart();
+    } catch (error) {
+      setCartItems(prev);
+      toast.error(error.response?.data?.detail || "Failed to update quantity");
+    }
   };
 
   const handleProceedToPay = () => {

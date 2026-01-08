@@ -1,4 +1,5 @@
-from app.database import supabase
+# app/services/warehouse_service.py
+from app.core.database import supabase
 from datetime import datetime
 
 class WarehouseService:
@@ -48,21 +49,27 @@ class WarehouseService:
                 .eq("product_variant_id", item['variant_id'])\
                 .maybe_single().execute()
             
-            if existing.data:
-                new_qty = existing.data['quantity_on_hand'] + item['quantity']
-                res = supabase.table("inventory").update({
-                    "quantity_on_hand": new_qty,
-                    # "last_restocked_at": datetime.utcnow().isoformat() # Uncomment if column exists
-                }).eq("id", existing.data['id']).execute()
-            else:
-                res = supabase.table("inventory").insert({
-                    "fulfillment_location_id": warehouse_id,
-                    "product_variant_id": item['variant_id'],
-                    "quantity_on_hand": item['quantity'],
-                    # "last_restocked_at": datetime.utcnow().isoformat()
-                }).execute()
+            # Use RPC for inventory adjustment
+            from app.core.rpc import RPCService
             
-            if res.data:
-                results.append(res.data[0])
+            RPCService.adjust_inventory(
+                variant_id=item['variant_id'],
+                location_id=warehouse_id,
+                delta=item['quantity'],
+                reason="Inbound stock processing",
+            )
+            
+            # Read back updated inventory
+            updated = (
+                supabase.table("inventory")
+                .select("*")
+                .eq("fulfillment_location_id", warehouse_id)
+                .eq("product_variant_id", item['variant_id'])
+                .maybe_single()
+                .execute()
+            ).data
+            
+            if updated:
+                results.append(updated)
                 
         return results

@@ -5,10 +5,10 @@ from cachetools import TTLCache
 from fastapi import HTTPException, Header, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional, Dict, Any
-from app.database import supabase
+from app.core.database import supabase
 from app.core.auth_optional import get_optional_user_id
 
-from app.config import settings
+from app.core.config import settings
 
 # Cache tokens for 5 mins
 _TOKEN_CACHE = TTLCache(maxsize=4096, ttl=300)

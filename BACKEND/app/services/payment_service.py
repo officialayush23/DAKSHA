@@ -1,6 +1,7 @@
+# app/services/payment_service.py
 from datetime import datetime
 from fastapi import HTTPException
-from app.database import supabase
+from app.core.database import supabase_admin
 from app.services.human_handoff_service import HumanHandoffService
 import logging
 import uuid
@@ -12,25 +13,29 @@ class PaymentService:
     @staticmethod
     def create_payment_intent(order_id: str, user_id: str):
         # 1. Fetch Order
-        order = supabase.table("orders").select("total_amount, status").eq("id", order_id).single().execute().data
+        order = supabase_admin.table("orders").select("total_amount, status").eq("id", order_id).single().execute().data
         if not order: raise HTTPException(404, "Order not found")
         
         # 2. Check existing intent
-        existing = supabase.table("payments").select("id, provider_reference").eq("order_id", order_id).eq("status", "initiated").maybe_single().execute()
+        existing = supabase_admin.table("payments").select("id, idempotency_key").eq("order_id", order_id).eq("status", "initiated").maybe_single().execute()
         if existing.data:
-            return {"payment_id": existing.data['id'], "client_secret": existing.data['provider_reference']}
+            return {"payment_id": existing.data['id'], "client_secret": existing.data.get('idempotency_key', '')}
 
-        # 3. Create Intent
+        # 3. Get payment provider ID
+        provider = supabase_admin.table("payment_providers").select("id").eq("name", "razorpay_sim").maybe_single().execute().data
+        if not provider:
+            raise HTTPException(500, "Payment provider not configured")
+        
+        # 4. Create Intent
         gateway_id = f"pi_{uuid.uuid4().hex[:16]}"
-        payment = supabase.table("payments").insert({
+        # In Supabase v2, insert() already returns data - no need for .select()
+        payment = supabase_admin.table("payments").insert({
             "order_id": order_id,
-            "user_id": user_id,
+            "provider_id": provider['id'],
+            "status": "initiated",
             "amount": order['total_amount'],
             "currency": "INR",
-            "provider": "razorpay_sim",
-            "provider_reference": gateway_id,
-            "status": "initiated",
-            "created_at": datetime.utcnow().isoformat()
+            "idempotency_key": f"{order_id}_{gateway_id}",
         }).execute().data[0]
 
         return {"payment_id": payment['id'], "client_secret": gateway_id}
@@ -38,44 +43,82 @@ class PaymentService:
     @staticmethod
     def capture_payment(order_id: str, provider: str, provider_ref: str, amount: float):
         # 1. Validate Order
-        order = supabase.table("orders").select("*").eq("id", order_id).single().execute().data
+        order = supabase_admin.table("orders").select("*").eq("id", order_id).single().execute().data
         if not order: raise HTTPException(404, "Order not found")
         if order["status"] in ["paid", "shipped", "delivered"]: return {"status": "already_paid"}
 
-        # 2. Update Payment Record
-        intent = supabase.table("payments").select("id").eq("order_id", order_id).eq("status", "initiated").maybe_single().execute()
+        # 2. Get or create payment record
+        intent = supabase_admin.table("payments").select("id, status").eq("order_id", order_id).eq("status", "initiated").maybe_single().execute()
         
         if intent.data:
-            payment = supabase.table("payments").update({
-                "status": "captured",
-                "captured_at": datetime.utcnow().isoformat(),
+            payment_id = intent.data['id']
+            # Update provider_reference if needed (non-transactional field)
+            supabase_admin.table("payments").update({
                 "provider_reference": provider_ref
-            }).eq("id", intent.data['id']).execute().data[0]
+            }).eq("id", payment_id).execute()
         else:
-            payment = supabase.table("payments").insert({
+            # Get payment provider ID
+            provider_row = supabase_admin.table("payment_providers").select("id").eq("name", provider).maybe_single().execute().data
+            if not provider_row:
+                raise HTTPException(500, f"Payment provider '{provider}' not found")
+            
+            # Create payment record (no RPC for payment creation, only for capture)
+            # In Supabase v2, insert() already returns data - no need for .select()
+            payment = supabase_admin.table("payments").insert({
                 "order_id": order_id,
+                "provider_id": provider_row['id'],
+                "status": "authorized",  # RPC expects 'authorized' status
                 "amount": amount,
-                "user_id": order['user_id'],
-                "provider": provider,
-                "provider_reference": provider_ref,
-                "status": "captured",
-                "captured_at": datetime.utcnow().isoformat()
+                "currency": "INR",
+                "idempotency_key": f"{order_id}_{provider_ref}",
             }).execute().data[0]
+            payment_id = payment['id']
 
-        # 3. Escrow & Loyalty (Safe Mode)
+        # 3. Capture payment to escrow using RPC (updates payment status to 'captured' and creates ledger entry)
+        from app.core.rpc import RPCService
+        
+        # Get escrow wallet ID
+        escrow_wallet = supabase_admin.table("wallets").select("id").eq("wallet_type", "escrow").maybe_single().execute().data
+        if not escrow_wallet:
+            logger.error("Escrow wallet not found")
+            raise HTTPException(500, "Escrow wallet not configured")
+        
+        # Use RPC to capture payment to escrow (handles ledger entries atomically and updates payment status)
+        RPCService.capture_payment_to_escrow(
+            payment_id=payment_id,
+            escrow_wallet_id=escrow_wallet['id'],
+        )
+        
+        # Read back payment to return
+        payment = supabase_admin.table("payments").select("*").eq("id", payment_id).single().execute().data
+        
+        # 4. Assert order is paid (verifies escrow balance)
+        RPCService.assert_order_paid(
+            order_id=order_id,
+            escrow_wallet_id=escrow_wallet['id'],
+        )
+        
+        # 5. Finalize Order - Use RPC for state transition
+        RPCService.transition_order_state(
+            order_id=order_id,
+            from_state="pending_payment",
+            to_state="paid",
+        )
+        
+        # 6. Commit inventory for order (when paid)
+        RPCService.commit_inventory_for_order(order_id)
+        
+        # 7. Loyalty points (non-transactional, safe to do after)
         try:
-            PaymentService._credit_escrow(order_id, amount)
             PaymentService._upgrade_loyalty(order['user_id'], amount)
         except Exception as e:
-            logger.error(f"Post-payment hook failed: {e}")
-
-        # 4. Finalize Order
-        supabase.table("orders").update({"status": "paid"}).eq("id", order_id).execute()
+            logger.error(f"Loyalty upgrade failed: {e}")
+        
         return payment
 
     @staticmethod
     def record_failure(order_id: str, reason: str):
-        supabase.table("payment_attempts").insert({
+        supabase_admin.table("payment_attempts").insert({
             "gateway_transaction_id": f"fail_{uuid.uuid4().hex[:8]}",
             "status": "failed",
             "error_message": reason,
@@ -85,23 +128,23 @@ class PaymentService:
 
     @staticmethod
     def _credit_escrow(order_id: str, amount: float):
-        wallet = supabase.table("wallets").select("id").eq("type", "escrow").maybe_single().execute().data
+        wallet = supabase_admin.table("wallets").select("id").eq("type", "escrow").maybe_single().execute().data
         if wallet:
-            supabase.table("wallet_transactions").insert({
+            supabase_admin.table("wallet_transactions").insert({
                 "wallet_id": wallet["id"],
                 "amount": amount,
                 "type": "credit",
                 "status": "locked",
                 "reference_type": "order",
                 "reference_id": order_id
-            }).execute()
+            }).select("*").execute()
 
     @staticmethod
     def _upgrade_loyalty(user_id: str, amount: float):
-        points_row = supabase.table("users").select("loyalty_points").eq("id", user_id).single().execute().data
+        points_row = supabase_admin.table("users").select("loyalty_points").eq("id", user_id).single().execute().data
         if points_row:
             new_pts = (points_row.get("loyalty_points") or 0) + int(amount / 10)
             tier = "bronze"
             if new_pts > 5000: tier = "gold"
             elif new_pts > 1000: tier = "silver"
-            supabase.table("users").update({"loyalty_points": new_pts, "loyalty_tier": tier}).eq("id", user_id).execute()
+            supabase_admin.table("users").update({"loyalty_points": new_pts, "loyalty_tier": tier}).eq("id", user_id).execute()

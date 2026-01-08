@@ -1,5 +1,5 @@
 # app/services/rbac_service.py
-from app.database import supabase
+from app.core.database import supabase
 from fastapi import HTTPException
 
 

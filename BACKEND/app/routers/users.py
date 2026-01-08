@@ -2,11 +2,12 @@
 
 from fastapi import APIRouter, Depends
 from app.core.auth import get_current_user_id
-from app.models.users import UserProfileUpdate, PaymentMethodCreate
+from app.schemas.schemas import UserProfileUpdate, PaymentMethodCreate
 from app.services.user_service import UserService
-from http.client import HTTPException
+from fastapi import HTTPException
+from app.core.database import supabase
+
 router = APIRouter(prefix="/users", tags=["Users"])
-from app.database import supabase
 
 @router.get("/me")
 async def get_my_profile(user_id: str = Depends(get_current_user_id)):
@@ -95,3 +96,138 @@ def get_my_stores(user_id: str = Depends(get_current_user_id)):
     except Exception as e:
         print(f"Error fetching user stores: {e}")
         raise HTTPException(status_code=500, detail="Could not load assigned stores.")
+
+
+@router.get("/me/addresses")
+async def get_my_addresses(user_id: str = Depends(get_current_user_id)):
+    """Get all addresses for the current user"""
+    try:
+        addresses = (
+            supabase.table("user_addresses")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("is_default", desc=True)
+            .execute()
+        ).data or []
+        
+        return {"addresses": addresses}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to fetch addresses: {str(e)}")
+
+
+@router.post("/me/addresses")
+async def add_address(
+    payload: dict,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Add a new address for the current user"""
+    try:
+        # In Supabase v2, insert() already returns data - no need for .select()
+        address = (
+            supabase.table("user_addresses")
+            .insert({
+                "user_id": user_id,
+                **payload
+            })
+            .execute()
+        ).data[0]
+        
+        return {"address": address}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to add address: {str(e)}")
+
+
+@router.get("/me/payment-methods")
+async def get_my_payment_methods(user_id: str = Depends(get_current_user_id)):
+    """Get all payment methods for the current user"""
+    try:
+        methods = (
+            supabase.table("user_payment_methods")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("is_default", desc=True)
+            .execute()
+        ).data or []
+        
+        return {"payment_methods": methods}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to fetch payment methods: {str(e)}")
+
+
+@router.get("/me/notifications")
+async def get_my_notifications(
+    user_id: str = Depends(get_current_user_id),
+    limit: int = 50
+):
+    """Get recent notifications for the current user"""
+    try:
+        notifications = (
+            supabase.table("user_notifications")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        ).data or []
+        
+        return {"notifications": notifications}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to fetch notifications: {str(e)}")
+
+
+@router.delete("/me/addresses/{address_id}")
+async def delete_address(
+    address_id: str,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Delete an address for the current user"""
+    try:
+        # Verify ownership
+        address = (
+            supabase.table("user_addresses")
+            .select("id")
+            .eq("id", address_id)
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        ).data
+        
+        if not address:
+            raise HTTPException(404, "Address not found")
+        
+        supabase.table("user_addresses").delete().eq("id", address_id).execute()
+        
+        return {"status": "deleted", "address_id": address_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Failed to delete address: {str(e)}")
+
+
+@router.delete("/me/payment-methods/{method_id}")
+async def delete_payment_method(
+    method_id: str,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Delete a payment method for the current user"""
+    try:
+        # Verify ownership
+        method = (
+            supabase.table("user_payment_methods")
+            .select("id")
+            .eq("id", method_id)
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        ).data
+        
+        if not method:
+            raise HTTPException(404, "Payment method not found")
+        
+        supabase.table("user_payment_methods").delete().eq("id", method_id).execute()
+        
+        return {"status": "deleted", "method_id": method_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Failed to delete payment method: {str(e)}")

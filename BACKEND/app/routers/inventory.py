@@ -1,7 +1,7 @@
 # app/routers/inventory.py
 
 from fastapi import APIRouter, Query
-from app.database import supabase
+from app.core.database import supabase
 from app.services.store_service import StoreService
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])

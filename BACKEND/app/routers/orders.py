@@ -3,8 +3,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional
 from app.core.auth import get_current_user_id
-from app.models.commerce import ReturnRequest, CheckoutRequest
-from app.database import supabase
+from app.schemas.schemas import ReturnRequest, CheckoutRequest
+from app.core.database import supabase
 from app.services.commerce_service import CommerceService
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
@@ -13,6 +13,27 @@ router = APIRouter(prefix="/orders", tags=["Orders"])
 # ---------------------------------------------------------
 # ORDER HISTORY
 # ---------------------------------------------------------
+@router.get("")
+async def get_orders(
+    user_id: str = Depends(get_current_user_id),
+    limit: int = 20
+):
+    """Get user's orders (for Support page dropdown)"""
+    try:
+        orders = (
+            supabase.table("orders")
+            .select("id, total_amount, created_at, status, currency")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        ).data or []
+        
+        return {"orders": orders}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to fetch orders: {str(e)}")
+
+
 @router.get("/history")
 async def get_order_history(user_id: str = Depends(get_current_user_id)):
     """
@@ -31,35 +52,6 @@ async def get_order_history(user_id: str = Depends(get_current_user_id)):
     return res.data
 
 
-# ---------------------------------------------------------
-# CHECKOUT
-# ---------------------------------------------------------
-@router.post("/checkout")
-async def checkout(
-    payload: CheckoutRequest,
-    user_id: str = Depends(get_current_user_id),
-):
-    """
-    Unified checkout handler:
-    - Delivery (warehouse-first, nearest-store fallback)
-    - Pickup (single-store strict)
-    - Returns allocation map + agent_reason for chatbot
-    """
-
-    result = CommerceService.checkout(
-        user_id=user_id,
-        order_type=payload.order_type,
-        store_pickup_location_id=payload.pickup_fulfillment_location_id,
-        address_id=payload.address_id,
-        promotion_code=payload.promotion_code,
-    )
-
-    return {
-        "status": "success",
-        "order": result["order"],
-        "allocation": result["allocation"],
-        "agent_reason": result["agent_reason"],
-    }
 
 
 # ---------------------------------------------------------

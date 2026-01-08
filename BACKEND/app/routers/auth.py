@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from app.core.auth import get_current_user_id
-from app.models.auth import LoginWithPhoneRequest
-from app.database import supabase
+from app.schemas.schemas import LoginWithPhoneRequest
+from app.core.database import supabase
 from app.services.user_service import UserService
 
 router = APIRouter(prefix="/auth", tags=["Auth"])

@@ -4,7 +4,7 @@ import re
 from datetime import date, datetime
 from fastapi import HTTPException
 from postgrest.exceptions import APIError
-from app.database import supabase
+from app.core.database import supabase_admin
 
 # DB constraint: ^\+[1-9]\d{1,14}$ -> "+" + 1–15 digits (total length 2–16)
 PHONE_REGEX = re.compile(r'^\+[1-9]\d{1,14}$')
@@ -50,7 +50,7 @@ def _normalize_phone(phone: str | None) -> str | None:
 class UserService:
   @staticmethod
   async def ensure_user_exists(user_id: str) -> dict:
-    res = supabase.table("users").select("*").eq("id", user_id).execute()
+    res = supabase_admin.table("users").select("*").eq("id", user_id).execute()
     if res.data:
       return res.data[0]
 
@@ -58,7 +58,8 @@ class UserService:
       "id": user_id,
       "is_active": True,
     }
-    created = supabase.table("users").insert(new_profile).execute()
+    # In Supabase v2, insert() already returns data - no need for .select()
+    created = supabase_admin.table("users").insert(new_profile).execute()
     if not created.data:
       raise HTTPException(500, "Failed to create user profile")
     return created.data[0]
@@ -82,7 +83,7 @@ class UserService:
       # Uniqueness check only on active users (matches partial index)
       if normalized_data["phone_number"]:
         check = (
-          supabase.table("users")
+          supabase_admin.table("users")
           .select("id")
           .eq("phone_number", normalized_data["phone_number"])
           .eq("is_active", True)
@@ -104,14 +105,14 @@ class UserService:
 
     # 4) Nothing to update? Just return current profile
     if not payload:
-      res = supabase.table("users").select("*").eq("id", user_id).execute()
+      res = supabase_admin.table("users").select("*").eq("id", user_id).execute()
       if not res.data:
         raise HTTPException(404, "User not found")
       return res.data[0]
 
     # 5) Supabase update with nice error mapping
     try:
-      res = supabase.table("users").update(payload).eq("id", user_id).execute()
+      res = supabase_admin.table("users").update(payload).eq("id", user_id).select("*").execute()
       if not res.data:
         raise HTTPException(404, "User not found")
       return res.data[0]
@@ -146,11 +147,11 @@ class UserService:
 
   @staticmethod
   async def add_payment_method(user_id: str, token_id: str, last4: str, brand: str):
-    supabase.table("user_payment_methods").update(
+    supabase_admin.table("user_payment_methods").update(
       {"is_default": False}
     ).eq("user_id", user_id).execute()
 
-    res = supabase.table("user_payment_methods").insert(
+    res = supabase_admin.table("user_payment_methods").insert(
       {
         "user_id": user_id,
         "provider": "razorpay",
@@ -159,7 +160,7 @@ class UserService:
         "card_brand": brand,
         "is_default": True,
       }
-    ).execute()
+    ).select("*").execute()
 
     if not res.data:
       raise HTTPException(500, "Failed to save payment method")

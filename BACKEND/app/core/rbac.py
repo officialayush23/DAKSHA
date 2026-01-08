@@ -1,6 +1,8 @@
+# app/core/rbac.py
+
 from fastapi import Request, Depends, HTTPException, status
 from app.core.auth import get_current_user_id
-from app.database import supabase
+from app.core.database import supabase
 from typing import List
 
 # --------------------------------------------------

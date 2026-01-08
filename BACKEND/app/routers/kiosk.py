@@ -1,5 +1,6 @@
+# app/routers/kiosk.py
 from fastapi import APIRouter, Depends, HTTPException, Body
-from app.database import supabase
+from app.core.database import supabase
 from app.core.auth import get_current_user_id
 from app.services.commerce_service import CommerceService
 from pydantic import BaseModel
@@ -107,7 +108,7 @@ async def kiosk_add_to_cart(
 ):
     try:
         # 1. Log Context to Chat/Omni Session if possible
-        # (Skipping for brevity, but you'd insert into chat_sessions here if needed)
+        # (Skipping for brevity, but you'd insert into conversation_sessions here if needed)
 
         # 2. Add to Cart
         return await CommerceService.add_to_cart(
@@ -123,7 +124,7 @@ async def kiosk_add_to_cart(
 async def map_user_cart(store_id: str, user_id: str = Depends(get_current_user_id)):
     try:
         # 1. Get Cart
-        cart_snapshot = await CommerceService.get_cart_snapshot(user_id)
+        cart_snapshot = CommerceService.get_cart_snapshot(user_id)
         if not cart_snapshot or not cart_snapshot.get('items'):
             return []
 
@@ -163,12 +164,12 @@ async def map_user_cart(store_id: str, user_id: str = Depends(get_current_user_i
         return []
 
 # ---------------------------------------------------------
-# 🗣️ INTELLIGENT STORE AGENT (Using chat_sessions)
+# 🗣️ INTELLIGENT STORE AGENT (Using conversation_sessions)
 # ---------------------------------------------------------
 @router.post("/chat")
 async def kiosk_chat_agent(payload: ChatRequest, user_id: str = Depends(get_current_user_id)):
     """
-    Handles User query + Updates `chat_sessions`.
+    Handles User query + Updates `conversation_sessions`.
     """
     try:
         query = payload.message.lower()
@@ -181,18 +182,24 @@ async def kiosk_chat_agent(payload: ChatRequest, user_id: str = Depends(get_curr
                 "user_id": user_id,
                 "summary": f"Kiosk Interaction: {query[:50]}...",
                 "last_updated": datetime.now(timezone.utc).isoformat(),
-                "entry_channel": "kiosk", # Matches your ENUM
+                "entry_channel": "kiosk",  # DB enum: web, mobile, whatsapp, kiosk, voice, admin
                 "entry_channel_id": payload.kiosk_device_id,
                 "sentiment_trend": 0.0
             }
-            # Note: Ensure 'kiosk' is a valid value in your 'channel_type_enum' in DB
-            # If not, use 'web' or whatever is allowed.
-            new_sess = supabase.table("chat_sessions").insert(session_data).select().execute()
+            # Use conversation_sessions table (matches DB schema)
+            new_sess = supabase.table("conversation_sessions").insert({
+                "user_id": user_id,
+                "started_from": "kiosk",  # DB enum: web, mobile, whatsapp, kiosk, voice, admin
+                "summary": f"Kiosk Interaction: {query[:50]}...",
+                "status": "active",
+                "state": {},
+                "state_version": 1
+            }).select().execute()
             session_id = new_sess.data[0]['id']
         else:
-            # Update existing
-            supabase.table("chat_sessions").update({
-                "last_updated": datetime.now(timezone.utc).isoformat(),
+            # Update existing conversation_sessions
+            supabase.table("conversation_sessions").update({
+                "updated_at": datetime.now(timezone.utc).isoformat(),
                 "summary": f"Updated: {query[:20]}..." 
             }).eq("id", session_id).execute()
 
@@ -219,9 +226,10 @@ async def kiosk_chat_agent(payload: ChatRequest, user_id: str = Depends(get_curr
                 rec = inv.data[0]
                 variant = rec['product_variants']
                 
-                # Log Success (Graph State Update - Optional)
-                supabase.table("chat_sessions").update({
-                    "graph_state": {"last_intent": "product_found", "product_id": product['id']}
+                # Log Success (State Update - Optional)
+                supabase.table("conversation_sessions").update({
+                    "state": {"last_intent": "product_found", "product_id": product['id']},
+                    "updated_at": datetime.now(timezone.utc).isoformat()
                 }).eq("id", session_id).execute()
 
                 found_items = [{
@@ -242,9 +250,10 @@ async def kiosk_chat_agent(payload: ChatRequest, user_id: str = Depends(get_curr
                     "session_id": session_id
                 }
         
-        # Log Failure
-        supabase.table("chat_sessions").update({
-            "consecutive_error_count": 1 # You'd increment this normally
+        # Log Failure (update state)
+        supabase.table("conversation_sessions").update({
+            "state": {"consecutive_error_count": 1},  # Store in state JSONB
+            "updated_at": datetime.now(timezone.utc).isoformat()
         }).eq("id", session_id).execute()
 
         return {"response": "I couldn't find that item nearby.", "products": [], "session_id": session_id}

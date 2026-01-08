@@ -1,6 +1,6 @@
 # app/services/promotion_service.py
 
-from app.database import supabase
+from app.core.database import supabase
 from typing import List, Dict, Optional
 
 

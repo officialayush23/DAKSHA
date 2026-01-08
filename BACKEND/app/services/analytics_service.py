@@ -1,5 +1,5 @@
 # app/services/analytics_service.py
-from app.database import supabase
+from app.core.database import supabase_admin
 import logging
 
 log = logging.getLogger("analytics")
@@ -17,6 +17,8 @@ class AnalyticsService:
             payload["user_id"] = user_id
 
         try:
-            supabase.table("user_footprints").insert(payload).execute()
+            # Use user_facts table (not user_footprints)
+            # Note: In Supabase v2, insert() already returns data - no need for .select()
+            supabase_admin.table("user_facts").insert(payload).execute()
         except Exception as e:
             log.error(f"Analytics insert failed: {e}")

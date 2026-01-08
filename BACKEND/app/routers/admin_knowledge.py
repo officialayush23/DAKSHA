@@ -1,6 +1,7 @@
+# app/routers/admin_knowledge.py
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from app.database import supabase
+from app.core.database import supabase
 from app.services.ai_service import AIService
 from app.core.rbac import require_role
 

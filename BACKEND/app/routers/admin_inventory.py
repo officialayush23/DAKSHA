@@ -1,7 +1,9 @@
+# app/routers/admin_inventory.py
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
-from app.database import supabase
+from app.core.database import supabase
 from app.core.rbac import require_store_access
-from app.models.management import StockUpdate
+from app.schemas.schemas import StockUpdate
 from datetime import datetime, timezone
 import logging
 
@@ -31,7 +33,7 @@ async def get_store_dashboard(
         # 2. Stats
         inv_count = supabase.table("inventory").select("id", count="exact", head=True).eq("fulfillment_location_id", fl_id).execute().count or 0
         low_stock = supabase.table("inventory").select("id", count="exact", head=True).eq("fulfillment_location_id", fl_id).lt("quantity_on_hand", 10).execute().count or 0
-        pending = supabase.table("orders").select("id", count="exact", head=True).eq("store_id", store_id).eq("status", "pending").execute().count or 0
+        pending = supabase.table("orders").select("id", count="exact", head=True).eq("store_id", store_id).in_("status", ["pending_payment", "paid", "processing"]).execute().count or 0
 
         today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
         rev_res = supabase.table("orders").select("total_amount").eq("store_id", store_id).gte("created_at", today).execute()
@@ -51,61 +53,7 @@ async def get_store_dashboard(
 # ---------------------------------------------------------
 # 📥 INWARD STOCK (Fixed: Removed updated_at)
 # ---------------------------------------------------------
-@router.post("/inward/{store_id}")
-async def inward_stock(
-    data: StockUpdate, 
-    store_id: str = Path(...),
-    _rbac = Depends(require_store_access("store_id"))
-):
-    try:
-        # 1. Resolve Store
-        store_res = supabase.table("stores").select("fulfillment_location_id").eq("id", store_id).maybe_single().execute()
-        
-        if not store_res.data:
-             raise HTTPException(404, "Store not found")
-             
-        fl_id = store_res.data.get('fulfillment_location_id')
-        if not fl_id:
-             raise HTTPException(400, "Store has no linked Fulfillment Location. Contact Super Admin.")
 
-        # 2. Get Current Inventory
-        existing = supabase.table("inventory").select("quantity_on_hand")\
-            .eq("fulfillment_location_id", fl_id)\
-            .eq("product_variant_id", data.product_variant_id)\
-            .maybe_single().execute()
-        
-        current_qty = existing.data['quantity_on_hand'] if (existing and existing.data) else 0
-        new_qty = current_qty + data.quantity
-
-        # 3. UPSERT
-        payload = {
-            "fulfillment_location_id": fl_id,
-            "product_variant_id": data.product_variant_id,
-            "quantity_on_hand": new_qty,
-            "aisle_number": data.aisle,
-            "shelf_height": data.shelf,
-            # "updated_at": "now()" <--- REMOVED THIS to fix Schema Cache Error
-        }
-        
-        res = supabase.table("inventory").upsert(
-            payload, on_conflict="fulfillment_location_id, product_variant_id"
-        ).execute()
-
-        # 4. SAFETY FETCH
-        if not res.data:
-            final_res = supabase.table("inventory").select("*")\
-                .eq("fulfillment_location_id", fl_id)\
-                .eq("product_variant_id", data.product_variant_id)\
-                .single().execute()
-            record = final_res.data
-        else:
-            record = res.data[0]
-
-        return {"status": "success", "new_quantity": new_qty, "record": record}
-
-    except Exception as e:
-        print(f"❌ INWARD EXCEPTION: {e}") 
-        raise HTTPException(500, detail=f"Server Error: {str(e)}")
 
 # ---------------------------------------------------------
 # 📋 ORDERS
@@ -135,7 +83,19 @@ async def get_store_orders(
 
 @router.patch("/orders/{order_id}/status")
 async def update_order_status(order_id: str, payload: dict):
-    res = supabase.table("orders").update({"status": payload["status"]}).eq("id", order_id).execute()
+    # Use RPC for order state transition
+    from app.core.rpc import RPCService
+    
+    # Get current order state
+    order = supabase.table("orders").select("status").eq("id", order_id).maybe_single().execute().data
+    if not order:
+        raise HTTPException(404, "Order not found")
+    
+    RPCService.transition_order_state(
+        order_id=order_id,
+        from_state=order["status"],
+        to_state=payload["status"],
+    )
     return {"status": "updated"}
 
 # ---------------------------------------------------------

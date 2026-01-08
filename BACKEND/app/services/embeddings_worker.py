@@ -1,6 +1,6 @@
 # app/services/embeddings_worker.py
 from datetime import datetime
-from app.database import supabase
+from app.core.database import supabase_admin
 from app.services.ai_service import AIService
 import logging
 
@@ -11,11 +11,11 @@ class EmbeddingsWorker:
     @staticmethod
     def fetch_recent_product_context(user_id: str, limit: int = 20):
         res = (
-            supabase.table("user_footprints")
-            .select("event_data")
+            supabase_admin.table("user_facts")
+            .select("value")
             .eq("user_id", user_id)
-            .eq("event_type", "view_product")
-            .order("captured_at", desc=True)
+            .eq("key", "view_product")
+            .order("updated_at", desc=True)
             .limit(limit)
             .execute()
         )
@@ -58,11 +58,12 @@ class EmbeddingsWorker:
                 "source": source,
                 "updated_at": datetime.utcnow().isoformat(),
             }
-            existing = supabase.table("user_embeddings").select("id").eq("user_id", user_id).maybe_single().execute()
+            existing = supabase_admin.table("user_embeddings").select("id").eq("user_id", user_id).maybe_single().execute()
             if existing.data:
-                res = supabase.table("user_embeddings").update({"embedding": emb, "source": source, "updated_at": payload["updated_at"]}).eq("user_id", user_id).execute()
+                res = supabase_admin.table("user_embeddings").update({"embedding": emb, "source": source, "updated_at": payload["updated_at"]}).eq("user_id", user_id).select("*").execute()
             else:
-                res = supabase.table("user_embeddings").insert(payload).execute()
+                # In Supabase v2, insert() already returns data - no need for .select()
+                res = supabase_admin.table("user_embeddings").insert(payload).execute()
             if getattr(res, "error", None):
                 logger.error("Upsert user_embeddings error: %s", res.error)
                 return None

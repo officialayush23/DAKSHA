@@ -3,7 +3,7 @@
 import logging
 from typing import Optional, List, Dict, Any
 
-from app.database import supabase
+from app.core.database import supabase_admin
 from app.services.ai_service import AIService
 from app.services.promotion_service import PromotionService
 
@@ -45,7 +45,7 @@ class RecommendationService:
         Schema-safe. Never throws.
         """
         try:
-            res = supabase.rpc(
+            res = supabase_admin.rpc(
                 "get_trending_products",
                 {"p_limit": limit},
             ).execute()
@@ -137,7 +137,7 @@ class RecommendationService:
     def _get_precomputed_embedding(user_id: str) -> Optional[List[float]]:
         try:
             row = (
-                supabase.table("user_embeddings")
+                supabase_admin.table("user_embeddings")
                 .select("embedding")
                 .eq("user_id", user_id)
                 .maybe_single()
@@ -192,7 +192,7 @@ class RecommendationService:
 
         try:
             variants = (
-                supabase.table("product_variants")
+                supabase_admin.table("product_variants")
                 .select("id, product_id")
                 .in_("product_id", product_ids)
                 .execute()
@@ -204,7 +204,7 @@ class RecommendationService:
             variant_ids = [v["id"] for v in variants.data]
 
             inventory = (
-                supabase.table("inventory")
+                supabase_admin.table("inventory")
                 .select("product_variant_id")
                 .in_("product_variant_id", variant_ids)
                 .gt("quantity_on_hand", 0)
@@ -234,7 +234,7 @@ class RecommendationService:
     @staticmethod
     def _rpc_recommend_by_vector(vec: List[float], limit: int):
         try:
-            res = supabase.rpc(
+            res = supabase_admin.rpc(
                 "recommend_products_by_vector",
                 {
                     "query_embedding": vec,
@@ -255,10 +255,10 @@ class RecommendationService:
     def _compute_live_vector(user_id: str) -> Optional[List[float]]:
         try:
             footprints = (
-                supabase.table("user_footprints")
-                .select("event_data")
+                supabase_admin.table("user_facts")
+                .select("value")
                 .eq("user_id", user_id)
-                .order("captured_at", desc=True)
+                .order("updated_at", desc=True)
                 .limit(12)
                 .execute()
             )

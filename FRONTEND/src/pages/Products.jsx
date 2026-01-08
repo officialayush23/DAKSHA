@@ -134,66 +134,24 @@ export default function ProductsPage() {
     setAddingId(product.id);
 
     try {
-      toast.success(`Adding ${product.name}…`);
+      // Use backend API - no direct Supabase writes
+      const payload = {
+        variant_id: product.default_variant_id,
+        quantity: 1,
+        fulfillment_location_id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11" // Default location - should be configurable
+      };
 
-      // Preferred API
-      try {
-        await api.post("/cart/add", { variant_id: product.default_variant_id, quantity: 1 });
-        toast.success(`Added ${product.name}`);
-        trackAddToCart(product, 1, { source: "api" });
-        await flush();
-        return;
-      } catch (apiError) {
-
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          toast.error("Please log in");
-          trackAddToCart(product, 1, { source: "client_not_logged" });
-          setAddingId(null);
-          return;
-        }
-
-        let { data: cart } = await supabase
-          .from('carts')
-          .select('id')
-          .eq('user_id', user.id)
-          .eq('status', 'active')
-          .maybeSingle();
-
-        if (!cart) {
-          const { data: newCart } = await supabase
-            .from('carts')
-            .insert({ user_id: user.id, status: 'active' })
-            .select()
-            .single();
-          cart = newCart;
-        }
-
-        const { data: existing } = await supabase
-          .from('cart_items')
-          .select('id, quantity')
-          .eq('cart_id', cart.id)
-          .eq('product_variant_id', product.default_variant_id)
-          .maybeSingle();
-                
-        if (existing) {
-          await supabase.from('cart_items')
-            .update({ quantity: existing.quantity + 1 })
-            .eq('id', existing.id);
-        } else {
-          await supabase.from('cart_items').insert({
-            cart_id: cart.id,
-            product_variant_id: product.default_variant_id,
-            quantity: 1
-          });
-        }
-
-        toast.success(`Added ${product.name}`);
-        trackAddToCart(product, 1, { source: "supabase_client_fallback" });
-        await flush();
-      }
+      await api.post("/cart", payload);
+      toast.success(`Added ${product.name}`);
+      trackAddToCart(product, 1, { source: "api" });
+      await flush();
     } catch (err) {
-      toast.error("Failed to add to cart");
+      console.error("Failed to add to cart:", err);
+      if (err.response?.status === 401) {
+        toast.error("Please log in to add items to cart");
+      } else {
+        toast.error("Failed to add to cart");
+      }
       trackEvent("add_to_cart_failed", { product_id: product.id, reason: String(err) });
     } finally {
       setAddingId(null);

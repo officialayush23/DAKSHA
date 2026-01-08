@@ -14,7 +14,7 @@ from app.services.human_handoff_service import HumanHandoffService
 from app.services.loyalty_service import LoyaltyService
 from app.services.notification_service import NotificationService
 from app.services.ai_service import AIService
-from app.database import supabase
+from app.core.database import supabase
 
 logger = logging.getLogger("daksha.tools")
 
@@ -102,27 +102,35 @@ def check_product_availability_nearby_tool(product_variant_id: str, lat: float, 
 @tool
 def get_cart_tool(user_id: str):
     """Fetch the user's active shopping cart items."""
-    if user_id == "guest": return "Please log in to view cart."
+    if user_id == "guest": 
+        return "Please log in to view cart."
     try:
-        res = supabase.table("carts").select("*, cart_items(*, product_variants(*, products(name)))").eq("user_id", user_id).eq("status", "active").maybe_single().execute()
-        return json.dumps(res.data) if res.data else "Cart is empty."
+        # Use CommerceService for consistency
+        cart_snapshot = CommerceService.get_cart_snapshot(user_id)
+        if not cart_snapshot or not cart_snapshot.get("items"):
+            return "Cart is empty."
+        return json.dumps({
+            "cart_id": cart_snapshot["cart"]["id"],
+            "items": cart_snapshot["items"],
+            "item_count": len(cart_snapshot["items"])
+        })
     except Exception as e:
         return f"Cart error: {e}"
 
 @tool
-def add_to_cart_tool(user_id: str, variant_id: str, quantity: int = 1):
+def add_to_cart_tool(user_id: str, variant_id: str, quantity: int = 1, fulfillment_location_id: str = None):
     """Add an item to the cart."""
-    if user_id == "guest": return "Login required."
+    if user_id == "guest": 
+        return "Login required."
     try:
-        # Get/Create Cart
-        cart = supabase.table("carts").select("id").eq("user_id", user_id).eq("status", "active").maybe_single().execute()
-        cart_id = cart.data['id'] if cart.data else supabase.table("carts").insert({"user_id": user_id, "status": "active"}).execute().data[0]['id']
-        
-        # Add Item
-        supabase.table("cart_items").upsert({
-            "cart_id": cart_id, "product_variant_id": variant_id, "quantity": quantity
-        }, on_conflict="cart_id,product_variant_id").execute()
-        return "Added to cart."
+        # Use CommerceService for consistency
+        result = CommerceService.add_item(
+            user_id=user_id,
+            variant_id=variant_id,
+            qty=quantity,
+            fulfillment_location_id=fulfillment_location_id or ""
+        )
+        return f"Added {quantity} item(s) to cart."
     except Exception as e:
         return f"Failed to add: {e}"
 
@@ -140,17 +148,25 @@ def get_user_context_tool(user_id: str):
     except: return "{}"
 
 @tool
-def checkout_tool(user_id: str, address_id: str = None):
+def checkout_tool(user_id: str, address_id: str = None, order_type: str = "delivery"):
     """
     Create an order from the cart.
     Requires user confirmation of address_id first.
     """
+    if user_id == "guest":
+        return "Login required to checkout."
     try:
-        res = CommerceService.checkout(user_id=user_id, order_type="delivery", address_id=address_id)
+        res = CommerceService.checkout_commit(
+            user_id=user_id,
+            order_type=order_type,
+            pickup_location_id=None,
+            address_id=address_id,
+            promotion_code=None
+        )
         return json.dumps({
             "success": True, 
-            "order_id": res["order"]["id"], 
-            "total": res["order"]["total_amount"]
+            "order_id": res["order_id"], 
+            "total": res["total"]
         })
     except Exception as e:
         return f"Checkout Failed: {e}"

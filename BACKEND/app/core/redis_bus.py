@@ -1,6 +1,6 @@
 # app/core/redis_bus.py
 import json
-from app.database import redis_client
+from app.core.database import redis_client
 
 
 class EventBus:

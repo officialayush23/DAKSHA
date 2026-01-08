@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from app.database import supabase
+from app.core.database import supabase
 logger = logging.getLogger(__name__)
 
 async def reservation_cleanup_loop():

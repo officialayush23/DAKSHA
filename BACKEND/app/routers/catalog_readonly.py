@@ -1,7 +1,7 @@
 # app/routers/catalog_readonly.py
 
 from fastapi import APIRouter, Depends,Query
-from app.database import supabase
+from app.core.database import supabase
 from app.core.rbac import require_role
 
 router = APIRouter(

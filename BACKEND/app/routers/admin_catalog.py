@@ -1,9 +1,11 @@
+# app/routers/admin_catalog.py
+
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.core.auth import get_current_user_id
-from app.models.management import ProductCreate, VariantCreate, CategoryCreate
+from app.schemas.schemas import ProductCreate, VariantCreate, CategoryCreate
 from app.services.ai_service import AIService
-from app.database import supabase
+from app.core.database import supabase
 from app.core.rbac import require_role
 
 router = APIRouter(prefix="/admin/catalog", tags=["Admin: Catalog"])
