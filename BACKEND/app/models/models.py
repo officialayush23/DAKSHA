@@ -450,3 +450,24 @@ class Complaint(Base):
 
     user = relationship("User")
     order = relationship("Order")
+    
+    
+class RecommendationImpression(Base):
+    __tablename__ = "recommendation_impressions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id"))
+    product_variant_id = Column(UUID(as_uuid=True), ForeignKey("product_variants.id"))
+    feed_type = Column(String)
+    rank_position = Column(Integer)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class RecommendationOutcome(Base):
+    __tablename__ = "recommendation_outcomes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    impression_id = Column(UUID(as_uuid=True), ForeignKey("recommendation_impressions.id"))
+    outcome_type = Column(String)
+    reward_value = Column(Numeric)
+    occurred_at = Column(DateTime(timezone=True), server_default=func.now())
