@@ -27,6 +27,7 @@ class User(Base):
     phone = Column(String, unique=True)
     loyalty_tier = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    role = Column(ENUM(UserRoleEnum, name="user_role_enum"), default=UserRoleEnum.user)
 
     # Relationships
     sessions = relationship("Session", back_populates="user")
@@ -189,10 +190,22 @@ class Product(Base):
     description = Column(Text)
     occasion = Column(String)
     active = Column(Boolean, default=True)
+    reviews = relationship("Review", back_populates="product")
 
     variants = relationship("ProductVariant", back_populates="product")
 
+class Review(Base):
+    __tablename__ = "reviews"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    product_id = Column(UUID(as_uuid=True), ForeignKey("products.id"))
+    rating = Column(Integer)
+    comment = Column(Text)
+    images = Column(ARRAY(Text)) # Optional: User uploaded photos
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    user = relationship("User")
+    product = relationship("Product", back_populates="reviews")
 class ProductVariant(Base):
     __tablename__ = "product_variants"
 
@@ -471,3 +484,52 @@ class RecommendationOutcome(Base):
     outcome_type = Column(String)
     reward_value = Column(Numeric)
     occurred_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+class OfferEmbedding(Base):
+    __tablename__ = "offer_embeddings"
+    offer_id = Column(UUID(as_uuid=True), ForeignKey("offers.id", ondelete="CASCADE"), primary_key=True)
+    embedding = Column(Vector(768))
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    
+class LoyaltyTransaction(Base):
+    __tablename__ = "loyalty_transactions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), index=True)
+    points = Column(Integer, nullable=False)
+    source = Column(String)  # order, return, promo
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Shipment(Base):
+    __tablename__ = "shipments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"), index=True)
+    carrier = Column(String)
+    tracking_number = Column(String)
+    status = Column(String)
+    estimated_delivery = Column(DateTime(timezone=True))
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+class Return(Base):
+    __tablename__ = "returns"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"))
+    product_variant_id = Column(UUID(as_uuid=True))
+    quantity = Column(Integer)
+    reason = Column(Text)
+    status = Column(String)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Exchange(Base):
+    __tablename__ = "exchanges"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"))
+    old_variant_id = Column(UUID(as_uuid=True))
+    new_variant_id = Column(UUID(as_uuid=True))
+    status = Column(String)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+

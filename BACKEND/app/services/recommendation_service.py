@@ -4,6 +4,7 @@ from app.services.candidate_service import generate_candidates
 from app.services.ranking_service import rank_candidates
 from app.services.postrank_service import apply_business_rules
 from app.services.impression_service import log_impressions
+from app.services.offer_service import attach_offers_to_products
 
 def get_hybrid_recommendations(db: Session, user_id: str, intent_text: str = None, limit: int = 20):
     
@@ -22,6 +23,9 @@ def get_hybrid_recommendations(db: Session, user_id: str, intent_text: str = Non
     # 4. Logging (Data Flywheel)
     # Log what we are about to show so we can learn later
     log_impressions(db, user_id, final_feed, feed_type="home_feed" if not intent_text else "search")
+    
+    
+    attach_offers_to_products(db, final_feed)
 
     # 5. Format for API
     return [

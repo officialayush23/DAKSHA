@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from uuid import UUID
 from typing import Optional, List, Dict, Any
 from app.enums.db_enums import OrderStatusEnum, PickupStatusEnum
+from datetime import datetime
 
 # ---------------- PRODUCTS ----------------
 
@@ -155,3 +156,44 @@ class CartItemUpdate(BaseModel):
 class SearchQuery(BaseModel):
     query: str
     channel: str  # web/app/kiosk/whatsapp
+    
+    
+class ReviewCreate(BaseModel):
+    product_id: UUID
+    rating: int
+    comment: Optional[str] = None
+    images: Optional[List[str]] = []
+
+class ReviewResponse(BaseModel):
+    id: UUID
+    user_name: str
+    rating: int
+    comment: Optional[str]
+    created_at: datetime
+    
+    
+class LoyaltyEarn(BaseModel):
+    order_id: UUID
+    points: int
+
+
+class ShipmentCreate(BaseModel):
+    order_id: UUID
+    carrier: str
+    tracking_number: str
+    estimated_delivery: datetime
+
+class ReturnCreate(BaseModel):
+    order_id: UUID
+    product_variant_id: UUID
+    quantity: int
+    reason: str
+
+class ExchangeCreate(BaseModel):
+    order_id: UUID
+    old_variant_id: UUID
+    new_variant_id: UUID
+class PersonalizedOffer(BaseModel):
+    variant_id: UUID
+    discount_percent: int
+    reason: str

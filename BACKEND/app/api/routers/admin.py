@@ -1,5 +1,5 @@
 # app/api/routers/admin_stores.py
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends,HTTPException
 from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_current_user
 from app.schemas.schemas import *
@@ -103,3 +103,35 @@ def delete_off(id: UUID, db: Session = Depends(get_db), _=Depends(get_current_us
 @router.put("/orders/{id}/status")
 def update_delivery(id: UUID, p: OrderStatusUpdate, db: Session = Depends(get_db), _=Depends(get_current_user)):
     return update_order_status(db, id, p)
+
+@router.get("/products")
+def list_products(limit: int = 100, offset: int = 0, db: Session = Depends(get_db)):
+    return get_all_products(db, limit, offset)
+
+@router.get("/products/{id}/variants")
+def list_variants(id: uuid.UUID, db: Session = Depends(get_db)):
+    return get_product_variants(db, id)
+
+@router.get("/stores")
+def list_stores(db: Session = Depends(get_db)):
+    return get_all_stores(db)
+
+@router.get("/stores/{id}/pickups")
+def list_store_pickups(id: uuid.UUID, db: Session = Depends(get_db)):
+    return get_store_pickups(db, id)
+
+@router.get("/inventory/global/{product_id}")
+def view_global_inventory(product_id: uuid.UUID, db: Session = Depends(get_db)):
+    return get_global_inventory(db, product_id)
+
+@router.get("/inventory/store/{store_id}/{product_id}")
+def view_store_inventory(store_id: uuid.UUID, product_id: uuid.UUID, db: Session = Depends(get_db)):
+    return get_store_inventory(db, store_id, product_id)
+
+@router.get("/offers")
+def list_offers(db: Session = Depends(get_db)):
+    return get_all_offers(db)
+
+@router.get("/orders/{id}")
+def view_delivery(id: uuid.UUID, db: Session = Depends(get_db)):
+    return get_delivery_details(db, id)

@@ -1,6 +1,6 @@
 # app/services/admin_services.py
-from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy.orm import Session,joinedload
+from sqlalchemy import func,desc
 from shapely.geometry import shape
 from geoalchemy2.shape import from_shape
 import uuid
@@ -9,7 +9,7 @@ from app.services.product_embedding_service import (
 )
 from app.models.models import *
 from app.enums.db_enums import *
-
+from app.services.embedding_service import generate_embedding
 # ================= 1. PRODUCTS & VARIANTS =================
 
 def create_product(db: Session, payload):
@@ -173,6 +173,15 @@ def assign_store_inventory(db: Session, payload):
     db.commit()
     return store_inv
 
+def get_global_inventory(db: Session, product_id):
+    # Join with Variants to get all variants for a product
+    return db.query(GlobalInventory).join(ProductVariant)\
+             .filter(ProductVariant.product_id == product_id).all()
+
+def get_store_inventory(db: Session, store_id, product_id):
+    return db.query(StoreInventory).join(ProductVariant)\
+             .filter(StoreInventory.store_id == store_id, ProductVariant.product_id == product_id).all()
+             
 def global_inventory_kpis(db: Session):
     return {
         "total_variants_tracked": db.query(GlobalInventory).count(),
@@ -236,22 +245,63 @@ def update_complaint(db: Session, complaint_id, payload):
     db.commit()
     return c
 
-# ================= 7. OFFERS =================
+# --- HELPER: Offer Embedding ---
+def upsert_offer_embedding(db: Session, offer_id):
+    offer = db.query(Offer).get(offer_id)
+    if not offer: return
+    # Create semantic text for the offer
+    text = f"Offer: {offer.name}. Category: {offer.eligible_category}. Discount: {offer.discount_value} {offer.discount_type}."
+    vector = generate_embedding(text)
+    
+    emb = db.query(OfferEmbedding).get(offer_id)
+    if emb:
+        emb.embedding = vector
+    else:
+        db.add(OfferEmbedding(offer_id=offer_id, embedding=vector))
+    db.commit()
 
+# ================= 1. PRODUCTS & VARIANTS =================
+def get_all_products(db: Session, limit: int = 100, offset: int = 0):
+    return db.query(Product).order_by(desc(Product.created_at)).limit(limit).offset(offset).all()
+
+def get_product_variants(db: Session, product_id):
+    # Eager load images to avoid N+1 queries
+    return db.query(ProductVariant).options(joinedload(ProductVariant.images))\
+             .filter(ProductVariant.product_id == product_id).all()
+
+def get_all_images(db: Session, limit: int = 100):
+    return db.query(ProductImage).limit(limit).all()
+
+# ================= 2. STORES =================
+def get_all_stores(db: Session):
+    return db.query(Store).all()
+
+def get_store_pickups(db: Session, store_id):
+    return db.query(Pickup).filter(Pickup.store_id == store_id).order_by(desc(Pickup.updated_at)).all()
+
+
+# ================= 7. OFFERS =================
 def create_offer(db: Session, payload):
     offer = Offer(**payload.dict())
     db.add(offer)
     db.commit()
     db.refresh(offer)
+    # 🔥 Generate Embedding
+    upsert_offer_embedding(db, offer.id)
     return offer
 
 def update_offer(db: Session, offer_id, payload):
     offer = db.query(Offer).get(offer_id)
-    if not offer: return None
     for k, v in payload.dict(exclude_unset=True).items():
         setattr(offer, k, v)
     db.commit()
+    # 🔥 Re-Embed
+    upsert_offer_embedding(db, offer.id)
     return offer
+
+def get_all_offers(db: Session):
+    return db.query(Offer).order_by(desc(Offer.valid_to)).all()
+
 
 def delete_offer(db: Session, offer_id):
     db.query(Offer).filter(Offer.id == offer_id).delete()
@@ -275,3 +325,6 @@ def update_order_status(db: Session, order_id, payload):
     db.add(history)
     db.commit()
     return order
+
+def get_delivery_details(db: Session, order_id):
+    return db.query(Order).filter(Order.id == order_id).first()

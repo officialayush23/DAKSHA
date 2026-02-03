@@ -2,9 +2,9 @@
 
 from fastapi import APIRouter, Depends
 from app.schemas.schemas import *
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session,joinedload
 import uuid
-
+from app.models.models import Review, Product, User
 from app.core.deps import get_db, get_current_user
 
 from app.services.user_services import *
@@ -178,3 +178,78 @@ def update_active_channel(
         db.commit()
 
     return {"status": "updated"}
+
+
+from typing import Optional
+
+@router.get("/products")
+def browse_products(
+    category: str = None, 
+    min_price: float = None, 
+    max_price: float = None, 
+    q: str = None,
+    db: Session = Depends(get_db)
+):
+    """Public endpoint for browsing with filters"""
+    return get_products_with_filters(db, category, min_price, max_price, q)
+
+@router.post("/register")
+def register_user(
+    payload: dict, # Replace with UserRegisterSchema
+    db: Session = Depends(get_db)
+):
+    return upsert_user_identity(db, payload['email'], payload['name'], payload.get('phone'))
+
+@router.get("/profile")
+def my_profile(db: Session = Depends(get_db), user = Depends(get_current_user)):
+    return get_user_profile(db, user.id)
+
+@router.get("/cards")
+def my_cards(db: Session = Depends(get_db), user = Depends(get_current_user)):
+    return get_cards(db, user.id)
+
+@router.post("/cards")
+def add_new_card(payload: dict, db: Session = Depends(get_db), user = Depends(get_current_user)):
+    # Use CardCreateSchema
+    return add_card(db, user.id, payload)
+
+@router.delete("/cards/{id}")
+def remove_card_api(id: uuid.UUID, db: Session = Depends(get_db), user = Depends(get_current_user)):
+    delete_card(db, user.id, id)
+    return {"status": "deleted"}
+
+
+@router.get("/products/{product_id}/reviews")
+def get_product_reviews(product_id: uuid.UUID, db: Session = Depends(get_db)):
+    reviews = db.query(Review).options(joinedload(Review.user))\
+                .filter(Review.product_id == product_id)\
+                .order_by(desc(Review.created_at)).all()
+    
+    return [
+        {
+            "id": r.id,
+            "user_name": r.user.name if r.user else "Anonymous",
+            "rating": r.rating,
+            "comment": r.comment,
+            "created_at": r.created_at
+        }
+        for r in reviews
+    ]
+
+@router.post("/reviews")
+def create_review(
+    payload: ReviewCreate, 
+    db: Session = Depends(get_db), 
+    user = Depends(get_current_user)
+):
+    # Verify purchase? (Optional logic here)
+    review = Review(
+        user_id=user.id,
+        product_id=payload.product_id,
+        rating=payload.rating,
+        comment=payload.comment,
+        images=payload.images
+    )
+    db.add(review)
+    db.commit()
+    return {"status": "Review added"}

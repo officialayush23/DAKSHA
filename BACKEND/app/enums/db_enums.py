@@ -51,3 +51,8 @@ class PaymentStatusEnum(str, Enum):
     success = "success"
     failed = "failed"
     abandoned = "abandoned"
+    
+    
+class UserRoleEnum(str, Enum):
+    user = "user"
+    admin = "admin"
