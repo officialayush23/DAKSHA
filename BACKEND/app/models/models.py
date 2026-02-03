@@ -226,6 +226,7 @@ class ProductVariant(Base):
     images = relationship("ProductImage", back_populates="variant")
     inventory_global = relationship("GlobalInventory", uselist=False, back_populates="variant")
     embedding = relationship("ProductEmbedding", uselist=False, back_populates="variant")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class ProductImage(Base):

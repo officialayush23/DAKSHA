@@ -50,10 +50,14 @@ def create_variant(db: Session, payload):
     db.commit()
     db.refresh(variant)
 
-    # 🔥 CREATE EMBEDDING
-    upsert_product_variant_embedding(db, variant.id)
+    try:
+        upsert_product_variant_embedding(db, variant.id)
+    except Exception as e:
+        # log but DO NOT fail admin operation
+        print(f"[EMBEDDING FAILED] variant={variant.id} err={e}")
 
     return variant
+
 
 def update_variant(db: Session, variant_id, payload):
     variant = db.query(ProductVariant).filter_by(id=variant_id).first()
