@@ -1,17 +1,16 @@
 # app/core/auth.py
+# app/core/auth.py
 import uuid
 from sqlalchemy.orm import Session
 from app.models.models import User
 
 def get_or_create_user(db: Session, jwt_payload: dict) -> User:
-    """
-    Mirrors Supabase auth.users → public.users
-    This MUST be called on every authenticated request.
-    """
-
     supabase_user_id = uuid.UUID(jwt_payload["sub"])
+
     email = jwt_payload.get("email")
-    phone = jwt_payload.get("phone")
+    raw_phone = jwt_payload.get("phone")
+    phone = raw_phone if raw_phone else None
+
     name = jwt_payload.get("user_metadata", {}).get("name")
 
     user = db.query(User).filter(User.id == supabase_user_id).first()
@@ -20,7 +19,7 @@ def get_or_create_user(db: Session, jwt_payload: dict) -> User:
         user = User(
             id=supabase_user_id,
             email=email,
-            phone=phone,
+            phone=phone,   # ✅ NULL, not ""
             name=name,
             role="user",
         )
@@ -28,11 +27,15 @@ def get_or_create_user(db: Session, jwt_payload: dict) -> User:
         db.commit()
         db.refresh(user)
     else:
-        # keep profile in sync
+        updated = False
         if name and user.name != name:
             user.name = name
-        if phone and user.phone != phone:
+            updated = True
+        if phone != user.phone:
             user.phone = phone
-        db.commit()
+            updated = True
+        if updated:
+            db.commit()
 
     return user
+

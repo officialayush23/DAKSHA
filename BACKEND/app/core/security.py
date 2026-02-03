@@ -1,16 +1,22 @@
 # app/core/security.py
+# app/core/security.py
 import jwt
 from jwt import PyJWTError
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.config import settings
 
-security = HTTPBearer()
+# 🔒 Swagger-visible Bearer scheme
+bearer_scheme = HTTPBearer(
+    scheme_name="SupabaseJWT",
+    description="Paste Supabase access_token here"
+)
 
 def verify_supabase_jwt(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-):
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> dict:
     token = credentials.credentials
+
     try:
         payload = jwt.decode(
             token,

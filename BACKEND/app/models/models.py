@@ -196,6 +196,8 @@ class Product(Base):
     reviews = relationship("Review", back_populates="product")
 
     variants = relationship("ProductVariant", back_populates="product")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 
 class Review(Base):
     __tablename__ = "reviews"
