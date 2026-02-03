@@ -1,5 +1,5 @@
 # app/services/agent_service.py
-import google.generativeai as genai
+from google import genai
 from groq import Groq
 from sqlalchemy.orm import Session
 from app.core.config import settings
@@ -7,7 +7,7 @@ from app.agents.tools import AgentTools
 from app.models.models import ConversationSummary, Session as UserSession
 
 # Initialize Clients
-genai.configure(api_key=settings.GEMINI_API_KEY)
+genai.Client(api_key=settings.GEMINI_API_KEY)
 groq_client = Groq(api_key=settings.GROQ_API_KEY)
 
 SYSTEM_PROMPT = """
@@ -53,12 +53,12 @@ async def run_omnichannel_agent(db: Session, user_id, session_id, message, chann
     if summary:
         context_prefix += f"[Context Summary: {summary.summary_text}] "
 
-    # 4. Tool-Enabled Reasoning (Gemini 1.5 Flash)
+    # 4. Tool-Enabled Reasoning (Gemini 2.5 Flash)
     tools = AgentTools(db, user_id, session_id)
     
     # We pass the detected_intent into the prompt to guide Gemini's tool selection
     model = genai.GenerativeModel(
-        model_name='gemini-1.5-flash',
+        model_name='gemini-2.5-flash',
         system_instruction=SYSTEM_PROMPT,
         tools=[
             tools.get_fashion_recommendations,

@@ -63,7 +63,7 @@ def add_to_wishlist(db: Session, user, payload):
         user.id,
         None,
         None,
-        EventTypeEnum.add_to_cart,
+        EventTypeEnum.wishlist_add,
         EntityTypeEnum.product_variant,
         payload.product_variant_id,
     )

@@ -4,11 +4,14 @@ from sqlalchemy import (
     Column, String, Boolean, ForeignKey, Numeric, Integer, Text, DateTime, 
     ARRAY
 )
-from sqlalchemy.dialects.postgresql import UUID, ENUM, JSONB, TSVECTOR
+from sqlalchemy.dialects.postgresql import UUID, JSONB, TSVECTOR
+from sqlalchemy import Enum as SAEnum
+from app.enums import db_enums
+
+
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base  # Assuming this exists as per your snippet
-from app.enums.db_enums import *
 
 # Import specific types for advanced Postgres features
 from pgvector.sqlalchemy import Vector
@@ -27,7 +30,7 @@ class User(Base):
     phone = Column(String, unique=True)
     loyalty_tier = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    role = Column(ENUM(UserRoleEnum, name="user_role_enum"), default=UserRoleEnum.user)
+    role = Column(SAEnum(db_enums.UserRoleEnum, name="user_role_enum"), default=db_enums.UserRoleEnum.user)
 
     # Relationships
     sessions = relationship("Session", back_populates="user")
@@ -125,8 +128,8 @@ class Session(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    primary_channel = Column(ENUM(ChannelEnum, name="channel_enum"))
-    active_channel = Column(ENUM(ChannelEnum, name="channel_enum"))
+    primary_channel = Column(SAEnum(db_enums.ChannelEnum, name="channel_enum"))
+    active_channel = Column(SAEnum(db_enums.ChannelEnum, name="channel_enum"))
     started_at = Column(DateTime(timezone=True), server_default=func.now())
     ended_at = Column(DateTime(timezone=True))
 
@@ -141,7 +144,7 @@ class Conversation(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id"))
-    channel = Column(ENUM(ChannelEnum, name="channel_enum"))
+    channel = Column(SAEnum(db_enums.ChannelEnum, name="channel_enum"))
     speaker = Column(String)
     message = Column(Text)
     intent = Column(Text)
@@ -337,10 +340,10 @@ class Order(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    fulfillment_type = Column(ENUM(FulfillmentTypeEnum, name="fulfillment_type_enum"))
+    fulfillment_type = Column(SAEnum(db_enums.FulfillmentTypeEnum, name="fulfillment_type_enum"))
     store_id = Column(UUID(as_uuid=True), ForeignKey("stores.id"))
     delivery_address = Column(Text)
-    order_status = Column(ENUM(OrderStatusEnum, name="order_status_enum"))
+    order_status = Column(SAEnum(db_enums.OrderStatusEnum, name="order_status_enum"))
     total_amount = Column(Numeric)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -368,7 +371,7 @@ class OrderStatusHistory(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"))
-    status = Column(ENUM(OrderStatusEnum, name="order_status_enum"))
+    status = Column(SAEnum(db_enums.OrderStatusEnum, name="order_status_enum"))
     description = Column(Text)
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -382,7 +385,7 @@ class Payment(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"))
     method = Column(String)
-    status = Column(ENUM(PaymentStatusEnum, name="payment_status_enum"))
+    status = Column(SAEnum(db_enums.PaymentStatusEnum, name="payment_status_enum"))
     failure_reason = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -397,7 +400,7 @@ class Pickup(Base):
     store_id = Column(UUID(as_uuid=True), ForeignKey("stores.id"))
     scheduled_time = Column(DateTime(timezone=True))
     scheduled_day = Column(String)
-    status = Column(ENUM(PickupStatusEnum, name="pickup_status_enum"), default=PickupStatusEnum.pending)
+    status = Column(SAEnum(db_enums.PickupStatusEnum, name="pickup_status_enum"), default=db_enums.PickupStatusEnum.pending)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     order = relationship("Order", back_populates="pickup")
@@ -413,9 +416,9 @@ class Event(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id"))
-    channel = Column(ENUM(ChannelEnum, name="channel_enum"))
-    event_type = Column(ENUM(EventTypeEnum, name="event_type_enum"))
-    entity_type = Column(ENUM(EntityTypeEnum, name="entity_type_enum"))
+    channel = Column(SAEnum(db_enums.ChannelEnum, name="channel_enum"))
+    event_type = Column(SAEnum(db_enums.EventTypeEnum, name="event_type_enum"))
+    entity_type = Column(SAEnum(db_enums.EntityTypeEnum, name="entity_type_enum"))
     entity_id = Column(UUID(as_uuid=True))
     quantity = Column(Integer)
     price = Column(Numeric)
@@ -505,12 +508,17 @@ class Shipment(Base):
     __tablename__ = "shipments"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"), index=True)
-    carrier = Column(String)
-    tracking_number = Column(String)
-    status = Column(String)
-    estimated_delivery = Column(DateTime(timezone=True))
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"))
+    carrier = Column(Text)
+    tracking_number = Column(Text)
+
+    status = Column(
+    SAEnum(db_enums.ShipmentStatusEnum, name="shipment_status_enum"),
+    nullable=False
+)
+
+    estimated_delivery = Column(DateTime)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 class Return(Base):
     __tablename__ = "returns"
@@ -520,9 +528,9 @@ class Return(Base):
     product_variant_id = Column(UUID(as_uuid=True))
     quantity = Column(Integer)
     reason = Column(Text)
-    status = Column(String)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    status = Column(SAEnum(db_enums.ReturnStatusEnum, name="return_status_enum"), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
 class Exchange(Base):
     __tablename__ = "exchanges"
 
@@ -530,6 +538,23 @@ class Exchange(Base):
     order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"))
     old_variant_id = Column(UUID(as_uuid=True))
     new_variant_id = Column(UUID(as_uuid=True))
-    status = Column(String)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    status = Column(SAEnum(db_enums.ExchangeStatusEnum, name="exchange_status_enum"), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+class CheckoutSession(Base):
+    __tablename__ = "checkout_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    cart_id = Column(UUID(as_uuid=True), ForeignKey("carts.id"))
+
+    state = Column(SAEnum(db_enums.CheckoutStateEnum, name="checkout_state_enum"), nullable=False)
+    locked_price = Column(Numeric)
+    reserved_until = Column(DateTime)
+
+    payment_attempts = Column(Integer, default=0)
+    last_error = Column(Text)
+
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

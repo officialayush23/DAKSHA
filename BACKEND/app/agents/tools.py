@@ -7,14 +7,16 @@ from sqlalchemy import desc
 from geoalchemy2.functions import ST_Distance
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
-
+from app.services.checkout_service import (
+    start_checkout, resume_checkout, initiate_payment
+)
 from app.services.recommendation_service import get_hybrid_recommendations
 from app.services.admin_services import get_store_inventory, list_offers
 from app.models.models import Order, Pickup, Complaint, Store, Cart, CartItem
 from app.enums.db_enums import OrderStatusEnum
 from app.services.user_services import add_to_cart, add_address, get_or_create_cart
 from app.schemas.schemas import CartItemAdd, AddressCreate
-
+from app.services.personalized_offer_service import get_personalized_offer
 class AgentTools:
     def __init__(self, db: Session, user_id: uuid.UUID, session_id: uuid.UUID):
         self.db = db
@@ -90,3 +92,25 @@ class AgentTools:
     def get_available_offers(self):
         """Returns all current valid promotional offers and coupons."""
         return list_offers(self.db)
+    
+    def get_special_offer_for_product(self, variant_id: str):
+        return get_personalized_offer(
+            self.db,
+            self.user_id,
+            uuid.UUID(variant_id)
+        )
+    def start_checkout(self):
+        cart = get_or_create_cart(self.db, self.user_id, self.session_id)
+        checkout = start_checkout(self.db, self.user_id, cart.id)
+        return {
+            "checkout_id": str(checkout.id),
+            "state": checkout.state
+        }
+
+    def retry_payment(self, checkout_id: str, method: str):
+        checkout = resume_checkout(self.db, uuid.UUID(checkout_id))
+        initiate_payment(self.db, checkout, method)
+        return {
+            "state": checkout.state,
+            "attempts": checkout.payment_attempts
+        }

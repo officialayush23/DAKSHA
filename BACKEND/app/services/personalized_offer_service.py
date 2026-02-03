@@ -1,27 +1,48 @@
-# app/services/personalized_offer_Service.py
-def compute_personalized_offers(db, user_id, recommended_variants):
-    offers = []
+# app/services/personalized_offer_service.py
+from sqlalchemy.orm import Session
+from app.models.models import Offer, User, RecommendationImpression
+from datetime import datetime, timedelta
 
-    for variant in recommended_variants:
-        discount = 0
-        reason = None
+def get_personalized_offer(
+    db: Session,
+    user_id,
+    variant_id,
+):
+    """
+    Returns a personalized offer if user is eligible.
+    Used ONLY by agent or checkout recovery.
+    """
 
-        # High intent → higher discount
-        if variant["debug_scores"]["intent"] > 0.75:
-            discount = 15
-            reason = "High intent match"
+    user = db.query(User).get(user_id)
+    if not user:
+        return None
 
-        # Loyalty tier boost
-        user = db.query(User).get(user_id)
-        if user.loyalty_tier == "Gold":
-            discount += 5
-            reason = (reason or "") + " + Gold member bonus"
+    # 1. Loyalty gating
+    if user.loyalty_tier not in ("gold", "platinum"):
+        return None
 
-        if discount > 0:
-            offers.append({
-                "variant_id": variant["variant_id"],
-                "discount_percent": min(discount, 30),
-                "reason": reason
-            })
+    # 2. Has user seen this item recently?
+    recent = db.query(RecommendationImpression).filter(
+        RecommendationImpression.user_id == user_id,
+        RecommendationImpression.product_variant_id == variant_id,
+        RecommendationImpression.created_at > datetime.utcnow() - timedelta(days=7)
+    ).count()
 
-    return offers
+    if recent < 2:
+        return None
+
+    # 3. Fetch eligible personal offer
+    offer = db.query(Offer).filter(
+        Offer.personalized == True,
+        Offer.active == True,
+        Offer.valid_to >= datetime.utcnow()
+    ).order_by(Offer.discount_value.desc()).first()
+
+    if not offer:
+        return None
+
+    return {
+        "id": str(offer.id),
+        "label": f"Special for you: {offer.discount_value}% OFF",
+        "type": "personalized"
+    }

@@ -33,6 +33,7 @@ class EventTypeEnum(str, Enum):
     order_placed = "order_placed"
     pickup_selected = "pickup_selected"
     delivery_selected = "delivery_selected"
+    wishlist_add ="wishlist_add"
 
 class EntityTypeEnum(str, Enum):
     product = "product"
@@ -56,3 +57,42 @@ class PaymentStatusEnum(str, Enum):
 class UserRoleEnum(str, Enum):
     user = "user"
     admin = "admin"
+    
+    
+class CheckoutStateEnum(str, Enum):
+    INIT = "INIT"
+    CART_VALIDATED = "CART_VALIDATED"
+    STOCK_RESERVED = "STOCK_RESERVED"
+    PRICE_LOCKED = "PRICE_LOCKED"
+    COUPON_APPLIED = "COUPON_APPLIED"
+    PAYMENT_PENDING = "PAYMENT_PENDING"
+    PAYMENT_FAILED = "PAYMENT_FAILED"
+    DELIVERY_SCHEDULED = "DELIVERY_SCHEDULED"
+    ORDER_CONFIRMED = "ORDER_CONFIRMED"
+    ROLLED_BACK = "ROLLED_BACK"
+
+
+class ExchangeStatusEnum(str, Enum):
+    requested = "requested"
+    approved = "approved"
+    rejected = "rejected"
+    completed = "completed"
+    cancelled = "cancelled"
+
+
+class ReturnStatusEnum(str, Enum):
+    requested = "requested"
+    approved = "approved"
+    rejected = "rejected"
+    picked_up = "picked_up"
+    refunded = "refunded"
+    cancelled = "cancelled"
+
+
+class ShipmentStatusEnum(str, Enum):
+    created = "created"
+    in_transit = "in_transit"
+    out_for_delivery = "out_for_delivery"
+    delivered = "delivered"
+    delayed = "delayed"
+    cancelled = "cancelled"

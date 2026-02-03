@@ -328,3 +328,23 @@ def update_order_status(db: Session, order_id, payload):
 
 def get_delivery_details(db: Session, order_id):
     return db.query(Order).filter(Order.id == order_id).first()
+
+
+# ================= PUBLIC OFFER ACCESS =================
+
+def list_offers(db: Session):
+    """
+    Public-safe offer listing for agents / users.
+    Filters inactive & expired offers.
+    """
+    now = func.now()
+    return (
+        db.query(Offer)
+        .filter(
+            Offer.active.is_(True),
+            Offer.valid_from <= now,
+            Offer.valid_to >= now,
+        )
+        .order_by(desc(Offer.valid_to))
+        .all()
+    )

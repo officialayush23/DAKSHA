@@ -10,6 +10,17 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+  const initSession = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    console.log("SUPABASE JWT:", session?.access_token);
+    setSession(session);
+    setUser(session?.user ?? null);
+    setLoading(false);
+  };
+  initSession();
+}, []);
+
+  useEffect(() => {
     // 1. Check active session on load
     const initSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();

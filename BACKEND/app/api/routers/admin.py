@@ -1,4 +1,4 @@
-# app/api/routers/admin_stores.py
+# app/api/routers/admin.py
 from fastapi import APIRouter, Depends,HTTPException
 from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_current_user
