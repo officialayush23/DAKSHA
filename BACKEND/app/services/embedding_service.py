@@ -22,7 +22,7 @@ def generate_embedding(text: str) -> list[float]:
         return [0.0] * EMBED_DIM
 
     response = client.models.embed_content(
-        model="gemini-embedding-001",
+        model="text-embedding-004",
         contents=text,
         config=types.EmbedContentConfig(
             output_dimensionality=EMBED_DIM
