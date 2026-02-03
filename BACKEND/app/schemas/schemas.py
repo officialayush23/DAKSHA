@@ -197,3 +197,6 @@ class PersonalizedOffer(BaseModel):
     variant_id: UUID
     discount_percent: int
     reason: str
+class UserRegisterPayload(BaseModel):
+    name: str
+    phone: Optional[str] = None

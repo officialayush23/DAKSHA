@@ -1,7 +1,9 @@
 # app/core/deps.py
-
+from app.core.config import settings
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from fastapi import  Header
+from jose import jwt, JWTError
 from app.core.database import SessionLocal
 from app.core.security import verify_supabase_jwt
 from app.core.auth import get_or_create_user
@@ -16,15 +18,30 @@ def get_db():
         db.close()
 
 def get_current_user(
-    jwt_payload: dict = Depends(verify_supabase_jwt),
+    authorization: str = Header(...),
     db: Session = Depends(get_db),
 ):
     """
-    Returns the User object. 
-    If token is invalid/missing, verify_supabase_jwt raises 401.
+    Verifies Supabase JWT and syncs user to public.users
     """
-    return get_or_create_user(db, jwt_payload)
 
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid auth header")
+
+    token = authorization.replace("Bearer ", "")
+
+    try:
+        payload = jwt.decode(
+            token,
+            settings.SUPABASE_JWT_SECRET,
+            algorithms=["HS256"],
+            audience="authenticated",
+        )
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    user = get_or_create_user(db, payload)
+    return user
 def get_current_user_optional(
     # For endpoints that work for both guests and users (e.g. Products)
     # You'll need to update security.py to allow optional tokens if you want strict 'Guest' tracking logic,

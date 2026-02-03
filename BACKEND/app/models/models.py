@@ -558,3 +558,23 @@ class CheckoutSession(Base):
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+class TelegramUser(Base):
+    __tablename__ = "telegram_users"
+
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    chat_id = Column(Text, unique=True, nullable=False)
+    opt_in = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class TelegramMessage(Base):
+    __tablename__ = "telegram_messages"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
+    chat_id = Column(Text, nullable=False)
+    direction = Column(Text)  # inbound | outbound
+    message = Column(Text)
+    status = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

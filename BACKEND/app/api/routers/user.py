@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from app.schemas.schemas import *
 from sqlalchemy.orm import Session,joinedload
 import uuid
-from app.models.models import Review, Product, User
+from app.models.models import Review, Product, User, UserPreferences
 from app.core.deps import get_db, get_current_user
 
 from app.services.user_services import *
@@ -195,10 +195,32 @@ def browse_products(
 
 @router.post("/register")
 def register_user(
-    payload: dict, # Replace with UserRegisterSchema
-    db: Session = Depends(get_db)
+    payload: UserRegisterPayload,
+    db: Session = Depends(get_db),
+    user = Depends(get_current_user),
 ):
-    return upsert_user_identity(db, payload['email'], payload['name'], payload.get('phone'))
+    """
+    Profile enrichment AFTER Supabase signup.
+    Identity already exists.
+    """
+
+    user.name = payload.name
+
+    if payload.phone:
+        user.phone = payload.phone
+
+    # Optional: initialize preferences row (EMPTY)
+    pref = db.query(UserPreferences).filter_by(user_id=user.id).first()
+    if not pref:
+        pref = UserPreferences(
+            user_id=user.id,
+            preferred_categories=[],
+            preferred_sizes=[],
+        )
+        db.add(pref)
+
+    db.commit()
+    return {"ok": True}
 
 @router.get("/profile")
 def my_profile(db: Session = Depends(get_db), user = Depends(get_current_user)):
