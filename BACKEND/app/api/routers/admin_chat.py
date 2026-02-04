@@ -12,3 +12,23 @@ def get_active_handoffs(
     admin = Depends(get_current_admin)
 ):
     return active_handoffs(db)
+
+
+from app.models.models import Conversation
+
+@router.post("/message/{session_id}")
+def admin_send(
+    session_id,
+    message: str,
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin),
+):
+    db.add(
+        Conversation(
+            session_id=session_id,
+            speaker="admin",
+            message=message,
+        )
+    )
+    db.commit()
+    return {"sent": True}

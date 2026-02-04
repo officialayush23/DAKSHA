@@ -141,3 +141,14 @@ def list_offers(db: Session = Depends(get_db)):
 @router.get("/orders/{id}")
 def view_delivery(id: uuid.UUID, db: Session = Depends(get_db)):
     return get_delivery_details(db, id)
+
+@router.get("/returns")
+def list_returns(db: Session = Depends(get_db)):
+    return db.query(Return).all()
+
+@router.patch("/returns/{id}")
+def update_return(id, status: str, db: Session = Depends(get_db)):
+    r = db.query(Return).get(id)
+    r.status = status
+    db.commit()
+    return r

@@ -2,8 +2,10 @@
 import uuid
 from sqlalchemy import (
     Column, String, Boolean, ForeignKey, Numeric, Integer, Text, DateTime, 
-    ARRAY
+    ARRAY,UniqueConstraint
 )
+
+
 from sqlalchemy.dialects.postgresql import UUID, JSONB, TSVECTOR
 from sqlalchemy import Enum as SAEnum
 from app.enums import db_enums
@@ -396,8 +398,16 @@ class Payment(Base):
     status = Column(SAEnum(db_enums.PaymentStatusEnum, name="payment_status_enum"))
     failure_reason = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    idempotency_key = Column(Text, nullable=True)
 
     order = relationship("Order", back_populates="payment")
+    
+    __table_args__ = (
+        UniqueConstraint(
+            "checkout_id",
+            "idempotency_key",
+            name="uq_payment_idempotency",
+        ),)
 
 
 class Pickup(Base):
@@ -598,3 +608,15 @@ class TelegramMessage(Base):
     message = Column(Text)
     status = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+
+class PaymentGatewayConfig(Base):
+    __tablename__ = "payment_gateway_config"
+
+    id = Column(Integer, primary_key=True, default=1)
+    force_status = Column(Text, nullable=True)  # success | failure | NULL
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

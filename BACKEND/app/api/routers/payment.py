@@ -1,30 +1,50 @@
 # app/api/routers/payment.py
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 from uuid import UUID
+
 from app.core.deps import get_db
-from app.models.models import CheckoutSession
-from app.services.checkout_service import payment_failed, confirm_order
+from app.models.models import CheckoutSession, Payment, PaymentGatewayConfig
+from app.services.checkout_service import confirm_order, payment_failed
 from app.services.checkout_orchestrator import run_checkout
 
 router = APIRouter(prefix="/payment", tags=["Payment"])
 
-@router.post("/callback/{checkout_id}")
-def payment_callback(
+
+@router.post("/pay/{checkout_id}")
+def dummy_pay(
     checkout_id: UUID,
-    payload: dict,   # gateway-specific
-    db: Session = Depends(get_db)
+    idempotency_key: str = Header(...),
+    db: Session = Depends(get_db),
 ):
     checkout = db.query(CheckoutSession).get(checkout_id)
     if not checkout:
-        return {"error": "invalid checkout"}
+        raise HTTPException(404, "Invalid checkout")
 
-    if payload["status"] == "success":
+    existing = (
+        db.query(Payment)
+        .filter_by(checkout_id=checkout_id, idempotency_key=idempotency_key)
+        .first()
+    )
+    if existing:
+        return {"status": existing.status}
+
+    cfg = db.query(PaymentGatewayConfig).get(1)
+    status = cfg.force_status if cfg and cfg.force_status else "success"
+
+    payment = Payment(
+        checkout_id=checkout_id,
+        method="dummy",
+        status=status,
+        idempotency_key=idempotency_key,
+    )
+    db.add(payment)
+    db.commit()
+
+    if status == "success":
         confirm_order(db, checkout)
     else:
-        payment_failed(db, checkout, payload.get("reason", "Payment failed"))
+        payment_failed(db, checkout, "Dummy failure")
 
-    # 🔁 Resume graph safely
     run_checkout(db, checkout.id)
-
-    return {"state": checkout.state}
+    return {"status": status}

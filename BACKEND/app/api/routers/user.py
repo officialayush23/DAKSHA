@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session,joinedload
 import uuid
 from app.models.models import Review, Product, User, UserPreferences
 from app.core.deps import get_db, get_current_user
-
+from geoalchemy2.functions import ST_Distance
+from shapely.geometry import Point
+from geoalchemy2.shape import from_shape
 from app.services.user_services import *
 from app.services.event_service import emit_event
 from app.services.embedding_service import update_user_preference_summary
@@ -275,3 +277,28 @@ def create_review(
     db.add(review)
     db.commit()
     return {"status": "Review added"}
+
+
+
+
+@router.get("/pickup/options/{variant_id}")
+def pickup_options(variant_id, lat: float, lng: float, db: Session = Depends(get_db)):
+    user_point = from_shape(Point(lng, lat), srid=4326)
+
+    rows = (
+        db.query(Store, StoreInventory)
+        .join(StoreInventory)
+        .filter(StoreInventory.product_variant_id == variant_id)
+        .order_by(ST_Distance(Store.location, user_point))
+        .limit(5)
+        .all()
+    )
+
+    return [
+        {
+            "store": s.name,
+            "city": s.city,
+            "available": inv.in_stock,
+        }
+        for s, inv in rows
+    ]
