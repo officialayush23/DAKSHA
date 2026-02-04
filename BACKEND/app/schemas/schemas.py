@@ -242,3 +242,10 @@ class CheckoutIntrospection(BaseModel):
     reserved_until: Optional[datetime]
     payment_attempts: int
     last_error: Optional[str]
+    
+from app.enums.db_enums import OrderStatusEnum
+
+
+class UpdateDeliveryStatusRequest(BaseModel):
+    status: OrderStatusEnum
+    description: Optional[str] = None
