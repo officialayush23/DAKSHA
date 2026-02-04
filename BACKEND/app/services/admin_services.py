@@ -10,6 +10,7 @@ from app.services.product_embedding_service import (
 from app.models.models import *
 from app.enums.db_enums import *
 from app.services.embedding_service import generate_embedding
+from app.models.models import UserSession, ConversationSummary
 # ================= 1. PRODUCTS & VARIANTS =================
 
 def create_product(db: Session, payload):
@@ -217,26 +218,30 @@ def update_pickup_status(db: Session, pickup_id, payload):
 
 # ================= 5. HANDOFF DASHBOARD =================
 
+
+
 def active_handoffs(db: Session):
-    # Returns sessions that are active but might need help (can be filtered by last intent confidence if tracked)
-    # For Phase 1, we return all active sessions with their summaries
-    results = (
-        db.query(Session, ConversationSummary)
-        .outerjoin(ConversationSummary, UserSession.id == ConversationSummary.session_id)
+    rows = (
+        db.query(UserSession, ConversationSummary)
+        .outerjoin(
+            ConversationSummary,
+            UserSession.id == ConversationSummary.session_id
+        )
         .filter(UserSession.ended_at.is_(None))
         .all()
     )
-    # Format for dashboard
+
     return [
         {
-            "session_id": s.Session.id,
-            "user_id": s.Session.user_id,
-            "channel": s.Session.active_channel,
-            "started_at": s.Session.started_at,
-            "summary": s.ConversationSummary.summary_text if s.ConversationSummary else "No summary yet"
+            "session_id": session.id,
+            "user_id": session.user_id,
+            "channel": session.active_channel,
+            "started_at": session.started_at,
+            "summary": summary.summary_text if summary else "No summary yet",
         }
-        for s in results
+        for session, summary in rows
     ]
+
 
 # ================= 6. COMPLAINTS =================
 
