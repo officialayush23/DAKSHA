@@ -63,7 +63,9 @@ import {
   Globe,
   Pin,
   MapPin,
-  RefreshCw
+  RefreshCw,
+  ShoppingBag,
+  PackageCheck
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Switch } from "@/components/ui/switch";
@@ -247,6 +249,89 @@ function LocationPicker({ onLocationSelect, initialPosition }) {
   ) : null;
 }
 
+// --- NEW COMPONENT: Store Pickups Dialog ---
+const StorePickupsDialog = ({ store, open, onOpenChange }) => {
+  const [pickups, setPickups] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (open && store) {
+      fetchPickups();
+    }
+  }, [open, store]);
+
+  const fetchPickups = async () => {
+    setLoading(true);
+    try {
+      const data = await AdminService.listStorePickups(store.id);
+      setPickups(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("Error fetching pickups:", error);
+      toast.error("Failed to load pickups");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ShoppingBag className="h-5 w-5" />
+            Pickups for {store?.name}
+          </DialogTitle>
+          <DialogDescription>List of orders scheduled for pickup at this location</DialogDescription>
+        </DialogHeader>
+
+        <div className="border rounded-md min-h-[200px]">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Order ID</TableHead>
+                <TableHead>Customer</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Items</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="h-24 text-center">
+                    <Loader2 className="h-6 w-6 animate-spin mx-auto" />
+                  </TableCell>
+                </TableRow>
+              ) : pickups.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                    No pickups scheduled for this store.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                pickups.map((pickup) => (
+                  <TableRow key={pickup.id}>
+                    <TableCell className="font-mono text-xs">{pickup.id.slice(0,8)}...</TableCell>
+                    <TableCell>{pickup.customer_name || 'N/A'}</TableCell>
+                    <TableCell>
+                      <Badge variant={pickup.status === 'completed' ? 'default' : 'secondary'}>
+                        {pickup.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">{pickup.items_count || 0}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+        <DialogFooter>
+          <Button onClick={() => onOpenChange(false)}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 // Main Component
 export default function StoresPage() {
   const [stores, setStores] = useState([]);
@@ -255,6 +340,10 @@ export default function StoresPage() {
   const [selectedStore, setSelectedStore] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   
+  // Pickups Dialog State
+  const [isPickupsOpen, setIsPickupsOpen] = useState(false);
+  const [pickupStore, setPickupStore] = useState(null);
+
   // Form State
   const [formData, setFormData] = useState({
     name: "",
@@ -491,11 +580,24 @@ export default function StoresPage() {
     }
   };
 
+  // New: Open Pickups Dialog
+  const handleViewPickups = (store) => {
+    setPickupStore(store);
+    setIsPickupsOpen(true);
+  };
+
   // Get unique states from stores
   const storeStates = Array.from(new Set(stores.map(s => s.state).filter(Boolean)));
 
   return (
     <div className="p-6 space-y-6">
+      {/* Pickups Dialog */}
+      <StorePickupsDialog 
+        store={pickupStore} 
+        open={isPickupsOpen} 
+        onOpenChange={setIsPickupsOpen} 
+      />
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -868,6 +970,11 @@ export default function StoresPage() {
                                 <Edit className="mr-2 h-4 w-4" />
                                 Edit Store
                               </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleViewPickups(store)}>
+                                <PackageCheck className="mr-2 h-4 w-4" />
+                                View Pickups
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
                               <DropdownMenuItem 
                                 className="text-destructive"
                                 onClick={() => handleDeleteStore(store)}
