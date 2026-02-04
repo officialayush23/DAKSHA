@@ -5,7 +5,9 @@ from app.core.deps import get_db, get_current_user, get_current_admin
 from app.schemas.schemas import *
 from app.services.admin_services import *
 from uuid import UUID
-
+from fastapi import UploadFile, File
+from app.services.storage_service import upload_product_image
+from app.services.admin_services import add_variant_image
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 # -------- PRODUCTS --------
@@ -36,9 +38,33 @@ def delete_var(id: UUID, db: Session = Depends(get_db), _=Depends(get_current_ad
     delete_variant(db, id)
     return {"status": "deleted"}
 
-@router.post("/variants/{id}/images")
-def add_image(id: UUID, p: VariantImageCreate, db: Session = Depends(get_db), _=Depends(get_current_admin)):
-    return add_variant_image(db, id, p)
+
+
+@router.post("/variants/{variant_id}/images")
+def upload_variant_image(
+    variant_id: uuid.UUID,
+    position: int = 0,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    image_url = upload_product_image(file.file, file.content_type)
+
+    image = add_variant_image(
+        db,
+        variant_id,
+        payload=type(
+            "Obj",
+            (),
+            {"image_url": image_url, "position": position},
+        ),
+    )
+
+    return {
+        "image_id": image.id,
+        "image_url": image.image_url,
+        "position": image.position,
+    }
+
 
 # -------- STORES --------
 @router.post("/stores", response_model=StoreResponse)

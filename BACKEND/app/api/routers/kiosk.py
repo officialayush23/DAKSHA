@@ -5,8 +5,9 @@ from uuid import UUID
 import uuid
 
 from app.core.deps import get_db, get_current_user
-from app.models.models import CheckoutSession, UserSession
+from app.models.models import CheckoutSession, UserSession, Kiosk
 from app.enums.db_enums import ChannelEnum
+
 
 router = APIRouter(prefix="/kiosk", tags=["Kiosk"])
 
@@ -28,19 +29,25 @@ def generate_kiosk_qr(kiosk_id: str):
     return {
         "bind_url": f"https://daksha.com/bind?session_id={uuid.uuid4()}&kiosk={kiosk_id}"
     }
-
 @router.post("/session/bind")
 def bind_session_to_user(
     session_id: UUID,
+    kiosk_id: UUID,
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
     session = db.query(UserSession).get(session_id)
-    if not session:
-        return {"error": "invalid session"}
+    kiosk = db.query(Kiosk).get(kiosk_id)
+
+    if not session or not kiosk:
+        return {"error": "invalid session or kiosk"}
 
     session.user_id = user.id
     session.active_channel = ChannelEnum.kiosk
     db.commit()
 
-    return {"status": "bound"}
+    return {
+        "status": "bound",
+        "store_id": kiosk.store_id,
+        "kiosk": kiosk.name,
+    }

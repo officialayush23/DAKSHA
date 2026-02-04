@@ -394,3 +394,17 @@ def list_offers(db: Session):
         .order_by(desc(Offer.valid_to))
         .all()
     )
+
+def create_kiosk(db: Session, payload):
+    kiosk = Kiosk(
+        store_id=payload.store_id,
+        name=payload.name,
+        active=True,
+    )
+    db.add(kiosk)
+    db.commit()
+    db.refresh(kiosk)
+    return kiosk
+
+def list_kiosks(db: Session):
+    return db.query(Kiosk).options(joinedload(Kiosk.store)).all()

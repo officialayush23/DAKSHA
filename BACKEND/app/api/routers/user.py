@@ -190,16 +190,7 @@ def update_active_channel(
 
 from typing import Optional
 
-@router.get("/products")
-def browse_products(
-    category: str = None, 
-    min_price: float = None, 
-    max_price: float = None, 
-    q: str = None,
-    db: Session = Depends(get_db)
-):
-    """Public endpoint for browsing with filters"""
-    return get_products_with_filters(db, category, min_price, max_price, q)
+
 
 @router.post("/register")
 def register_user(

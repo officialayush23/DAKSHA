@@ -625,3 +625,13 @@ class PaymentGatewayConfig(Base):
     __table_args__ = (
         UniqueConstraint("id", name="one_row_payment_gateway_config"),
     )
+class Kiosk(Base):
+    __tablename__ = "kiosks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    store_id = Column(UUID(as_uuid=True), ForeignKey("stores.id"))
+    name = Column(String)
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    store = relationship("Store")

@@ -16,46 +16,64 @@ router = APIRouter(prefix="/products", tags=["Products"])
 # =========================
 @router.get("")
 def product_feed(
+    category: str | None = None,
+    brand: str | None = None,
+    gender: str | None = None,
+    size: str | None = None,
+    color: str | None = None,
+    occasion: str | None = None,
+    min_price: float | None = None,
+    max_price: float | None = None,
     limit: int = 50,
     db: Session = Depends(get_db),
 ):
-    variants = (
+    query = (
         db.query(ProductVariant)
+        .join(Product)
         .options(
             joinedload(ProductVariant.product),
             joinedload(ProductVariant.images),
         )
-        .filter(ProductVariant.active.is_(True))
-        .limit(limit)
-        .all()
+        .filter(ProductVariant.active.is_(True), Product.active.is_(True))
     )
+
+    if category:
+        query = query.filter(Product.category == category)
+    if brand:
+        query = query.filter(Product.brand == brand)
+    if gender:
+        query = query.filter(Product.gender == gender)
+    if occasion:
+        query = query.filter(Product.occasion == occasion)
+    if size:
+        query = query.filter(ProductVariant.size == size)
+    if color:
+        query = query.filter(ProductVariant.color == color)
+    if min_price:
+        query = query.filter(ProductVariant.base_price >= min_price)
+    if max_price:
+        query = query.filter(ProductVariant.base_price <= max_price)
+
+    variants = query.limit(limit).all()
 
     out = []
     for v in variants:
         price = resolve_variant_price(db, v)
-
         out.append({
             "variant_id": v.id,
             "product_id": v.product_id,
-
-            # Product-level info
             "brand": v.product.brand,
             "category": v.product.category,
             "gender": v.product.gender,
             "occasion": v.product.occasion,
-
-            # Variant-level info
-            "color": v.color,
             "size": v.size,
-
-            # Media
+            "color": v.color,
             "image": v.images[0].image_url if v.images else None,
-
-            # Pricing (base + offer)
             **price,
         })
 
     return out
+
 
 
 # =========================
