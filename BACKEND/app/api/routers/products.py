@@ -6,6 +6,9 @@ from app.core.deps import get_db, get_current_user
 from app.enums.db_enums import EntityTypeEnum , EventTypeEnum
 from app.models.models import ProductVariant, Product
 from app.services.pricing_service import resolve_variant_price
+from app.services.session_service import get_or_create_active_session
+from app.enums.db_enums import ChannelEnum
+
 router = APIRouter(prefix="/products", tags=["Products"])
 
 # =========================
@@ -77,13 +80,15 @@ def product_detail(
         )
         .all()
     )
-    
+    session = get_or_create_active_session(
+        db, user.id, ChannelEnum.WEB
+    )
     
     emit_event(
     db=db,
     user_id=user.id if user else None,
-    session_id=user.sessions[-1].id if user and user.sessions else None,
-    channel="web",
+    session_id=session.id,
+    channel=session.active_channel,
     event_type=EventTypeEnum.product_view,
     entity_type=EntityTypeEnum.product,
     entity_id=product_id,

@@ -13,6 +13,8 @@ from app.services.user_services import *
 from app.services.event_service import emit_event
 from app.services.embedding_service import update_user_preference_summary
 from app.enums.db_enums import EventTypeEnum, EntityTypeEnum
+from app.services.session_service import get_or_create_active_session
+from app.enums.db_enums import ChannelEnum
 
 router = APIRouter(prefix="/user", tags=["User"])
 @router.post("/search")
@@ -73,6 +75,7 @@ def capture_event(
     )
     return {"status": "captured"}
 
+
 @router.post("/preferences/recompute")
 def recompute_preferences(
     db: Session = Depends(get_db),
@@ -80,6 +83,7 @@ def recompute_preferences(
 ):
     update_user_preference_summary(db, user.id)
     return {"status": "recomputed"}
+
 @router.post("/wishlist")
 def add_wishlist(
     payload: WishlistAdd,

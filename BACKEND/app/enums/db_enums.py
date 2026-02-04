@@ -6,6 +6,8 @@ class ChannelEnum(str, Enum):
     app = "app"
     kiosk = "kiosk"
     whatsapp = "whatsapp"
+    telegram ="telegram"
+  
 
 class FulfillmentTypeEnum(str, Enum):
     delivery = "delivery"

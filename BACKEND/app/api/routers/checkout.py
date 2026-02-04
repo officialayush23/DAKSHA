@@ -1,34 +1,25 @@
+
 # app/api/routers/checkout.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from uuid import UUID
-from fastapi import Query
 
 from app.core.deps import get_db, get_current_user
 from app.services.pickup_store_service import get_pickup_eligible_stores
-from app.services.checkout_facade import (
-    start_or_resume_checkout,
-    get_checkout,
-)
+from app.services.checkout_facade import start_or_resume_checkout, get_checkout
+from app.services.session_service import get_or_create_active_session
+from app.enums.db_enums import ChannelEnum
 
 router = APIRouter(prefix="/checkout", tags=["Checkout"])
-
 
 @router.post("/start")
 def checkout_start(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    """
-    Idempotent checkout entry point.
-    - Creates checkout if none exists
-    - Resumes if already in progress
-    """
-
-    if not user.sessions:
-        raise HTTPException(status_code=400, detail="No active session")
-
-    session = user.sessions[-1]
+    session = get_or_create_active_session(
+        db, user.id, ChannelEnum.web
+    )
 
     checkout = start_or_resume_checkout(
         db=db,
@@ -42,14 +33,12 @@ def checkout_start(
         "reserved_until": checkout.reserved_until,
     }
 
-
 @router.get("/{checkout_id}")
 def checkout_status(
     checkout_id: UUID,
     db: Session = Depends(get_db),
 ):
     checkout = get_checkout(db, checkout_id)
-
     if not checkout:
         raise HTTPException(status_code=404, detail="Checkout not found")
 
@@ -62,12 +51,6 @@ def checkout_status(
         "last_error": checkout.last_error,
     }
 
-
-
-
-
-
-
 @router.get("/pickup/stores")
 def pickup_store_options(
     lat: float = Query(...),
@@ -76,10 +59,9 @@ def pickup_store_options(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    if not user.sessions:
-        return []
-
-    session = user.sessions[-1]
+    session = get_or_create_active_session(
+        db, user.id, ChannelEnum.web
+    )
 
     return get_pickup_eligible_stores(
         db=db,
