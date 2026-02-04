@@ -20,7 +20,7 @@ import Orders from './admin/pages/Orders';
 import Complaints from './admin/pages/Complaints';
 import Offers from './admin/pages/Offers';
 import Handoffs from './admin/pages/Handoffs';
-import AdminHandoff from './admin/pages/AdminHandoff';
+import Returns from './admin/pages/Returns';
 
 // Protected Route Component for Admin
 const ProtectedRoute = ({ children }) => {
@@ -73,7 +73,7 @@ export default function App() {
           <Route path="complaints" element={<Complaints />} />
           <Route path="offers" element={<Offers />} />
           <Route path="handoffs" element={<Handoffs />} />
-          <Route path="admin-handoff" element={<AdminHandoff />} />
+          <Route path="returns" element={<Returns />} />
           
           {/* Admin 404 */}
           <Route path="*" element={<Navigate to="dashboard" replace />} />

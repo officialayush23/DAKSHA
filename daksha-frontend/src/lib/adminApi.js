@@ -176,6 +176,16 @@ export const AdminService = {
   updateComplaint: (id, data) =>
     apiClient(`/admin/complaints/${id}`, 'PUT', data),
 
+    // ==========================================
+  // ↩️ RETURNS
+  // ==========================================
+  listReturns: () => 
+    apiClient('/admin/returns', 'GET'),
+
+  // Note: Status is passed as a query param { status: 'approved' }
+  updateReturn: (id, status) => 
+    apiClient(`/admin/returns/${id}`, 'PATCH', null, { status }),
+
   // ==========================================
   // 📊 DASHBOARD STATS
   // ==========================================
@@ -185,8 +195,7 @@ export const AdminService = {
       apiClient('/admin/stores', 'GET'),
       apiClient('/admin/complaints', 'GET'),
       apiClient('/admin/offers', 'GET'),
-    ]);
-
+ ]);
     return {
       inventory: inventoryKpis.status === 'fulfilled' ? inventoryKpis.value : null,
       stores: stores.status === 'fulfilled' ? stores.value : [],
