@@ -1,9 +1,9 @@
-import { supabase } from './supabaseClient'; 
+import { supabase } from './supabaseClient';
 
 // --- Base API Client ---
 export const apiClient = async (endpoint, method = 'GET', data = null, params = {}) => {
   const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-  
+
   const url = new URL(`${baseURL}${endpoint}`);
   Object.keys(params).forEach(key => {
     if (params[key] !== undefined && params[key] !== null) {
@@ -32,7 +32,7 @@ export const apiClient = async (endpoint, method = 'GET', data = null, params = 
 
   try {
     const response = await fetch(url.toString(), options);
-    
+
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.detail || `HTTP ${response.status}`);
@@ -50,129 +50,130 @@ export const AdminService = {
   // ==========================================
   // 📦 PRODUCTS
   // ==========================================
-  createProduct: (data) => 
+  createProduct: (data) =>
     apiClient('/admin/products', 'POST', data),
 
-  listProducts: (limit = 100, offset = 0) => 
+  listProducts: (limit = 100, offset = 0) =>
     apiClient('/admin/products', 'GET', null, { limit, offset }),
 
-  updateProduct: (id, data) => 
+  updateProduct: (id, data) =>
     apiClient(`/admin/products/${id}`, 'PUT', data),
 
-  deleteProduct: (id) => 
+  deleteProduct: (id) =>
     apiClient(`/admin/products/${id}`, 'DELETE'),
 
   // ==========================================
   // 🎨 VARIANTS
   // ==========================================
-  createVariant: (data) => 
+  createVariant: (data) =>
     apiClient('/admin/variants', 'POST', data),
 
-  updateVariant: (id, data) => 
+  updateVariant: (id, data) =>
     apiClient(`/admin/variants/${id}`, 'PUT', data),
 
-  deleteVariant: (id) => 
+  deleteVariant: (id) =>
     apiClient(`/admin/variants/${id}`, 'DELETE'),
 
-  addImage: (id, data) => 
+  addImage: (id, data) =>
     apiClient(`/admin/variants/${id}/images`, 'POST', data),
 
-  listVariants: (productId) => 
+  listVariants: (productId) =>
     apiClient(`/admin/products/${productId}/variants`, 'GET'),
 
   // ==========================================
   // 🏪 STORES
   // ==========================================
-  listStores: () => 
+  listStores: () =>
     apiClient('/admin/stores', 'GET'),
 
-  createStore: (data) => 
+  createStore: (data) =>
     apiClient('/admin/stores', 'POST', data),
 
-  updateStore: (id, data) => 
+  updateStore: (id, data) =>
     apiClient(`/admin/stores/${id}`, 'PUT', data),
 
-  getStoreKpis: (id) => 
+  getStoreKpis: (id) =>
     apiClient(`/admin/stores/${id}/kpis`, 'GET'),
 
-  listStorePickups: (id) => 
+  listStorePickups: (id) =>
     apiClient(`/admin/stores/${id}/pickups`, 'GET'),
 
   // ==========================================
   // 📦 INVENTORY (MANAGE & VIEW)
   // ==========================================
   // 1. Manage (POST)
-  assignGlobalInventory: (data) => 
+  assignGlobalInventory: (data) =>
     apiClient('/admin/inventory/global', 'POST', data),
 
-  assignStoreInventory: (data) => 
+  assignStoreInventory: (data) =>
     apiClient('/admin/inventory/store', 'POST', data),
 
   // 2. View (GET)
-  getInventoryKpis: () => 
+  getInventoryKpis: () =>
     apiClient('/admin/inventory/kpis', 'GET'),
 
-  getGlobalInventoryItem: (productId) => 
+  getGlobalInventoryItem: (productId) =>
     apiClient(`/admin/inventory/global/${productId}`, 'GET'),
 
-  getStoreInventoryItem: (storeId, productId) => 
-    apiClient(`/admin/inventory/store/${storeId}/${productId}`, 'GET'),
+  getStoreInventoryForVariant: (storeId, variantId) =>
+    apiClient(`/admin/inventory/store/${storeId}/variant/${variantId}`, 'GET'),
+
 
   // ==========================================
   // 🚚 ORDERS & PICKUPS
   // ==========================================
-  updatePickup: (id, data) => 
+  updatePickup: (id, data) =>
     apiClient(`/admin/pickups/${id}`, 'PUT', data),
 
-  updateDelivery: (id, data) => 
+  updateDelivery: (id, data) =>
     apiClient(`/admin/orders/${id}/status`, 'PUT', data),
 
-  getOrder: (id) => 
+  getOrder: (id) =>
     apiClient(`/admin/orders/${id}`, 'GET'),
 
   // ==========================================
   // 🚚 DELIVERY ORDERS (NEW)
   // ==========================================
-  getDeliveryOrders: (status = null) => 
+  getDeliveryOrders: (status = null) =>
     apiClient('/admin/delivery/orders', 'GET', null, { status }),
 
-  getDeliveryOrderDetail: (orderId) => 
+  getDeliveryOrderDetail: (orderId) =>
     apiClient(`/admin/delivery/orders/${orderId}`, 'GET'),
 
-  updateDeliveryOrderStatus: (orderId, data) => 
+  updateDeliveryOrderStatus: (orderId, data) =>
     apiClient(`/admin/delivery/orders/${orderId}/status`, 'POST', data),
 
   // ==========================================
   // 💬 CHAT HANDOFFS (NEW)
   // ==========================================
-  getChatHandoffs: () => 
+  getChatHandoffs: () =>
     apiClient('/admin/chat/handoffs', 'GET'),
 
   // ==========================================
   // 🏷️ OFFERS
   // ==========================================
-  listOffers: () => 
+  listOffers: () =>
     apiClient('/admin/offers', 'GET'),
 
-  createOffer: (data) => 
+  createOffer: (data) =>
     apiClient('/admin/offers', 'POST', data),
 
-  updateOffer: (id, data) => 
+  updateOffer: (id, data) =>
     apiClient(`/admin/offers/${id}`, 'PUT', data),
 
-  deleteOffer: (id) => 
+  deleteOffer: (id) =>
     apiClient(`/admin/offers/${id}`, 'DELETE'),
 
   // ==========================================
   // 🤝 SUPPORT & COMPLAINTS
   // ==========================================
-  getHandoffs: () => 
+  getHandoffs: () =>
     apiClient('/admin/handoffs', 'GET'),
 
-  listComplaints: () => 
+  listComplaints: () =>
     apiClient('/admin/complaints', 'GET'),
 
-  updateComplaint: (id, data) => 
+  updateComplaint: (id, data) =>
     apiClient(`/admin/complaints/${id}`, 'PUT', data),
 
   // ==========================================

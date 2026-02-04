@@ -2,21 +2,21 @@ import React, { useEffect, useState } from 'react';
 import { AdminService } from '@/lib/adminApi';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from "@/components/ui/table";
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogDescription, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogFooter 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -28,11 +28,11 @@ import {
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { 
-  Plus, 
-  MoreHorizontal, 
-  Loader2, 
-  Search, 
+import {
+  Plus,
+  MoreHorizontal,
+  Loader2,
+  Search,
   Package,
   Palette,
   ChevronRight,
@@ -73,7 +73,7 @@ import { toast } from "sonner";
 
 export default function Products() {
   const [products, setProducts] = useState([]);
-  const [stores, setStores] = useState([]); 
+  const [stores, setStores] = useState([]);
   const [variants, setVariants] = useState({});
   const [loading, setLoading] = useState(true);
   const [variantsLoading, setVariantsLoading] = useState({});
@@ -81,7 +81,7 @@ export default function Products() {
   const [filterCategory, setFilterCategory] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [viewMode, setViewMode] = useState("list");
-  
+
   // Real API Inventory Stats
   const [inventoryStats, setInventoryStats] = useState({
     total_variants_tracked: 0,
@@ -98,18 +98,18 @@ export default function Products() {
   const [isInventoryDialogOpen, setIsInventoryDialogOpen] = useState(false);
   const [isViewInventoryOpen, setIsViewInventoryOpen] = useState(false); // NEW
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
+
   // Expanded products for tree view
   const [expandedProducts, setExpandedProducts] = useState({});
-  
+
   // Current item being edited/deleted
   const [editingProduct, setEditingProduct] = useState(null);
   const [editingVariant, setEditingVariant] = useState(null);
   const [deletingItem, setDeletingItem] = useState({ type: '', id: '', name: '' });
   const [currentVariant, setCurrentVariant] = useState(null);
-  
+
   // Inventory Manage State
-  const [inventoryType, setInventoryType] = useState('global'); 
+  const [inventoryType, setInventoryType] = useState('global');
   const [inventoryForm, setInventoryForm] = useState({ store_id: "", quantity: "" });
 
   // Inventory View State (NEW)
@@ -122,7 +122,7 @@ export default function Products() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
-  
+
   const GENDER_OPTIONS = [
     { value: "male", label: "Male" }, { value: "female", label: "Female" },
     { value: "unisex", label: "Unisex" }, { value: "kids", label: "Kids" }
@@ -189,29 +189,29 @@ export default function Products() {
     if (!deletingItem.id) return; setIsSubmitting(true);
     try {
       await AdminService.deleteProduct(deletingItem.id);
-      toast.success("Deleted"); setIsDeleteDialogOpen(false); setDeletingItem({type: '', id:'', name:''}); fetchData();
+      toast.success("Deleted"); setIsDeleteDialogOpen(false); setDeletingItem({ type: '', id: '', name: '' }); fetchData();
     } catch (error) { toast.error("Failed"); } finally { setIsSubmitting(false); }
   };
   const handleCreateVariant = async (e) => {
     e.preventDefault(); setIsSubmitting(true);
     try {
       await AdminService.createVariant({ ...variantForm, base_price: parseFloat(variantForm.base_price) || 0 });
-      toast.success("Created"); resetVariantForm(); setIsVariantDialogOpen(false); if(variantForm.product_id) fetchVariants(variantForm.product_id);
+      toast.success("Created"); resetVariantForm(); setIsVariantDialogOpen(false); if (variantForm.product_id) fetchVariants(variantForm.product_id);
     } catch (error) { toast.error("Failed"); } finally { setIsSubmitting(false); }
   };
   const handleUpdateVariant = async (e) => {
     e.preventDefault(); if (!editingVariant) return; setIsSubmitting(true);
     try {
       await AdminService.updateVariant(editingVariant.id, { ...variantForm, base_price: parseFloat(variantForm.base_price) || 0 });
-      toast.success("Updated"); resetVariantForm(); setEditingVariant(null); setIsVariantDialogOpen(false); if(variantForm.product_id) fetchVariants(variantForm.product_id);
+      toast.success("Updated"); resetVariantForm(); setEditingVariant(null); setIsVariantDialogOpen(false); if (variantForm.product_id) fetchVariants(variantForm.product_id);
     } catch (error) { toast.error("Failed"); } finally { setIsSubmitting(false); }
   };
   const handleDeleteVariant = async () => {
     if (!deletingItem.id) return; setIsSubmitting(true);
     try {
       await AdminService.deleteVariant(deletingItem.id);
-      toast.success("Deleted"); setIsDeleteDialogOpen(false); setDeletingItem({type: '', id:'', name:''}); 
-      const v = variants[deletingItem.productId]?.find(v => v.id === deletingItem.id); if(v) fetchVariants(v.product_id);
+      toast.success("Deleted"); setIsDeleteDialogOpen(false); setDeletingItem({ type: '', id: '', name: '' });
+      const v = variants[deletingItem.productId]?.find(v => v.id === deletingItem.id); if (v) fetchVariants(v.product_id);
     } catch (error) { toast.error("Failed"); } finally { setIsSubmitting(false); }
   };
 
@@ -254,10 +254,10 @@ export default function Products() {
       // 1. Fetch Global Inventory List for this Product (Parent)
       // The API returns a list of all variants' inventory for the product
       const globalList = await AdminService.getGlobalInventoryItem(variant.product_id);
-      
+
       // 2. Find THIS specific variant in the list
-      const thisVariantData = Array.isArray(globalList) 
-        ? globalList.find(item => item.product_variant_id === variant.id) 
+      const thisVariantData = Array.isArray(globalList)
+        ? globalList.find(item => item.product_variant_id === variant.id)
         : null;
 
       setViewInventoryData(thisVariantData);
@@ -271,43 +271,51 @@ export default function Products() {
 
   const handleViewStoreInventory = async (storeId) => {
     setViewStoreId(storeId);
-    if (!storeId) { setViewStoreData(null); return; }
-    
-    // 
-    try {
-      // Fetch specific store inventory for this variant
-      // API: /admin/inventory/store/{store_id}/{product_id}
-      // Note: We use product_id (parent) as per API spec, then filter for variant if needed
-      // The response example was [], so assuming it returns list of variants in that store
-      const storeList = await AdminService.getStoreInventoryItem(storeId, currentVariant.product_id);
-      
-      const variantStoreData = Array.isArray(storeList)
-        ? storeList.find(item => item.product_variant_id === currentVariant.id)
-        : null;
-
-      setViewStoreData(variantStoreData || { message: "No stock found" });
-    } catch (error) {
-      console.error("Error fetching store inv", error);
+    if (!storeId) {
       setViewStoreData(null);
+      return;
+    }
+
+    try {
+      const res = await AdminService.getStoreInventoryForVariant(
+        storeId,
+        currentVariant.id
+      );
+
+      setViewStoreData(res);
+    } catch (error) {
+      console.error("Error fetching store inventory", error);
+      setViewStoreData({
+        message: "No stock found for this variant in the selected store",
+      });
     }
   };
+
 
   // --- Image Upload ---
   const handleImageUpload = async (e) => {
     e.preventDefault(); if (!currentVariant || !imageFile) return; setUploadingImage(true);
     try {
       const formData = new FormData(); formData.append('file', imageFile);
-      const res = await fetch('http://localhost:8000/admin/upload', {
-        method: 'POST', body: formData, headers: { 'Authorization': `Bearer ${localStorage.getItem('admin_token') || ''}` }
-      });
-      if(!res.ok) throw new Error("Upload failed");
+      const res = await fetch(
+        `http://localhost:8000/admin/variants/${currentVariant.id}/images`,
+        {
+          method: 'POST',
+          body: formData,
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('admin_token') || ''}`,
+          },
+        }
+      );
+
+      if (!res.ok) throw new Error("Upload failed");
       const { image_url } = await res.json();
-      await AdminService.addImage(currentVariant.id, { image_url, position: parseInt(imageForm.position)||0 });
-      toast.success("Image added"); resetImageForm(); setIsImageDialogOpen(false); if(currentVariant.product_id) fetchVariants(currentVariant.product_id);
+      await AdminService.addImage(currentVariant.id, { image_url, position: parseInt(imageForm.position) || 0 });
+      toast.success("Image added"); resetImageForm(); setIsImageDialogOpen(false); if (currentVariant.product_id) fetchVariants(currentVariant.product_id);
     } catch (error) { toast.error("Failed"); } finally { setUploadingImage(false); }
   };
   const handleFileChange = (e) => {
-    const file = e.target.files[0]; if(!file) return;
+    const file = e.target.files[0]; if (!file) return;
     if (!file.type.startsWith('image/')) return toast.error('Images only');
     setImageFile(file); const reader = new FileReader(); reader.onloadend = () => setImagePreview(reader.result); reader.readAsDataURL(file);
   };
@@ -320,10 +328,10 @@ export default function Products() {
   const resetProductForm = () => setProductForm({ brand: "", category: "", gender: "", fabric_type: "", description: "", occasion: "", active: true });
   const resetVariantForm = () => setVariantForm({ product_id: "", sku: "", color: "", size: "", base_price: "", active: true });
   const resetImageForm = () => { setImageForm({ position: 0 }); setImageFile(null); setImagePreview(null); setCurrentVariant(null); };
-  const openEditProductDialog = (p) => { setEditingProduct(p); setProductForm({...p, active: p.active!==false}); setIsProductDialogOpen(true); };
-  const openEditVariantDialog = (v, pid) => { setEditingVariant(v); setVariantForm({...v, product_id: pid, active: v.active!==false}); setIsVariantDialogOpen(true); };
+  const openEditProductDialog = (p) => { setEditingProduct(p); setProductForm({ ...p, active: p.active !== false }); setIsProductDialogOpen(true); };
+  const openEditVariantDialog = (v, pid) => { setEditingVariant(v); setVariantForm({ ...v, product_id: pid, active: v.active !== false }); setIsVariantDialogOpen(true); };
   const openAddImageDialog = (v) => { setCurrentVariant(v); setIsImageDialogOpen(true); };
-  const openDeleteDialog = (type, id, name, pid=null) => { setDeletingItem({ type, id, name, productId: pid }); setIsDeleteDialogOpen(true); };
+  const openDeleteDialog = (type, id, name, pid = null) => { setDeletingItem({ type, id, name, productId: pid }); setIsDeleteDialogOpen(true); };
 
   useEffect(() => { fetchData(); }, []);
 
@@ -346,15 +354,15 @@ export default function Products() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Global Stock</CardTitle><Globe className="h-4 w-4 text-blue-600"/></CardHeader><CardContent><div className="text-2xl font-bold">{inventoryStats.total_global_stock}</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Warehouse</CardTitle><Boxes className="h-4 w-4 text-amber-600"/></CardHeader><CardContent><div className="text-2xl font-bold">{inventoryStats.stock_in_warehouse}</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Store Stock</CardTitle><Store className="h-4 w-4 text-green-600"/></CardHeader><CardContent><div className="text-2xl font-bold">{inventoryStats.stock_at_stores}</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Active SKUs</CardTitle><Palette className="h-4 w-4 text-purple-600"/></CardHeader><CardContent><div className="text-2xl font-bold">{inventoryStats.total_variants_tracked}</div></CardContent></Card>
+        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Global Stock</CardTitle><Globe className="h-4 w-4 text-blue-600" /></CardHeader><CardContent><div className="text-2xl font-bold">{inventoryStats.total_global_stock}</div></CardContent></Card>
+        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Warehouse</CardTitle><Boxes className="h-4 w-4 text-amber-600" /></CardHeader><CardContent><div className="text-2xl font-bold">{inventoryStats.stock_in_warehouse}</div></CardContent></Card>
+        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Store Stock</CardTitle><Store className="h-4 w-4 text-green-600" /></CardHeader><CardContent><div className="text-2xl font-bold">{inventoryStats.stock_at_stores}</div></CardContent></Card>
+        <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Active SKUs</CardTitle><Palette className="h-4 w-4 text-purple-600" /></CardHeader><CardContent><div className="text-2xl font-bold">{inventoryStats.total_variants_tracked}</div></CardContent></Card>
       </div>
 
       {/* List View */}
       <div className="rounded-md border bg-card">
-        {loading ? <div className="h-64 flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin"/></div> : (
+        {loading ? <div className="h-64 flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin" /></div> : (
           <div className="divide-y">
             {filteredProducts.map((product) => {
               const isExpanded = expandedProducts[product.id];
@@ -365,10 +373,10 @@ export default function Products() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <CollapsibleTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">{isExpanded ? <ChevronDown className="h-4 w-4"/> : <ChevronRight className="h-4 w-4"/>}</Button>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">{isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</Button>
                         </CollapsibleTrigger>
                         <div className="flex items-center gap-3">
-                          <div className="p-2 rounded-full bg-blue-100 dark:bg-blue-900/30"><Package className="h-4 w-4 text-blue-600"/></div>
+                          <div className="p-2 rounded-full bg-blue-100 dark:bg-blue-900/30"><Package className="h-4 w-4 text-blue-600" /></div>
                           <div>
                             <div className="flex items-center gap-2"><h3 className="font-medium">{product.brand}</h3><span className="text-muted-foreground">•</span><span className="text-primary font-medium">{product.category}</span></div>
                             <p className="text-sm text-muted-foreground">{product.description}</p>
@@ -378,12 +386,12 @@ export default function Products() {
                       <div className="flex items-center gap-4">
                         <span className="text-sm font-medium hidden md:inline">{productVariants.length} variants</span>
                         <DropdownMenu>
-                          <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4"/></Button></DropdownMenuTrigger>
+                          <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => openEditProductDialog(product)}><Edit className="mr-2 h-4 w-4"/> Edit</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => { setVariantForm(prev=>({...prev, product_id: product.id})); setIsVariantDialogOpen(true); }}><Plus className="mr-2 h-4 w-4"/> Add Variant</DropdownMenuItem>
-                            <DropdownMenuSeparator/>
-                            <DropdownMenuItem className="text-destructive" onClick={() => openDeleteDialog('product', product.id, product.brand)}><Trash2 className="mr-2 h-4 w-4"/> Delete</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => openEditProductDialog(product)}><Edit className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => { setVariantForm(prev => ({ ...prev, product_id: product.id })); setIsVariantDialogOpen(true); }}><Plus className="mr-2 h-4 w-4" /> Add Variant</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem className="text-destructive" onClick={() => openDeleteDialog('product', product.id, product.brand)}><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
@@ -392,19 +400,19 @@ export default function Products() {
                   <CollapsibleContent>
                     <div className="px-4 pb-4">
                       <div className="border rounded-lg bg-muted/30">
-                        {variantsLoading[product.id] ? <div className="h-24 flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin"/></div> : (
+                        {variantsLoading[product.id] ? <div className="h-24 flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : (
                           <Table>
                             <TableHeader><TableRow className="bg-muted/50"><TableHead>SKU</TableHead><TableHead>Color</TableHead><TableHead>Size</TableHead><TableHead>Price</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                             <TableBody>
                               {productVariants.map(variant => (
                                 <TableRow key={variant.id}>
                                   <TableCell className="font-mono text-xs">{variant.sku}</TableCell>
-                                  <TableCell><div className="flex items-center gap-2">{variant.color && <div className="h-3 w-3 rounded-full border" style={{backgroundColor: variant.color.toLowerCase()}}/>}<span>{variant.color}</span></div></TableCell>
+                                  <TableCell><div className="flex items-center gap-2">{variant.color && <div className="h-3 w-3 rounded-full border" style={{ backgroundColor: variant.color.toLowerCase() }} />}<span>{variant.color}</span></div></TableCell>
                                   <TableCell>{variant.size && <Badge variant="outline">{variant.size}</Badge>}</TableCell>
                                   <TableCell>₹{variant.base_price}</TableCell>
                                   <TableCell className="text-right">
                                     <DropdownMenu>
-                                      <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4"/></Button></DropdownMenuTrigger>
+                                      <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
                                       <DropdownMenuContent align="end">
                                         <DropdownMenuLabel>View</DropdownMenuLabel>
                                         <DropdownMenuItem onClick={() => openViewInventory(variant)}>
@@ -412,12 +420,12 @@ export default function Products() {
                                         </DropdownMenuItem>
                                         <DropdownMenuSeparator />
                                         <DropdownMenuLabel>Manage</DropdownMenuLabel>
-                                        <DropdownMenuItem onClick={() => openInventoryDialog(variant, 'global')}><Globe className="mr-2 h-4 w-4"/> Global Inv</DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => openInventoryDialog(variant, 'store')}><Warehouse className="mr-2 h-4 w-4"/> Store Inv</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => openInventoryDialog(variant, 'global')}><Globe className="mr-2 h-4 w-4" /> Global Inv</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => openInventoryDialog(variant, 'store')}><Warehouse className="mr-2 h-4 w-4" /> Store Inv</DropdownMenuItem>
                                         <DropdownMenuSeparator />
-                                        <DropdownMenuItem onClick={() => openEditVariantDialog(variant, product.id)}><Edit className="mr-2 h-4 w-4"/> Edit</DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => openAddImageDialog(variant)}><ImageIcon className="mr-2 h-4 w-4"/> Images</DropdownMenuItem>
-                                        <DropdownMenuItem className="text-destructive" onClick={() => openDeleteDialog('variant', variant.id, variant.sku, product.id)}><Trash2 className="mr-2 h-4 w-4"/> Delete</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => openEditVariantDialog(variant, product.id)}><Edit className="mr-2 h-4 w-4" /> Edit</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => openAddImageDialog(variant)}><ImageIcon className="mr-2 h-4 w-4" /> Images</DropdownMenuItem>
+                                        <DropdownMenuItem className="text-destructive" onClick={() => openDeleteDialog('variant', variant.id, variant.sku, product.id)}><Trash2 className="mr-2 h-4 w-4" /> Delete</DropdownMenuItem>
                                       </DropdownMenuContent>
                                     </DropdownMenu>
                                   </TableCell>
@@ -505,8 +513,9 @@ export default function Products() {
                             <div className="text-xs text-muted-foreground">At selected location</div>
                           </div>
                           <div className="text-3xl font-bold text-primary">
-                            {viewStoreData.quantity || viewStoreData.assigned_stock || 0}
+                            {viewStoreData.available}
                           </div>
+
                         </div>
                       )
                     ) : (
@@ -555,26 +564,26 @@ export default function Products() {
       </Dialog>
 
       {/* Other Dialogs (Product, Variant, Image, Delete) */}
-      <Dialog open={isProductDialogOpen} onOpenChange={o => { if(!o) resetProductForm(); setIsProductDialogOpen(o); }}>
-        <DialogContent className="sm:max-w-[600px]"><DialogHeader><DialogTitle>{editingProduct?'Edit':'Create'} Product</DialogTitle></DialogHeader>
-          <form onSubmit={editingProduct?handleUpdateProduct:handleCreateProduct}>
+      <Dialog open={isProductDialogOpen} onOpenChange={o => { if (!o) resetProductForm(); setIsProductDialogOpen(o); }}>
+        <DialogContent className="sm:max-w-[600px]"><DialogHeader><DialogTitle>{editingProduct ? 'Edit' : 'Create'} Product</DialogTitle></DialogHeader>
+          <form onSubmit={editingProduct ? handleUpdateProduct : handleCreateProduct}>
             <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-2 gap-4"><div className="grid gap-2"><Label>Brand</Label><Input value={productForm.brand} onChange={e=>setProductForm({...productForm, brand:e.target.value})} required/></div><div className="grid gap-2"><Label>Category</Label><Select value={productForm.category} onValueChange={v=>setProductForm({...productForm, category:v})}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{CATEGORIES.map(c=><SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div></div>
-              <div className="grid grid-cols-2 gap-4"><div className="grid gap-2"><Label>Gender</Label><Select value={productForm.gender} onValueChange={v=>setProductForm({...productForm, gender:v})}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{GENDER_OPTIONS.map(g=><SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}</SelectContent></Select></div><div className="grid gap-2"><Label>Fabric</Label><Input value={productForm.fabric_type} onChange={e=>setProductForm({...productForm, fabric_type:e.target.value})}/></div></div>
-              <div className="grid gap-2"><Label>Description</Label><Textarea value={productForm.description} onChange={e=>setProductForm({...productForm, description:e.target.value})} required/></div>
+              <div className="grid grid-cols-2 gap-4"><div className="grid gap-2"><Label>Brand</Label><Input value={productForm.brand} onChange={e => setProductForm({ ...productForm, brand: e.target.value })} required /></div><div className="grid gap-2"><Label>Category</Label><Select value={productForm.category} onValueChange={v => setProductForm({ ...productForm, category: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div></div>
+              <div className="grid grid-cols-2 gap-4"><div className="grid gap-2"><Label>Gender</Label><Select value={productForm.gender} onValueChange={v => setProductForm({ ...productForm, gender: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{GENDER_OPTIONS.map(g => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}</SelectContent></Select></div><div className="grid gap-2"><Label>Fabric</Label><Input value={productForm.fabric_type} onChange={e => setProductForm({ ...productForm, fabric_type: e.target.value })} /></div></div>
+              <div className="grid gap-2"><Label>Description</Label><Textarea value={productForm.description} onChange={e => setProductForm({ ...productForm, description: e.target.value })} required /></div>
             </div>
             <DialogFooter><Button type="submit" disabled={isSubmitting}>Save</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isVariantDialogOpen} onOpenChange={o => { if(!o) resetVariantForm(); setIsVariantDialogOpen(o); }}>
-        <DialogContent><DialogHeader><DialogTitle>{editingVariant?'Edit':'Create'} Variant</DialogTitle></DialogHeader>
-          <form onSubmit={editingVariant?handleUpdateVariant:handleCreateVariant}>
+      <Dialog open={isVariantDialogOpen} onOpenChange={o => { if (!o) resetVariantForm(); setIsVariantDialogOpen(o); }}>
+        <DialogContent><DialogHeader><DialogTitle>{editingVariant ? 'Edit' : 'Create'} Variant</DialogTitle></DialogHeader>
+          <form onSubmit={editingVariant ? handleUpdateVariant : handleCreateVariant}>
             <div className="grid gap-4 py-4">
-              <div className="grid gap-2"><Label>Product</Label><Select value={variantForm.product_id} onValueChange={v=>setVariantForm({...variantForm, product_id:v})} disabled={!!editingVariant}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{products.map(p=><SelectItem key={p.id} value={p.id}>{p.brand}</SelectItem>)}</SelectContent></Select></div>
-              <div className="grid grid-cols-2 gap-4"><div className="grid gap-2"><Label>SKU</Label><Input value={variantForm.sku} onChange={e=>setVariantForm({...variantForm, sku:e.target.value})}/></div><div className="grid gap-2"><Label>Price</Label><Input type="number" value={variantForm.base_price} onChange={e=>setVariantForm({...variantForm, base_price:e.target.value})}/></div></div>
-              <div className="grid grid-cols-2 gap-4"><div className="grid gap-2"><Label>Color</Label><Select value={variantForm.color} onValueChange={v=>setVariantForm({...variantForm, color:v})}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{COLORS.map(c=><SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div><div className="grid gap-2"><Label>Size</Label><Select value={variantForm.size} onValueChange={v=>setVariantForm({...variantForm, size:v})}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent>{SIZES.map(s=><SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div></div>
+              <div className="grid gap-2"><Label>Product</Label><Select value={variantForm.product_id} onValueChange={v => setVariantForm({ ...variantForm, product_id: v })} disabled={!!editingVariant}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{products.map(p => <SelectItem key={p.id} value={p.id}>{p.brand}</SelectItem>)}</SelectContent></Select></div>
+              <div className="grid grid-cols-2 gap-4"><div className="grid gap-2"><Label>SKU</Label><Input value={variantForm.sku} onChange={e => setVariantForm({ ...variantForm, sku: e.target.value })} /></div><div className="grid gap-2"><Label>Price</Label><Input type="number" value={variantForm.base_price} onChange={e => setVariantForm({ ...variantForm, base_price: e.target.value })} /></div></div>
+              <div className="grid grid-cols-2 gap-4"><div className="grid gap-2"><Label>Color</Label><Select value={variantForm.color} onValueChange={v => setVariantForm({ ...variantForm, color: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{COLORS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div><div className="grid gap-2"><Label>Size</Label><Select value={variantForm.size} onValueChange={v => setVariantForm({ ...variantForm, size: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{SIZES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div></div>
             </div>
             <DialogFooter><Button type="submit" disabled={isSubmitting}>Save</Button></DialogFooter>
           </form>
@@ -584,7 +593,7 @@ export default function Products() {
       <Dialog open={isImageDialogOpen} onOpenChange={setIsImageDialogOpen}>
         <DialogContent><DialogHeader><DialogTitle>Add Image</DialogTitle></DialogHeader>
           <form onSubmit={handleImageUpload}>
-            <div className="grid gap-4 py-4"><Input type="file" onChange={handleFileChange} accept="image/*"/><Input type="number" placeholder="Position" value={imageForm.position} onChange={e=>setImageForm({position:e.target.value})}/></div>
+            <div className="grid gap-4 py-4"><Input type="file" onChange={handleFileChange} accept="image/*" /><Input type="number" placeholder="Position" value={imageForm.position} onChange={e => setImageForm({ position: e.target.value })} /></div>
             <DialogFooter><Button type="submit" disabled={uploadingImage}>Upload</Button></DialogFooter>
           </form>
         </DialogContent>
@@ -592,7 +601,7 @@ export default function Products() {
 
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent><DialogHeader><DialogTitle>Confirm Delete</DialogTitle><DialogDescription>Delete {deletingItem.name}?</DialogDescription></DialogHeader>
-        <DialogFooter><Button variant="destructive" onClick={deletingItem.type==='product'?handleDeleteProduct:handleDeleteVariant} disabled={isSubmitting}>Delete</Button></DialogFooter></DialogContent>
+          <DialogFooter><Button variant="destructive" onClick={deletingItem.type === 'product' ? handleDeleteProduct : handleDeleteVariant} disabled={isSubmitting}>Delete</Button></DialogFooter></DialogContent>
       </Dialog>
     </div>
   );

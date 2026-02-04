@@ -60,7 +60,7 @@ def upload_variant_image(
     )
 
     return {
-        "image_id": image.id,
+        "product_variant_id": image.product_variant_id,
         "image_url": image.image_url,
         "position": image.position,
     }
@@ -178,3 +178,14 @@ def update_return(id, status: str, db: Session = Depends(get_db), _=Depends(get_
     r.status = status
     db.commit()
     return r
+
+
+@router.get("/inventory/store/{store_id}/variant/{variant_id}")
+def view_store_inventory_variant(
+    store_id: uuid.UUID,
+    variant_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_admin),
+):
+    return get_store_inventory_for_variant(db, store_id, variant_id)
+

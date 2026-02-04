@@ -199,6 +199,38 @@ def get_store_inventory(db: Session, store_id, product_id):
     return db.query(StoreInventory).join(ProductVariant)\
              .filter(StoreInventory.store_id == store_id, ProductVariant.product_id == product_id).all()
              
+def get_store_inventory_for_variant(
+    db: Session,
+    store_id: uuid.UUID,
+    variant_id: uuid.UUID,
+):
+    inv = (
+        db.query(StoreInventory)
+        .filter(
+            StoreInventory.store_id == store_id,
+            StoreInventory.product_variant_id == variant_id,
+        )
+        .first()
+    )
+
+    if not inv:
+        return {
+            "store_id": store_id,
+            "variant_id": variant_id,
+            "in_stock": 0,
+            "reserved_for_pickup": 0,
+            "available": 0,
+        }
+
+    return {
+        "store_id": store_id,
+        "variant_id": variant_id,
+        "in_stock": inv.in_stock,
+        "reserved_for_pickup": inv.reserved_for_pickup,
+        "available": max(inv.in_stock - inv.reserved_for_pickup, 0),
+    }
+
+             
 def global_inventory_kpis(db: Session):
     return {
         "total_variants_tracked": db.query(GlobalInventory).count(),
