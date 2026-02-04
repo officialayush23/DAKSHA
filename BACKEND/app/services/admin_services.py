@@ -90,16 +90,28 @@ def delete_variant(db: Session, variant_id):
     db.query(ProductVariant).filter(ProductVariant.id == variant_id).delete()
     db.commit()
 
+
 def add_variant_image(db: Session, variant_id, payload):
+    # 🔥 find next available position
+    max_position = (
+        db.query(func.max(ProductImage.position))
+        .filter(ProductImage.product_variant_id == variant_id)
+        .scalar()
+    )
+
+    next_position = 0 if max_position is None else max_position + 1
+
     image = ProductImage(
         product_variant_id=variant_id,
         image_url=payload.image_url,
-        position=payload.position
+        position=next_position,
     )
+
     db.add(image)
     db.commit()
     db.refresh(image)
     return image
+
 
 # ================= 2. STORES & KPIS =================
 

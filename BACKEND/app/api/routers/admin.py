@@ -39,24 +39,19 @@ def delete_var(id: UUID, db: Session = Depends(get_db), _=Depends(get_current_ad
     return {"status": "deleted"}
 
 
-
 @router.post("/variants/{variant_id}/images")
 def upload_variant_image(
     variant_id: uuid.UUID,
-    position: int = 0,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    _=Depends(get_current_admin),
 ):
     image_url = upload_product_image(file.file, file.content_type)
 
     image = add_variant_image(
         db,
         variant_id,
-        payload=type(
-            "Obj",
-            (),
-            {"image_url": image_url, "position": position},
-        ),
+        payload=type("Obj", (), {"image_url": image_url}),
     )
 
     return {
@@ -64,7 +59,6 @@ def upload_variant_image(
         "image_url": image.image_url,
         "position": image.position,
     }
-
 
 # -------- STORES --------
 @router.post("/stores", response_model=StoreResponse)
