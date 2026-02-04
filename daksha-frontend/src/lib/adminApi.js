@@ -1,11 +1,9 @@
-// api.js - Base API client
-import { supabase } from './supabaseClient'; // 1. Import Supabase
+import { supabase } from './supabaseClient'; 
 
-// api.js - Base API client
+// --- Base API Client ---
 export const apiClient = async (endpoint, method = 'GET', data = null, params = {}) => {
   const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
   
-  // Build URL with query params
   const url = new URL(`${baseURL}${endpoint}`);
   Object.keys(params).forEach(key => {
     if (params[key] !== undefined && params[key] !== null) {
@@ -20,15 +18,12 @@ export const apiClient = async (endpoint, method = 'GET', data = null, params = 
     },
   };
 
-  // 2. THE FIX: Ask Supabase for the current session token
-  // This is safe, standardized, and handles token refreshing automatically.
+  // Inject Supabase Token
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData?.session?.access_token;
 
   if (token) {
     options.headers.Authorization = `Bearer ${token}`;
-  } else {
-    console.warn("⚠️ No active session found. Request might fail.");
   }
 
   if (data) {
@@ -40,7 +35,7 @@ export const apiClient = async (endpoint, method = 'GET', data = null, params = 
     
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.detail || `HTTP ${response.status}: ${response.statusText}`);
+      throw new Error(error.detail || `HTTP ${response.status}`);
     }
 
     return await response.json();
@@ -50,49 +45,7 @@ export const apiClient = async (endpoint, method = 'GET', data = null, params = 
   }
 };
 
-// export const apiClient = async (endpoint, method = 'GET', data = null, params = {}) => {
-//   const baseURL = 'http://localhost:8000';
-  
-//   // Build URL with query params
-//   const url = new URL(`${baseURL}${endpoint}`);
-//   Object.keys(params).forEach(key => {
-//     if (params[key] !== undefined && params[key] !== null) {
-//       url.searchParams.append(key, params[key]);
-//     }
-//   });
-
-//   const options = {
-//     method,
-//     headers: {
-//       'Content-Type': 'application/json',
-//     },
-//   };
-
-//   // Add auth token if exists
-//   const token = localStorage.getItem('admin_token');
-//   if (token) {
-//     options.headers.Authorization = `Bearer ${token}`;
-//   }
-
-//   if (data) {
-//     options.body = JSON.stringify(data);
-//   }
-
-//   try {
-//     const response = await fetch(url.toString(), options);
-    
-//     if (!response.ok) {
-//       const error = await response.json();
-//       throw new Error(error.detail || `HTTP ${response.status}: ${response.statusText}`);
-//     }
-
-//     return await response.json();
-//   } catch (error) {
-//     console.error(`API Error (${endpoint}):`, error);
-//     throw error;
-//   }
-// };
-
+// --- Admin Service ---
 export const AdminService = {
   // ==========================================
   // 📦 PRODUCTS
@@ -146,14 +99,16 @@ export const AdminService = {
     apiClient(`/admin/stores/${id}/pickups`, 'GET'),
 
   // ==========================================
-  // 📦 INVENTORY
+  // 📦 INVENTORY (MANAGE & VIEW)
   // ==========================================
+  // 1. Manage (POST)
   assignGlobalInventory: (data) => 
     apiClient('/admin/inventory/global', 'POST', data),
 
   assignStoreInventory: (data) => 
     apiClient('/admin/inventory/store', 'POST', data),
 
+  // 2. View (GET)
   getInventoryKpis: () => 
     apiClient('/admin/inventory/kpis', 'GET'),
 
@@ -224,7 +179,6 @@ export const AdminService = {
   // 📊 DASHBOARD STATS
   // ==========================================
   getDashboardStats: async () => {
-    // Fetch multiple stats in parallel
     const [inventoryKpis, stores, complaints, offers] = await Promise.allSettled([
       apiClient('/admin/inventory/kpis', 'GET'),
       apiClient('/admin/stores', 'GET'),
