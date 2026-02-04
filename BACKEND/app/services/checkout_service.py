@@ -1,7 +1,7 @@
 # app/services/checkout_service.py
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-
+from app.services.payment_gateway_config_service import get_gateway_config
 from app.models.models import CheckoutSession, Order, Payment
 from app.enums.db_enums import (
     CheckoutStateEnum,
@@ -12,8 +12,9 @@ from app.services.inventory_reservation_service import (
     reserve_inventory,
     release_inventory,
 )
+from app.services.impression_outcome_service import log_recommendation_outcome
 from app.services.event_service import emit_event
-
+from app.models.models import RecommendationImpression
 RESERVATION_TTL_MINUTES = 15
 MAX_PAYMENT_RETRIES = 3
 
@@ -75,6 +76,26 @@ def lock_price(db: Session, checkout: CheckoutSession, total_price: float):
 
 
 def initiate_payment(db: Session, checkout: CheckoutSession, method: str):
+    """
+    Initiates payment with:
+    - admin override support
+    - retry guardrails
+    - proper FSM transitions
+    """
+
+    # 🔐 Admin override (testing / ops)
+    cfg = get_gateway_config(db)
+
+    if cfg.force_status == "failure":
+        payment_failed(db, checkout, "Forced failure by admin")
+        return
+
+    if cfg.force_status == "success":
+        transition(checkout, CheckoutStateEnum.ORDER_CONFIRMED)
+        db.commit()
+        return
+
+    # 🔁 Retry guard
     if checkout.payment_attempts >= MAX_PAYMENT_RETRIES:
         rollback_checkout(db, checkout, "Max payment retries exceeded")
         return
@@ -82,22 +103,22 @@ def initiate_payment(db: Session, checkout: CheckoutSession, method: str):
     checkout.payment_attempts += 1
     transition(checkout, CheckoutStateEnum.PAYMENT_PENDING)
 
-    db.add(
-        Payment(
-            order_id=None,
-            method=method,
-            status="initiated",
-        )
+    payment = Payment(
+        order_id=None,
+        checkout_id=checkout.id,
+        method=method,
+        status="initiated",
     )
+    db.add(payment)
 
     emit_event(
-        db,
-        checkout.user_id,
-        checkout.session_id,
-        checkout.session.active_channel if checkout.session else None,
-        EventTypeEnum.payment_started,
-        EntityTypeEnum.checkout,
-        checkout.id,
+        db=db,
+        user_id=checkout.user_id,
+        session_id=checkout.session_id,
+        channel=checkout.session.active_channel if checkout.session else None,
+        event_type=EventTypeEnum.payment_started,
+        entity_type=EntityTypeEnum.checkout,
+        entity_id=checkout.id,
     )
 
     db.commit()
@@ -141,6 +162,17 @@ def confirm_order(db: Session, checkout: CheckoutSession):
         order.id,
         price=checkout.locked_price,
     )
+    impressions = db.query(RecommendationImpression).filter(
+        RecommendationImpression.session_id == checkout.session_id
+    ).all()
+
+    for imp in impressions:
+        log_recommendation_outcome(
+            db=db,
+            impression_id=imp.id,
+            outcome_type="purchase",
+            reward_value=1.0,
+        )
 
     db.commit()
     return order
@@ -165,4 +197,9 @@ def rollback_checkout(db: Session, checkout: CheckoutSession, reason: str):
         reason=reason,
     )
 
+    db.commit()
+
+def apply_coupon(db: Session, checkout: CheckoutSession, discounted_price: float):
+    checkout.locked_price = discounted_price
+    transition(checkout, CheckoutStateEnum.COUPON_APPLIED)
     db.commit()

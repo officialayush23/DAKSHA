@@ -35,3 +35,23 @@ def switch_channel(db: Session, session: UserSession, channel: ChannelEnum):
 def end_session(db: Session, session: UserSession):
     session.ended_at = datetime.utcnow()
     db.commit()
+
+def get_or_create_active_session(
+    db: Session,
+    user_id: uuid.UUID,
+    channel: ChannelEnum,
+):
+    """
+    HARD GUARANTEE:
+    - If user does anything, they have a session
+    - Channel is always up to date
+    """
+    session = get_active_session(db, user_id)
+
+    if session:
+        if session.active_channel != channel:
+            session.active_channel = channel
+            db.commit()
+        return session
+
+    return start_session(db, user_id, channel)

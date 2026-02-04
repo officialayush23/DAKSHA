@@ -200,6 +200,7 @@ class Product(Base):
     occasion = Column(String)
     active = Column(Boolean, default=True)
     reviews = relationship("Review", back_populates="product")
+    search_tsv = Column(TSVECTOR)
 
     variants = relationship("ProductVariant", back_populates="product")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -619,4 +620,8 @@ class PaymentGatewayConfig(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        UniqueConstraint("id", name="one_row_payment_gateway_config"),
     )

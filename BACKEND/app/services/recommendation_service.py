@@ -6,6 +6,17 @@ from app.services.postrank_service import apply_business_rules
 from app.services.impression_service import log_impressions
 from app.services.offer_service import attach_offers_to_products
 
+
+from sqlalchemy import func
+from app.models.models import (
+    ProductVariant,
+    Product,
+    ProductEmbedding,
+    OrderItem,
+)
+from app.services.pricing_service import resolve_variant_price
+from app.services.impression_service import log_impressions
+
 def get_hybrid_recommendations(db: Session, user_id: str, intent_text: str = None, limit: int = 20):
     
     # 1. Candidate Generation (Recall) - Get ~500 items
@@ -44,3 +55,90 @@ def get_hybrid_recommendations(db: Session, user_id: str, intent_text: str = Non
         }
         for row in final_feed
     ]
+    
+    
+    
+
+
+
+PRICE_BAND_PERCENT = 0.2
+SIMILARITY_LIMIT = 20
+
+def get_similar_variants(
+    db: Session,
+    base_variant_id,
+    user_id=None,
+    session_id=None,
+    limit=20,
+):
+    base = (
+        db.query(ProductVariant)
+        .join(Product)
+        .filter(ProductVariant.id == base_variant_id)
+        .first()
+    )
+    if not base:
+        return []
+
+    base_emb = (
+        db.query(ProductEmbedding)
+        .filter(ProductEmbedding.product_variant_id == base_variant_id)
+        .first()
+    )
+
+    results = []
+
+    if base_emb:
+        q = (
+            db.query(
+                ProductVariant,
+                func.cosine_distance(
+                    ProductEmbedding.embedding,
+                    base_emb.embedding,
+                ).label("distance"),
+            )
+            .join(Product)
+            .join(ProductEmbedding)
+            .filter(
+                ProductVariant.id != base_variant_id,
+                Product.category == base.product.category,
+                Product.gender == base.product.gender,
+                ProductVariant.active.is_(True),
+            )
+        )
+
+        low = base.base_price * 0.8
+        high = base.base_price * 1.2
+        q = q.filter(ProductVariant.base_price.between(low, high))
+
+        results = q.order_by("distance").limit(limit).all()
+
+    # 🔁 HARD FALLBACK (category + gender + price)
+    if len(results) < limit:
+        fallback = (
+            db.query(ProductVariant)
+            .join(Product)
+            .filter(
+                ProductVariant.id != base_variant_id,
+                Product.category == base.product.category,
+                Product.gender == base.product.gender,
+                ProductVariant.active.is_(True),
+            )
+            .limit(limit)
+            .all()
+        )
+        results = [(v, None) for v in fallback]
+
+    out = []
+    for rank, (variant, _) in enumerate(results):
+        price = resolve_variant_price(db, variant)
+        out.append({
+            "variant_id": variant.id,
+            "product_id": variant.product_id,
+            **price,
+            "reason": "similar",
+            "rank": rank,
+        })
+
+    log_impressions(db, user_id, out, "similar", session_id)
+    return out

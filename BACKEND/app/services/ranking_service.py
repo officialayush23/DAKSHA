@@ -2,7 +2,9 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.services.embedding_service import generate_embedding
-
+# NOTE:
+# Collaborative filtering is used at recall-time (candidate generation).
+# Ranking focuses on semantic + intent + trend for stability.
 def rank_candidates(db: Session, user_id: str, candidate_ids: list[str], intent_text: str = None, limit: int = 20):
     if not candidate_ids: return []
 

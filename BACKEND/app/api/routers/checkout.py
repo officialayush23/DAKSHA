@@ -65,13 +65,10 @@ def checkout_status(
 
 
 
-router = APIRouter(
-    prefix="/checkout/pickup",
-    tags=["Checkout – Pickup"]
-)
 
 
-@router.get("/stores")
+
+@router.get("/pickup/stores")
 def pickup_store_options(
     lat: float = Query(...),
     lng: float = Query(...),

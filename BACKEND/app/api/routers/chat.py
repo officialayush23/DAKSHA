@@ -22,6 +22,7 @@ async def chat_message(
         channel=channel
     )
     
-    update_conversation_summary(db, session_id)
+    update_conversation_summary(db, user.sessions[-1].id)
+
     
     return {"reply": response}

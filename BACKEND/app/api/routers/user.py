@@ -138,6 +138,8 @@ def remove_cart_item(
     ).delete()
     db.commit()
     return {"status": "removed"}
+
+
 @router.post("/addresses")
 def add_address_api(
     payload: AddressCreate,

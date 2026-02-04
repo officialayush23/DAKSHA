@@ -1,27 +1,35 @@
 # app/services/payment_admin.py
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from app.core.deps import get_db, get_current_admin
-from app.models.models import PaymentGatewayConfig
+from app.core.deps import get_db, require_admin
+from app.services.payment_gateway_config_service import (
+    get_gateway_config,
+    update_gateway_config,
+)
 
-router = APIRouter(prefix="/admin/payment", tags=["Admin Payment"])
+router = APIRouter(prefix="/admin/payment-gateway", tags=["Admin"])
 
-@router.get("/toggle")
-def get_toggle(db: Session = Depends(get_db)):
-    cfg = db.query(PaymentGatewayConfig).get(1)
-    return {"force_status": cfg.force_status if cfg else None}
 
-@router.patch("/toggle")
-def set_toggle(
-    status: str | None,
+@router.get("")
+def get_config(
     db: Session = Depends(get_db),
-    _=Depends(get_current_admin),
+    _=Depends(require_admin),
 ):
-    cfg = db.query(PaymentGatewayConfig).get(1)
-    if not cfg:
-        cfg = PaymentGatewayConfig(id=1, force_status=status)
-        db.add(cfg)
-    else:
-        cfg.force_status = status
-    db.commit()
-    return {"force_status": cfg.force_status}
+    cfg = get_gateway_config(db)
+    return {
+        "force_status": cfg.force_status,
+        "updated_at": cfg.updated_at,
+    }
+
+
+@router.post("")
+def set_config(
+    force_status: str | None,
+    db: Session = Depends(get_db),
+    _=Depends(require_admin),
+):
+    cfg = update_gateway_config(db, force_status=force_status)
+    return {
+        "force_status": cfg.force_status,
+        "updated_at": cfg.updated_at,
+    }

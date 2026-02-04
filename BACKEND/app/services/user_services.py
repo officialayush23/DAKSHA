@@ -5,7 +5,7 @@ from geoalchemy2 import WKTElement
 from app.models.models import *
 from app.services.event_service import emit_event
 from app.enums.db_enums import EventTypeEnum, EntityTypeEnum
-
+from app.services.impression_outcome_service import log_recommendation_outcome
 
 # ========== ADDRESS ==========
 
@@ -30,36 +30,47 @@ def add_address(db: Session, user, payload):
     return addr
 
 def remove_from_cart(db: Session, user, session_id, variant_id):
-    cart = db.query(Cart).filter(
-        Cart.user_id == user.id,
-        Cart.session_id == session_id
-    ).first()
+    cart = (
+        db.query(Cart)
+        .filter(
+            Cart.user_id == user.id,
+            Cart.session_id == session_id,
+        )
+        .first()
+    )
 
     if not cart:
-        return
+        return None
 
-    item = db.query(CartItem).filter(
-        CartItem.cart_id == cart.id,
-        CartItem.product_variant_id == variant_id
-    ).first()
+    item = (
+        db.query(CartItem)
+        .filter(
+            CartItem.cart_id == cart.id,
+            CartItem.product_variant_id == variant_id,
+        )
+        .first()
+    )
 
     if not item:
-        return
+        return None
 
     qty = item.quantity
     db.delete(item)
     db.commit()
 
+    # 🔥 EVENT: remove_from_cart
     emit_event(
-        db,
-        user.id,
-        session_id,
-        None,
-        EventTypeEnum.remove_from_cart,
-        EntityTypeEnum.cart,
-        cart.id,
-        quantity=qty
+        db=db,
+        user_id=user.id,
+        session_id=session_id,
+        channel=None,
+        event_type=EventTypeEnum.remove_from_cart,
+        entity_type=EntityTypeEnum.cart,
+        entity_id=cart.id,
+        quantity=qty,
     )
+
+    return {"removed": True}
 
 
 def update_address(db: Session, user, address_id, payload):
@@ -126,6 +137,7 @@ def get_or_create_cart(db: Session, user, session_id):
     return cart
 
 
+
 def add_to_cart(db: Session, user, session_id, payload):
     cart = get_or_create_cart(db, user, session_id)
 
@@ -156,6 +168,15 @@ def add_to_cart(db: Session, user, session_id, payload):
         cart.id,
         quantity=payload.quantity
     )
+    
+    if payload.impression_id:
+        log_recommendation_outcome(
+            db=db,
+            impression_id=payload.impression_id,
+            outcome_type="add_to_cart",
+            reward_value=0.6,
+        )
+        
     return cart
 
 

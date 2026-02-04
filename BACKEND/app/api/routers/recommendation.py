@@ -55,3 +55,27 @@ def trigger_training(
 ):
     background_tasks.add_task(train_collaborative_model, db)
     return {"status": "Training started"}
+
+
+from app.services.recommendation_service import get_similar_variants
+from app.services.copurchase_service import get_bought_together
+
+router = APIRouter(prefix="/recommendations", tags=["Recommendations"])
+
+
+@router.get("/similar/{variant_id}")
+def similar(
+    variant_id,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    return get_similar_variants(db, variant_id, user.id, None)
+
+
+@router.get("/bought-together/{variant_id}")
+def bought_together(
+    variant_id,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    return get_bought_together(db, variant_id, user.id, None)

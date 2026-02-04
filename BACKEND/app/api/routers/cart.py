@@ -30,23 +30,4 @@ def view_cart(db: Session = Depends(get_db), user=Depends(get_current_user)):
 
 
 
-@router.delete("/remove/{variant_id}")
-def remove_item(
-    variant_id: UUID,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    session = user.sessions[-1]
-
-    result = remove_from_cart(
-        db=db,
-        user=user,
-        session_id=session.id,
-        variant_id=variant_id,
-    )
-
-    if not result:
-        return {"status": "not_found"}
-
-    return {"status": "removed"}
 

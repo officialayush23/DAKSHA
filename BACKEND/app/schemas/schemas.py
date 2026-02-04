@@ -37,7 +37,13 @@ class VariantImageCreate(BaseModel):
     position: int
 
 # ---------------- STORES ----------------
-
+class RecommendedVariant(BaseModel):
+    variant_id: UUID
+    product_id: UUID
+    price: float
+    discounted_price: float | None
+    reason: str
+    rank: int
 class StoreCreate(BaseModel):
     name: str
     city: str
