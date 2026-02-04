@@ -5,6 +5,7 @@ from typing import Optional, List, Dict, Any
 from app.enums.db_enums import OrderStatusEnum, PickupStatusEnum
 from datetime import datetime
 
+
 # ---------------- PRODUCTS ----------------
 
 class ProductCreate(BaseModel):
@@ -51,6 +52,21 @@ class StoreUpdate(BaseModel):
     address: Optional[str]
     active: Optional[bool]
     location: Optional[Dict[str, Any]]
+    
+    
+    
+
+class StoreResponse(BaseModel):
+    id: UUID
+    name: str
+    city: str
+    state: str
+    address: str
+    location: Dict[str, Any]
+
+    class Config:
+        orm_mode = True
+
 
 # ---------------- INVENTORY ----------------
 
@@ -200,3 +216,29 @@ class PersonalizedOffer(BaseModel):
 class UserRegisterPayload(BaseModel):
     name: str
     phone: Optional[str] = None
+
+from app.enums.db_enums import ChannelEnum
+
+class SessionStartResponse(BaseModel):
+    session_id: UUID
+    primary_channel: ChannelEnum
+    active_channel: ChannelEnum
+    started_at: datetime
+
+class SessionActiveResponse(SessionStartResponse):
+    pass
+
+from app.enums.db_enums import CheckoutStateEnum
+
+class CheckoutStartResponse(BaseModel):
+    checkout_id: UUID
+    state: CheckoutStateEnum
+    reserved_until: Optional[datetime]
+
+class CheckoutIntrospection(BaseModel):
+    checkout_id: UUID
+    state: CheckoutStateEnum
+    locked_price: Optional[float]
+    reserved_until: Optional[datetime]
+    payment_attempts: int
+    last_error: Optional[str]

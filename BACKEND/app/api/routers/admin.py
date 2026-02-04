@@ -41,9 +41,15 @@ def add_image(id: UUID, p: VariantImageCreate, db: Session = Depends(get_db), _=
     return add_variant_image(db, id, p)
 
 # -------- STORES --------
-@router.post("/stores")
-def create_st(s: StoreCreate, db: Session = Depends(get_db), _=Depends(get_current_user)):
-    return create_store(db, s)
+@router.post("/stores", response_model=StoreResponse)
+def create_st(
+    s: StoreCreate,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    store = create_store(db, s)
+    return serialize_store(store)
+
 
 @router.put("/stores/{id}")
 def update_st(id: UUID, s: StoreUpdate, db: Session = Depends(get_db), _=Depends(get_current_user)):

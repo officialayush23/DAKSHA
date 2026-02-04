@@ -72,6 +72,18 @@ def update_variant(db: Session, variant_id, payload):
 
     return variant
 
+from geoalchemy2.shape import to_shape
+from shapely.geometry import mapping
+
+def serialize_store(store: Store):
+    return {
+        "id": store.id,
+        "name": store.name,
+        "city": store.city,
+        "state": store.state,
+        "address": store.address,
+        "location": mapping(to_shape(store.location)),
+    }
 
 def delete_variant(db: Session, variant_id):
     db.query(ProductVariant).filter(ProductVariant.id == variant_id).delete()
@@ -278,7 +290,32 @@ def get_all_images(db: Session, limit: int = 100):
 
 # ================= 2. STORES =================
 def get_all_stores(db: Session):
-    return db.query(Store).all()
+    rows = (
+        db.query(
+            Store.id,
+            Store.name,
+            Store.city,
+            Store.state,
+            Store.address,
+            func.ST_AsGeoJSON(Store.location).label("location"),
+            Store.active,
+        )
+        .filter(Store.active == True)
+        .all()
+    )
+
+    return [
+        {
+            "id": r.id,
+            "name": r.name,
+            "city": r.city,
+            "state": r.state,
+            "address": r.address,
+            "location": r.location,  # already JSON string
+            "active": r.active,
+        }
+        for r in rows
+    ]
 
 def get_store_pickups(db: Session, store_id):
     return db.query(Pickup).filter(Pickup.store_id == store_id).order_by(desc(Pickup.updated_at)).all()

@@ -33,7 +33,7 @@ class User(Base):
     role = Column(SAEnum(db_enums.UserRoleEnum, name="user_role_enum"), default=db_enums.UserRoleEnum.user)
 
     # Relationships
-    sessions = relationship("Session", back_populates="user")
+    sessions = relationship("UserSession", back_populates="user")
     orders = relationship("Order", back_populates="user")
     carts = relationship("Cart", back_populates="user")
     cards = relationship("UserCard", back_populates="user")
@@ -123,7 +123,7 @@ class UserWishlist(Base):
 # 2. SESSION & CONVERSATION DOMAIN
 # ==========================================
 
-class Session(Base):
+class UserSession(Base):
     __tablename__ = "sessions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -138,6 +138,9 @@ class Session(Base):
     events = relationship("Event", back_populates="session")
     summary = relationship("ConversationSummary", uselist=False, back_populates="session")
 
+    checkouts = relationship("CheckoutSession", back_populates="session")
+
+
 
 class Conversation(Base):
     __tablename__ = "conversations"
@@ -150,7 +153,7 @@ class Conversation(Base):
     intent = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    session = relationship("Session", back_populates="conversations")
+    session = relationship("UserSession", back_populates="conversations")
 
 
 class ConversationSummary(Base):
@@ -161,7 +164,8 @@ class ConversationSummary(Base):
     embedding = Column(Vector(768))
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    session = relationship("Session", back_populates="summary")
+    session = relationship("UserSession", back_populates="summary")
+
 
 
 class UserIntent(Base):
@@ -429,7 +433,7 @@ class Event(Base):
     event_metadata = Column(JSONB)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    session = relationship("Session", back_populates="events")
+    session = relationship("UserSession", back_populates="events")
 
 
 class WhatsappUser(Base):
@@ -549,10 +553,16 @@ class CheckoutSession(Base):
     __tablename__ = "checkout_sessions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    cart_id = Column(UUID(as_uuid=True), ForeignKey("carts.id"))
 
-    state = Column(SAEnum(db_enums.CheckoutStateEnum, name="checkout_state_enum"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id"), nullable=False)
+    cart_id = Column(UUID(as_uuid=True), ForeignKey("carts.id"), nullable=False)
+
+    state = Column(
+        SAEnum(db_enums.CheckoutStateEnum, name="checkout_state_enum"),
+        nullable=False
+    )
+
     locked_price = Column(Numeric)
     reserved_until = Column(DateTime)
 
@@ -561,7 +571,12 @@ class CheckoutSession(Base):
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-    
+
+    # relationships
+    session = relationship("UserSession", back_populates="checkouts")
+    user = relationship("User")
+    cart = relationship("Cart")
+
 class TelegramUser(Base):
     __tablename__ = "telegram_users"
 

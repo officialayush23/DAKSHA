@@ -4,7 +4,7 @@ from groq import Groq
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.agents.tools import AgentTools
-from app.models.models import ConversationSummary, Session as UserSession
+from app.models.models import ConversationSummary, UserSession 
 
 # Initialize Clients
 genai.Client(api_key=settings.GEMINI_API_KEY)
@@ -20,6 +20,11 @@ STRATEGY:
 3. TRANSACTIONAL: If a user wants to buy, guide them to 'add_item_to_cart' and then 'view_my_cart'.
 4. PERSUASION: If the user mentions a failed payment, offer to check 'get_available_offers' to see if a discount makes the purchase easier.
 5. OMNICHANNEL: Acknowledge past interactions if context is provided.
+6. EXPLAIN SUGGESTIONS: When suggesting products, use the user's preference summary to explain why. 
+   Example: "Based on your interest in linen fabrics, I recommend..."
+7. MULTI-AGENT ORCHESTRATION: If stock is low in the warehouse, check local stores, retry checkout if fails on payment.
+8. SUPPORT MODE: You can also login complaints and solve Daksha related queries , like the type of products.
+9. INFO AGNET: Provide info about orders, cart_items , delivery status , cards , addresses , etc.
 
 STRICT LIMIT: Do not delete accounts. Do not process actual payments (redirect to checkout).
 """
