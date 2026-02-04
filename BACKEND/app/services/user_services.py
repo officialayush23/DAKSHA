@@ -29,6 +29,38 @@ def add_address(db: Session, user, payload):
     db.commit()
     return addr
 
+def remove_from_cart(db: Session, user, session_id, variant_id):
+    cart = db.query(Cart).filter(
+        Cart.user_id == user.id,
+        Cart.session_id == session_id
+    ).first()
+
+    if not cart:
+        return
+
+    item = db.query(CartItem).filter(
+        CartItem.cart_id == cart.id,
+        CartItem.product_variant_id == variant_id
+    ).first()
+
+    if not item:
+        return
+
+    qty = item.quantity
+    db.delete(item)
+    db.commit()
+
+    emit_event(
+        db,
+        user.id,
+        session_id,
+        None,
+        EventTypeEnum.remove_from_cart,
+        EntityTypeEnum.cart,
+        cart.id,
+        quantity=qty
+    )
+
 
 def update_address(db: Session, user, address_id, payload):
     addr = db.query(UserAddress).filter(

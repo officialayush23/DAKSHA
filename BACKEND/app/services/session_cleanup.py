@@ -1,7 +1,7 @@
 # app/services/session_cleanup.py
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from app.models.models import Session as UserSession
+from app.models.models import UserSession
 
 SESSION_TTL_HOURS = 12
 

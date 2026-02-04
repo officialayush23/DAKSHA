@@ -1,11 +1,18 @@
 # app/services/checkout_service.py
-# app/services/checkout_service.py
-import uuid
-from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
+from sqlalchemy.orm import Session
 
-from app.models.models import CheckoutSession, Cart, Order, Payment
-from app.enums.db_enums import CheckoutStateEnum
+from app.models.models import CheckoutSession, Order, Payment
+from app.enums.db_enums import (
+    CheckoutStateEnum,
+    EventTypeEnum,
+    EntityTypeEnum,
+)
+from app.services.inventory_reservation_service import (
+    reserve_inventory,
+    release_inventory,
+)
+from app.services.event_service import emit_event
 
 RESERVATION_TTL_MINUTES = 15
 MAX_PAYMENT_RETRIES = 3
@@ -38,34 +45,11 @@ ALLOWED_TRANSITIONS = {
 
 def transition(checkout: CheckoutSession, new_state: CheckoutStateEnum):
     if new_state not in ALLOWED_TRANSITIONS.get(checkout.state, set()):
-        raise ValueError(
-            f"Invalid transition {checkout.state} → {new_state}"
-        )
+        raise ValueError(f"Invalid transition {checkout.state} → {new_state}")
     checkout.state = new_state
 
 
-# ---------------- ENTRY POINTS ----------------
-
-def start_checkout(db: Session, user_id: uuid.UUID, cart_id: uuid.UUID):
-    session = CheckoutSession(
-        user_id=user_id,
-        cart_id=cart_id,
-        state=CheckoutStateEnum.INIT,
-    )
-    db.add(session)
-    db.commit()
-    db.refresh(session)
-    return session
-
-
-def resume_checkout(db: Session, checkout_id: uuid.UUID) -> CheckoutSession:
-    checkout = db.query(CheckoutSession).get(checkout_id)
-    if not checkout:
-        raise ValueError("Checkout not found")
-    return checkout
-
-
-# ---------------- PIPELINE STEPS ----------------
+# ---------------- FSM STEPS ----------------
 
 def validate_cart(db: Session, checkout: CheckoutSession):
     transition(checkout, CheckoutStateEnum.CART_VALIDATED)
@@ -73,9 +57,13 @@ def validate_cart(db: Session, checkout: CheckoutSession):
 
 
 def reserve_stock(db: Session, checkout: CheckoutSession):
-    checkout.reserved_until = datetime.utcnow() + timedelta(
-        minutes=RESERVATION_TTL_MINUTES
-    )
+    if checkout.inventory_locked:
+        return
+
+    reserve_inventory(db, checkout.cart_id)
+    checkout.inventory_locked = True
+    checkout.reserved_until = datetime.utcnow() + timedelta(minutes=RESERVATION_TTL_MINUTES)
+
     transition(checkout, CheckoutStateEnum.STOCK_RESERVED)
     db.commit()
 
@@ -83,12 +71,6 @@ def reserve_stock(db: Session, checkout: CheckoutSession):
 def lock_price(db: Session, checkout: CheckoutSession, total_price: float):
     checkout.locked_price = total_price
     transition(checkout, CheckoutStateEnum.PRICE_LOCKED)
-    db.commit()
-
-
-def apply_coupon(db: Session, checkout: CheckoutSession, discounted_price: float):
-    checkout.locked_price = discounted_price
-    transition(checkout, CheckoutStateEnum.COUPON_APPLIED)
     db.commit()
 
 
@@ -100,18 +82,42 @@ def initiate_payment(db: Session, checkout: CheckoutSession, method: str):
     checkout.payment_attempts += 1
     transition(checkout, CheckoutStateEnum.PAYMENT_PENDING)
 
-    payment = Payment(
-        order_id=None,
-        method=method,
-        status="initiated",
+    db.add(
+        Payment(
+            order_id=None,
+            method=method,
+            status="initiated",
+        )
     )
-    db.add(payment)
+
+    emit_event(
+        db,
+        checkout.user_id,
+        checkout.session_id,
+        checkout.session.active_channel if checkout.session else None,
+        EventTypeEnum.payment_started,
+        EntityTypeEnum.checkout,
+        checkout.id,
+    )
+
     db.commit()
 
 
 def payment_failed(db: Session, checkout: CheckoutSession, reason: str):
     checkout.last_error = reason
     transition(checkout, CheckoutStateEnum.PAYMENT_FAILED)
+
+    emit_event(
+        db,
+        checkout.user_id,
+        checkout.session_id,
+        None,
+        EventTypeEnum.payment_failed,
+        EntityTypeEnum.checkout,
+        checkout.id,
+        reason=reason,
+    )
+
     db.commit()
 
 
@@ -124,11 +130,39 @@ def confirm_order(db: Session, checkout: CheckoutSession):
     db.add(order)
 
     transition(checkout, CheckoutStateEnum.ORDER_CONFIRMED)
+
+    emit_event(
+        db,
+        checkout.user_id,
+        checkout.session_id,
+        None,
+        EventTypeEnum.order_placed,
+        EntityTypeEnum.order,
+        order.id,
+        price=checkout.locked_price,
+    )
+
     db.commit()
     return order
 
 
 def rollback_checkout(db: Session, checkout: CheckoutSession, reason: str):
+    if checkout.inventory_locked:
+        release_inventory(db, checkout.cart_id)
+        checkout.inventory_locked = False
+
     checkout.last_error = reason
     transition(checkout, CheckoutStateEnum.ROLLED_BACK)
+
+    emit_event(
+        db,
+        checkout.user_id,
+        checkout.session_id,
+        None,
+        EventTypeEnum.checkout_cancelled,
+        EntityTypeEnum.checkout,
+        checkout.id,
+        reason=reason,
+    )
+
     db.commit()

@@ -391,6 +391,7 @@ class Payment(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id"))
+    checkout_id = Column(UUID(as_uuid=True), ForeignKey("checkout_sessions.id"))
     method = Column(String)
     status = Column(SAEnum(db_enums.PaymentStatusEnum, name="payment_status_enum"))
     failure_reason = Column(Text)
@@ -557,6 +558,7 @@ class CheckoutSession(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id"), nullable=False)
     cart_id = Column(UUID(as_uuid=True), ForeignKey("carts.id"), nullable=False)
+    inventory_locked = Column(Boolean, default=False)
 
     state = Column(
         SAEnum(db_enums.CheckoutStateEnum, name="checkout_state_enum"),

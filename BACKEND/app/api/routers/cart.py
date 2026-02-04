@@ -2,7 +2,9 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_current_user
-from app.services.cart_service import get_active_cart, get_cart_items, clear_cart
+from app.services.cart_service import get_active_cart, get_cart_items
+from uuid import UUID
+from app.services.user_services import remove_from_cart
 
 router = APIRouter(prefix="/user/cart", tags=["Cart"])
 
@@ -26,9 +28,25 @@ def view_cart(db: Session = Depends(get_db), user=Depends(get_current_user)):
         ],
     }
 
-@router.delete("/clear")
-def clear(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    cart = get_active_cart(db, user.id)
-    if cart:
-        clear_cart(db, cart)
-    return {"status": "cleared"}
+
+
+@router.delete("/remove/{variant_id}")
+def remove_item(
+    variant_id: UUID,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    session = user.sessions[-1]
+
+    result = remove_from_cart(
+        db=db,
+        user=user,
+        session_id=session.id,
+        variant_id=variant_id,
+    )
+
+    if not result:
+        return {"status": "not_found"}
+
+    return {"status": "removed"}
+

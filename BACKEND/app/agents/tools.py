@@ -7,9 +7,11 @@ from sqlalchemy import desc
 from geoalchemy2.functions import ST_Distance
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
-from app.services.checkout_service import (
-    start_checkout, resume_checkout, initiate_payment
+from app.services.checkout_facade import (
+    start_or_resume_checkout,
+    get_checkout
 )
+from app.services.checkout_service import initiate_payment
 from app.agents.guards import can_retry_payment
 from app.services.recommendation_service import get_hybrid_recommendations
 from app.services.admin_services import get_store_inventory, list_offers
@@ -101,22 +103,30 @@ class AgentTools:
             uuid.UUID(variant_id)
         )
     def start_checkout(self):
-        cart = get_or_create_cart(self.db, self.user_id, self.session_id)
-        checkout = start_checkout(self.db, self.user_id, cart.id)
+        checkout = start_or_resume_checkout(
+            db=self.db,
+            user_id=self.user_id,
+            session_id=self.session_id
+        )
         return {
             "checkout_id": str(checkout.id),
             "state": checkout.state
         }
 
+
     
 
     def retry_payment(self, checkout_id: str, method: str):
-        checkout = resume_checkout(self.db, uuid.UUID(checkout_id))
+        checkout = get_checkout(self.db, uuid.UUID(checkout_id))
+
+        if not checkout:
+            return "Checkout not found."
 
         if not can_retry_payment(checkout.state):
             return "Payment cannot be retried at this stage."
 
         initiate_payment(self.db, checkout, method)
+
         return {
             "state": checkout.state,
             "attempts": checkout.payment_attempts

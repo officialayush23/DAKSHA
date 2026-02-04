@@ -18,6 +18,50 @@ def get_cart_items(db: Session, cart: Cart):
         .all()
     )
 
-def clear_cart(db: Session, cart: Cart):
-    db.query(CartItem).filter(CartItem.cart_id == cart.id).delete()
+from app.services.event_service import emit_event
+from app.enums.db_enums import EventTypeEnum, EntityTypeEnum
+
+
+
+def remove_from_cart(db: Session, user, session_id, variant_id):
+    cart = (
+        db.query(Cart)
+        .filter(
+            Cart.user_id == user.id,
+            Cart.session_id == session_id,
+        )
+        .first()
+    )
+
+    if not cart:
+        return None
+
+    item = (
+        db.query(CartItem)
+        .filter(
+            CartItem.cart_id == cart.id,
+            CartItem.product_variant_id == variant_id,
+        )
+        .first()
+    )
+
+    if not item:
+        return None
+
+    qty = item.quantity
+    db.delete(item)
     db.commit()
+
+    # 🔥 EVENT: remove_from_cart
+    emit_event(
+        db=db,
+        user_id=user.id,
+        session_id=session_id,
+        channel=None,
+        event_type=EventTypeEnum.remove_from_cart,
+        entity_type=EntityTypeEnum.cart,
+        entity_id=cart.id,
+        quantity=qty,
+    )
+
+    return {"removed": True}

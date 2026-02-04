@@ -1,7 +1,8 @@
 # app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+from app.services.session_cleanup import expire_sessions
+from app.core.database import SessionLocal
 from app.api.routers import (
     admin,
     user,
@@ -15,6 +16,13 @@ from app.api.routers import (
 
 app = FastAPI(title="Agentic Commerce Platform")
 
+@app.on_event("startup")
+def cleanup_sessions():
+    db = SessionLocal()
+    try:
+        expire_sessions(db)
+    finally:
+        db.close()
 # ✅ CORS — REQUIRED FOR SUPABASE + FRONTEND
 app.add_middleware(
     CORSMiddleware,
@@ -32,11 +40,8 @@ app.include_router(user.router)
 app.include_router(recommendation.router)
 app.include_router(chat.router)
 app.include_router(admin_chat.router)
-app.include_router(chat.router)
 app.include_router(kiosk.router)
-app.include_router(chat.router)
 app.include_router(telegram.router)
-app.include_router(chat.router)
 app.include_router(payment.router)
 app.include_router(cart.router)
 app.include_router(checkout.router)
