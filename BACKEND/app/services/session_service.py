@@ -1,7 +1,7 @@
 # app/services/session_service.py
 import uuid
 from sqlalchemy.orm import Session
-from app.models.models import Session as UserSession
+from app.models.models import UserSession
 from app.enums.db_enums import ChannelEnum
 from datetime import datetime
 

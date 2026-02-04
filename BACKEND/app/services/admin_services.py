@@ -222,8 +222,8 @@ def active_handoffs(db: Session):
     # For Phase 1, we return all active sessions with their summaries
     results = (
         db.query(Session, ConversationSummary)
-        .outerjoin(ConversationSummary, Session.id == ConversationSummary.session_id)
-        .filter(Session.ended_at.is_(None))
+        .outerjoin(ConversationSummary, UserSession.id == ConversationSummary.session_id)
+        .filter(UserSession.ended_at.is_(None))
         .all()
     )
     # Format for dashboard

@@ -10,6 +10,7 @@ from shapely.geometry import Point
 from app.services.checkout_service import (
     start_checkout, resume_checkout, initiate_payment
 )
+from app.agents.guards import can_retry_payment
 from app.services.recommendation_service import get_hybrid_recommendations
 from app.services.admin_services import get_store_inventory, list_offers
 from app.models.models import Order, Pickup, Complaint, Store, Cart, CartItem
@@ -107,8 +108,14 @@ class AgentTools:
             "state": checkout.state
         }
 
+    
+
     def retry_payment(self, checkout_id: str, method: str):
         checkout = resume_checkout(self.db, uuid.UUID(checkout_id))
+
+        if not can_retry_payment(checkout.state):
+            return "Payment cannot be retried at this stage."
+
         initiate_payment(self.db, checkout, method)
         return {
             "state": checkout.state,

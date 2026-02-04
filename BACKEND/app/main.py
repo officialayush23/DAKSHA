@@ -10,7 +10,7 @@ from app.api.routers import (
     admin_chat,
     kiosk,
     payment,
-    telegram,
+    telegram,admin_chat,cart,checkout,orders,session,support
 )
 
 app = FastAPI(title="Agentic Commerce Platform")
@@ -38,3 +38,8 @@ app.include_router(chat.router)
 app.include_router(telegram.router)
 app.include_router(chat.router)
 app.include_router(payment.router)
+app.include_router(cart.router)
+app.include_router(checkout.router)
+app.include_router(orders.router)
+app.include_router(session.router)
+app.include_router(support.router)

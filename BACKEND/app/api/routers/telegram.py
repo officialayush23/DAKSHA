@@ -8,7 +8,7 @@ from app.services.telegram_service import (
     log_telegram_message,
     find_user_by_phone_or_email,
 )
-
+from app.services.telegram_onboarding import handle_start
 router = APIRouter(prefix="/telegram", tags=["Telegram"])
 
 @router.post("/webhook")
@@ -19,6 +19,9 @@ async def telegram_webhook(payload: dict, db: Session = Depends(get_db)):
 
     chat_id = str(msg["chat"]["id"])
     text = msg.get("text", "")
+    if text == "/start":
+        handle_start(db, chat_id, payload)
+        return {"ok": True}
 
     user = find_user_by_phone_or_email(db, payload)
     if not user:
@@ -36,3 +39,6 @@ async def telegram_webhook(payload: dict, db: Session = Depends(get_db)):
     )
 
     return {"ok": True}
+
+
+
