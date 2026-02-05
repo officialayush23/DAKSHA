@@ -8,8 +8,7 @@ from app.services.postrank_service import apply_business_rules
 from app.services.impression_service import log_impressions
 from app.services.ml_service import train_collaborative_model
 
-router = APIRouter(tags=["Discovery"])
-
+router = APIRouter(prefix="/recommendations", tags=["Recommendations"])
 @router.get("/feed")
 def get_feed(
     intent: str = None, 
@@ -60,7 +59,7 @@ def trigger_training(
 from app.services.recommendation_service import get_similar_variants
 from app.services.copurchase_service import get_bought_together
 
-router = APIRouter(prefix="/recommendations", tags=["Recommendations"])
+
 
 
 @router.get("/similar/{variant_id}")

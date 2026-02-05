@@ -1,97 +1,129 @@
+// src/pages/AuthPage.jsx
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
+import { AuthService, UserService } from '../lib/api';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 import { User, Lock, Mail, Phone } from 'lucide-react';
-import api from '../lib/api';
 
 export default function AuthPage({ isRegister = false }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  // --- Live Location Logic ---
+  const syncLocation = async () => {
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(async (position) => {
+        try {
+          const { latitude, longitude } = position.coords;
+          // You might need a dedicated endpoint for this, or update address later
+          // For now, let's assume we log it or send it to a /session/location endpoint
+          console.log("📍 Location captured:", latitude, longitude);
+        } catch (e) {
+          console.error("Location sync failed", e);
+        }
+      });
+    }
+  };
 
   const handleAuth = async (e) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      let result;
       if (isRegister) {
-        result = await supabase.auth.signUp({ email, password });
-        if (result.error) throw result.error;
-        
-        // Sync with Backend
-        await api.post('/user/register', { email, name });
-        toast.success("Account created! Check your email.");
+        // 1. Supabase Sign Up
+        const { error: authError } = await supabase.auth.signUp({
+          email, password, options: { data: { name, phone } }
+        });
+        if (authError) throw authError;
+
+        // 2. Sync to Backend with Phone
+        await AuthService.syncUser({ name, phone });
+
+        // 3. Sync Location
+        syncLocation();
+
+        toast.success("Welcome to the Inner Circle.");
+        navigate('/dash/shop');
       } else {
-        result = await supabase.auth.signInWithPassword({ email, password });
-        if (result.error) throw result.error;
-        toast.success("Welcome back to Daksha");
-        navigate('/shop');
+        // Login
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        
+        syncLocation();
+        toast.success("Welcome back.");
+        navigate('/dash/shop');
       }
     } catch (err) {
-      toast.error(err.message);
+      toast.error(err.message || "Authentication failed");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-daksha-cream">
-      <div className="w-full max-w-md bg-white p-8 md:p-12 shadow-2xl border border-gray-100">
-        <h1 className="text-4xl font-serif text-center mb-2">
-          {isRegister ? "Join Daksha" : "Welcome Back"}
-        </h1>
-        <p className="text-center text-gray-400 text-xs tracking-widest uppercase mb-8">
-          {isRegister ? "Begin your journey" : "Access your collection"}
-        </p>
+    <div className="min-h-screen flex items-center justify-center bg-[#FDFDFD]">
+      <div className="w-full max-w-md p-8">
+        <div className="text-center mb-12">
+          <h1 className="text-5xl font-serif mb-2 tracking-tighter">Daksha</h1>
+          <p className="text-xs uppercase tracking-[0.3em] text-gray-400">
+            {isRegister ? "Begin your journey" : "Member Access"}
+          </p>
+        </div>
 
         <form onSubmit={handleAuth} className="space-y-6">
           {isRegister && (
-            <div className="relative">
-              <User className="absolute left-3 top-3 text-gray-400 w-5 h-5" />
-              <input 
-                type="text" placeholder="Full Name" 
-                className="w-full pl-10 p-3 border-b border-gray-200 focus:border-daksha-black outline-none transition-colors font-sans"
-                value={name} onChange={e => setName(e.target.value)}
-                required
-              />
-            </div>
+            <>
+              <div className="relative group">
+                <User className="absolute left-0 top-3 text-gray-300 w-5 h-5 group-focus-within:text-black transition-colors" />
+                <input 
+                  type="text" placeholder="Full Name" value={name} onChange={e => setName(e.target.value)}
+                  className="w-full pl-8 border-b border-gray-200 py-3 outline-none focus:border-black transition-colors bg-transparent placeholder:text-gray-300 font-serif"
+                  required
+                />
+              </div>
+              <div className="relative group">
+                <Phone className="absolute left-0 top-3 text-gray-300 w-5 h-5 group-focus-within:text-black transition-colors" />
+                <input 
+                  type="tel" placeholder="Phone Number (for Concierge)" value={phone} onChange={e => setPhone(e.target.value)}
+                  className="w-full pl-8 border-b border-gray-200 py-3 outline-none focus:border-black transition-colors bg-transparent placeholder:text-gray-300 font-serif"
+                  required
+                />
+              </div>
+            </>
           )}
           
-          <div className="relative">
-            <Mail className="absolute left-3 top-3 text-gray-400 w-5 h-5" />
+          <div className="relative group">
+            <Mail className="absolute left-0 top-3 text-gray-300 w-5 h-5 group-focus-within:text-black transition-colors" />
             <input 
-              type="email" placeholder="Email Address" 
-              className="w-full pl-10 p-3 border-b border-gray-200 focus:border-daksha-black outline-none transition-colors font-sans"
-              value={email} onChange={e => setEmail(e.target.value)}
+              type="email" placeholder="Email Address" value={email} onChange={e => setEmail(e.target.value)}
+              className="w-full pl-8 border-b border-gray-200 py-3 outline-none focus:border-black transition-colors bg-transparent placeholder:text-gray-300 font-serif"
               required
             />
           </div>
 
-          <div className="relative">
-            <Lock className="absolute left-3 top-3 text-gray-400 w-5 h-5" />
+          <div className="relative group">
+            <Lock className="absolute left-0 top-3 text-gray-300 w-5 h-5 group-focus-within:text-black transition-colors" />
             <input 
-              type="password" placeholder="Password" 
-              className="w-full pl-10 p-3 border-b border-gray-200 focus:border-daksha-black outline-none transition-colors font-sans"
-              value={password} onChange={e => setPassword(e.target.value)}
+              type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)}
+              className="w-full pl-8 border-b border-gray-200 py-3 outline-none focus:border-black transition-colors bg-transparent placeholder:text-gray-300 font-serif"
               required
             />
           </div>
-
-          <button 
-            disabled={loading}
-            className="w-full bg-daksha-black text-white py-4 mt-4 uppercase tracking-widest text-sm hover:bg-daksha-accent transition-colors disabled:opacity-50"
-          >
-            {loading ? "Processing..." : (isRegister ? "Create Account" : "Sign In")}
+          
+          <button disabled={loading} className="w-full bg-black text-white py-4 uppercase text-xs font-bold tracking-[0.2em] hover:bg-zinc-800 transition-all disabled:opacity-50 mt-8">
+            {loading ? 'Processing...' : (isRegister ? 'Create Account' : 'Enter')}
           </button>
         </form>
-
-        <div className="mt-6 text-center">
-          <a href={isRegister ? "/login" : "/register"} className="text-sm text-gray-500 hover:text-black border-b border-transparent hover:border-black transition-all">
-            {isRegister ? "Already a member? Login" : "New to Daksha? Register"}
+        
+        <div className="mt-8 text-center">
+          <a href={isRegister ? "/login" : "/register"} className="text-xs text-gray-400 hover:text-black transition-colors border-b border-transparent hover:border-black pb-1 uppercase tracking-wider">
+            {isRegister ? "Already a member? Sign In" : "New here? Register"}
           </a>
         </div>
       </div>

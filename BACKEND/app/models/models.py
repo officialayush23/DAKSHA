@@ -33,6 +33,7 @@ class User(Base):
     loyalty_tier = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     role = Column(SAEnum(db_enums.UserRoleEnum, name="user_role_enum"), default=db_enums.UserRoleEnum.user)
+    gender = Column(String)
 
     # Relationships
     sessions = relationship("UserSession", back_populates="user")
@@ -195,6 +196,7 @@ class Product(Base):
     brand = Column(String)
     category = Column(String)
     gender = Column(String)
+    name = Column(String, nullable=False)
     fabric_type = Column(String)
     description = Column(Text)
     occasion = Column(String)

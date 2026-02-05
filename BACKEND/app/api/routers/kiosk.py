@@ -3,13 +3,51 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from uuid import UUID
 import uuid
-
+from app.schemas.schemas import KioskLoginRequest, KioskLoginResponse
+from app.services.kiosk_service import login_via_kiosk
 from app.core.deps import get_db, get_current_user
-from app.models.models import CheckoutSession, UserSession, Kiosk
+from app.models.models import CheckoutSession, UserSession, Kiosk,Store
 from app.enums.db_enums import ChannelEnum
 
 
 router = APIRouter(prefix="/kiosk", tags=["Kiosk"])
+
+
+@router.get("/stores/{store_id}/kiosks")
+def list_kiosks_for_store(
+    store_id: UUID,
+    db: Session = Depends(get_db),
+):
+    return (
+        db.query(Kiosk)
+        .filter(
+            Kiosk.store_id == store_id,
+            Kiosk.active.is_(True),
+        )
+        .all()
+    )
+
+
+
+@router.get("/stores")
+def list_stores_for_kiosk(db: Session = Depends(get_db)):
+    return (
+        db.query(Store)
+        .filter(Store.active.is_(True))
+        .all()
+    )
+
+
+@router.post("/login", response_model=KioskLoginResponse)
+def kiosk_login(
+    payload: KioskLoginRequest,
+    db: Session = Depends(get_db),
+):
+    return login_via_kiosk(
+        db=db,
+        phone=payload.phone,
+        kiosk_id=payload.kiosk_id,
+    )
 
 @router.get("/checkout/{checkout_id}")
 def resume_on_kiosk(checkout_id: UUID, db: Session = Depends(get_db)):

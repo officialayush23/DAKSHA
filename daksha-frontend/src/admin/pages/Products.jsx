@@ -172,9 +172,20 @@ export default function Products() {
 
   // --- CRUD Operations (Abbreviated for clarity - same as previous) ---
   const handleCreateProduct = async (e) => {
-    e.preventDefault(); setIsSubmitting(true);
+    e.preventDefault();
+    setIsSubmitting(true);
     try {
-      await AdminService.createProduct({ ...productForm, brand: productForm.brand.trim() });
+      const cleanFormData = {
+        name: productForm.name.trim(), // <--- Include Name
+        brand: productForm.brand.trim(),
+        category: productForm.category.trim(),
+        gender: productForm.gender.trim(),
+        fabric_type: productForm.fabric_type.trim(),
+        description: productForm.description.trim(),
+        occasion: productForm.occasion.trim()
+      };
+
+      await AdminService.createProduct(cleanFormData);
       toast.success("Product created"); resetProductForm(); setIsProductDialogOpen(false); fetchData();
     } catch (error) { toast.error("Failed"); } finally { setIsSubmitting(false); }
   };
@@ -325,10 +336,23 @@ export default function Products() {
     const isExpanded = expandedProducts[pid]; setExpandedProducts(prev => ({ ...prev, [pid]: !isExpanded }));
     if (!isExpanded && !variants[pid]) await fetchVariants(pid);
   };
-  const resetProductForm = () => setProductForm({ brand: "", category: "", gender: "", fabric_type: "", description: "", occasion: "", active: true });
+  const resetProductForm = () => setProductForm({ name: "", brand: "", category: "", gender: "", fabric_type: "", description: "", occasion: "", active: true });
   const resetVariantForm = () => setVariantForm({ product_id: "", sku: "", color: "", size: "", base_price: "", active: true });
   const resetImageForm = () => { setImageForm({ position: 0 }); setImageFile(null); setImagePreview(null); setCurrentVariant(null); };
-  const openEditProductDialog = (p) => { setEditingProduct(p); setProductForm({ ...p, active: p.active !== false }); setIsProductDialogOpen(true); };
+  const openEditProductDialog = (p) => {
+    setEditingProduct(p);
+    setProductForm({
+      name: p.name || "", // <--- Load Name
+      brand: p.brand || "",
+      category: p.category || "",
+      gender: p.gender || "",
+      fabric_type: p.fabric_type || "",
+      description: p.description || "",
+      occasion: p.occasion || "",
+      active: p.active !== false
+    });
+    setIsProductDialogOpen(true);
+  };
   const openEditVariantDialog = (v, pid) => { setEditingVariant(v); setVariantForm({ ...v, product_id: pid, active: v.active !== false }); setIsVariantDialogOpen(true); };
   const openAddImageDialog = (v) => { setCurrentVariant(v); setIsImageDialogOpen(true); };
   const openDeleteDialog = (type, id, name, pid = null) => { setDeletingItem({ type, id, name, productId: pid }); setIsDeleteDialogOpen(true); };
@@ -568,7 +592,17 @@ export default function Products() {
         <DialogContent className="sm:max-w-[600px]"><DialogHeader><DialogTitle>{editingProduct ? 'Edit' : 'Create'} Product</DialogTitle></DialogHeader>
           <form onSubmit={editingProduct ? handleUpdateProduct : handleCreateProduct}>
             <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-2 gap-4"><div className="grid gap-2"><Label>Brand</Label><Input value={productForm.brand} onChange={e => setProductForm({ ...productForm, brand: e.target.value })} required /></div><div className="grid gap-2"><Label>Category</Label><Select value={productForm.category} onValueChange={v => setProductForm({ ...productForm, category: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div></div>
+
+              <div className="grid grid-cols-2 gap-4"><div className="grid gap-2">
+                <Label htmlFor="name">Product Name *</Label>
+                <Input
+                  id="name"
+                  value={productForm.name}
+                  onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
+                  required
+                  placeholder="e.g. Air Max 90"
+                />
+              </div><div className="grid gap-2"><Label>Brand</Label><Input value={productForm.brand} onChange={e => setProductForm({ ...productForm, brand: e.target.value })} required /></div><div className="grid gap-2"><Label>Category</Label><Select value={productForm.category} onValueChange={v => setProductForm({ ...productForm, category: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div></div>
               <div className="grid grid-cols-2 gap-4"><div className="grid gap-2"><Label>Gender</Label><Select value={productForm.gender} onValueChange={v => setProductForm({ ...productForm, gender: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{GENDER_OPTIONS.map(g => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}</SelectContent></Select></div><div className="grid gap-2"><Label>Fabric</Label><Input value={productForm.fabric_type} onChange={e => setProductForm({ ...productForm, fabric_type: e.target.value })} /></div></div>
               <div className="grid gap-2"><Label>Description</Label><Textarea value={productForm.description} onChange={e => setProductForm({ ...productForm, description: e.target.value })} required /></div>
             </div>

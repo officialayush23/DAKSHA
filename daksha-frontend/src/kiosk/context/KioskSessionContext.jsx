@@ -1,8 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
 import { KioskService } from '@/lib/kioskApi';
-import { KIOSK_CONFIG, CHANNEL_TYPE, EVENT_TYPE } from '../constants';
+import { KIOSK_CONFIG, CHANNEL_TYPE } from '../constants';
 
 const KioskContext = createContext();
 
@@ -15,91 +15,82 @@ export const KioskProvider = ({ children }) => {
   
   // State
   const [sessionActive, setSessionActive] = useState(false);
-  const [user, setUser] = useState(null); // Will be populated after QR scan
+  const [user, setUser] = useState(null);
   const [cartCount, setCartCount] = useState(0);
   const [lastActivity, setLastActivity] = useState(Date.now());
 
-  // --- Session Management ---
+  // --- 1. MEMOIZED ACTIONS (Prevents Infinite Loops) ---
 
-  // Start new anonymous session
-  const startSession = async () => {
+  const endSession = useCallback((reason = "") => {
+    setSessionActive(false);
+    setUser(null);
+    setCartCount(0);
+    if (reason) toast.info(reason);
+    navigate('/kiosk'); // Redirect to Attract Screen
+  }, [navigate]);
+
+  const startSession = useCallback(async () => {
     try {
       // API: POST /session/start?channel=kiosk
-      await KioskService.startSession(CHANNEL_TYPE.KIOSK);
+      await KioskService.startSession(CHANNEL_TYPE?.KIOSK || 'kiosk');
       setSessionActive(true);
       setLastActivity(Date.now());
-      setUser(null); // Reset user, wait for binding
+      setUser(null);
       setCartCount(0);
       navigate('/kiosk/login');
     } catch (error) {
       console.error("Failed to start session:", error);
-      toast.error("Could not start kiosk session. Check network.");
+      toast.error("Could not start session. Check connection.");
     }
-  };
-
-  // End session (Logout / Timeout)
-  const endSession = useCallback(async (reason = "") => {
-    setSessionActive(false);
-    setUser(null);
-    setCartCount(0);
-    
-    // Optional: Call backend to explicitly close if needed
-    // await KioskService.endSession(); 
-
-    if (reason) toast.info(reason);
-    navigate('/kiosk'); // Go back to Attract Screen
   }, [navigate]);
 
-  // --- Idle Timer Logic ---
   const resetIdleTimer = useCallback(() => {
     setLastActivity(Date.now());
   }, []);
 
+  const refreshCart = useCallback(async () => {
+    try {
+      const cart = await KioskService.getCart();
+      const items = cart.items || [];
+      const count = items.reduce((acc, item) => acc + item.quantity, 0);
+      setCartCount(count);
+    } catch (error) {
+      console.error("Cart refresh failed:", error);
+    }
+  }, []);
+
+  const trackEvent = useCallback(async (eventType, entityType, entityId) => {
+    try {
+      console.log(`[Tracking] ${eventType} - ${entityType}:${entityId}`);
+      // await KioskService.captureEvent(...)
+    } catch (e) {
+      console.warn("Tracking failed", e);
+    }
+  }, []);
+
+  // --- 2. IDLE TIMER EFFECT ---
   useEffect(() => {
-    // Don't run idle timer on Attract Screen (inactive state)
+    // Don't run timer on Attract Screen
     if (location.pathname === '/kiosk' || location.pathname === '/kiosk/') return;
 
+    const timeoutMs = KIOSK_CONFIG?.IDLE_TIMEOUT_MS || 60000;
+
     const checkInactivity = () => {
-      if (Date.now() - lastActivity > KIOSK_CONFIG.IDLE_TIMEOUT_MS) {
-        endSession("Session timed out due to inactivity");
+      if (Date.now() - lastActivity > timeoutMs) {
+        endSession("Session timed out");
       }
     };
 
-    idleTimerRef.current = setInterval(checkInactivity, 5000); // Check every 5s
+    idleTimerRef.current = setInterval(checkInactivity, 5000); 
 
     return () => {
       if (idleTimerRef.current) clearInterval(idleTimerRef.current);
     };
   }, [lastActivity, location.pathname, endSession]);
 
-  // --- Cart Management ---
-  const refreshCart = async () => {
-    try {
-      const cart = await KioskService.getCart();
-      // Assuming cart API returns { items: [...] } or array
-      const items = cart.items || [];
-      const count = items.reduce((acc, item) => acc + item.quantity, 0);
-      setCartCount(count);
-    } catch (error) {
-      console.error("Failed to refresh cart:", error);
-    }
-  };
-
-  // --- Event Tracking Wrapper ---
-  const trackEvent = async (eventType, entityType, entityId, reason = null) => {
-    try {
-      // Using generic apiClient or specific KioskService method if we added one
-      // Since Capture Event is a user API, we can use KioskService (which uses same base client)
-      // We might need to add captureEvent to kioskApi.js if not present, or use raw fetch
-      // For now assuming KioskService handles auth injection automatically
-      console.log(`[Tracking] ${eventType} - ${entityType}:${entityId}`);
-    } catch (e) {
-      console.warn("Tracking failed", e);
-    }
-  };
-
-  const value = {
-    kioskId: KIOSK_CONFIG.KIOSK_ID,
+  // --- 3. MEMOIZED VALUE (Crucial) ---
+  const value = useMemo(() => ({
+    kioskId: KIOSK_CONFIG?.KIOSK_ID || 'KIOSK_01',
     sessionActive,
     user,
     setUser,
@@ -110,7 +101,7 @@ export const KioskProvider = ({ children }) => {
     resetIdleTimer,
     refreshCart,
     trackEvent
-  };
+  }), [sessionActive, user, cartCount, startSession, endSession, resetIdleTimer, refreshCart, trackEvent]);
 
   return (
     <KioskContext.Provider value={value}>

@@ -1,143 +1,131 @@
+// src/pages/ShopPage.jsx
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Heart, ShoppingBag, Filter } from 'lucide-react';
+import { Filter, Search, Sparkles, Heart, ShoppingBag } from 'lucide-react';
+import { ProductService, CartService } from '../lib/api';
 import { toast } from 'sonner';
-import { UserService, CartService } from '../lib/api';
-
-// --- COMPONENTS ---
-const FilterSidebar = ({ onFilter }) => (
-  <div className="w-64 hidden md:block p-6 border-r border-gray-100 h-[calc(100vh-80px)] sticky top-20">
-    <h3 className="font-serif text-2xl mb-6">Filters</h3>
-    {/* Simple Categories */}
-    <div className="space-y-4">
-      <p className="font-bold text-xs uppercase tracking-widest text-gray-400">Category</p>
-      {['Ethnic', 'Casual', 'Formal', 'Streetwear'].map(cat => (
-        <label key={cat} className="flex items-center gap-3 cursor-pointer group">
-          <input type="checkbox" className="accent-daksha-black" onChange={() => onFilter('category', cat)} />
-          <span className="text-sm group-hover:text-daksha-accent transition-colors">{cat}</span>
-        </label>
-      ))}
-    </div>
-    {/* Price Slider Placeholder */}
-    <div className="mt-8 space-y-4">
-      <p className="font-bold text-xs uppercase tracking-widest text-gray-400">Price Range</p>
-      <input type="range" min="0" max="10000" className="w-full accent-daksha-black" onChange={(e) => onFilter('max_price', e.target.value)}/>
-    </div>
-  </div>
-);
-
-const ShopProductCard = ({ product }) => {
-  const handleAddToCart = async (e) => {
-    e.preventDefault();
-    try {
-      await CartService.addItem(product.variant_id, 1, "session-123"); // Replace session with real ID
-      toast.success(`${product.brand} added to cart`);
-    } catch (err) {
-      toast.error("Please login to add items");
-    }
-  };
-
-  const handleWishlist = (e) => {
-    e.preventDefault();
-    // Wishlist API call here
-    toast("Added to Wishlist", { icon: '❤️' });
-  };
-
-  return (
-    <Link to={`/product/${product.product_id}`} className="group block relative">
-      <div className="aspect-[3/4] bg-gray-100 overflow-hidden relative">
-        <img 
-          src={product.image || "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=800&q=80"} 
-          alt={product.brand}
-          className="w-full h-full object-cover bw-image group-hover:scale-105"
-        />
-        
-        {/* Offer Badge */}
-        {product.offer && (
-          <div className="absolute top-0 left-0 bg-daksha-black text-white text-[10px] font-bold px-2 py-1 uppercase tracking-widest">
-            {product.offer.label}
-          </div>
-        )}
-
-        {/* Hover Actions */}
-        <div className="absolute bottom-4 right-4 flex flex-col gap-2 translate-y-10 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-300">
-          <button onClick={handleWishlist} className="bg-white p-3 rounded-full shadow-lg hover:text-red-500 transition-colors">
-            <Heart size={18} />
-          </button>
-          <button onClick={handleAddToCart} className="bg-daksha-black text-white p-3 rounded-full shadow-lg hover:bg-daksha-accent transition-colors">
-            <ShoppingBag size={18} />
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-4 flex justify-between items-start">
-        <div>
-          <h3 className="text-xs font-bold uppercase tracking-widest text-gray-500">{product.brand}</h3>
-          <p className="font-serif text-lg leading-none mt-1">{product.description || "Luxury Garment"}</p>
-        </div>
-        <div className="text-right">
-          {product.offer ? (
-            <>
-              <p className="text-xs line-through text-gray-400">₹{product.price}</p>
-              <p className="font-bold">₹{product.price * 0.8}</p> {/* Mock calc */}
-            </>
-          ) : (
-            <p className="font-bold">₹{product.price}</p>
-          )}
-        </div>
-      </div>
-    </Link>
-  );
-};
+import { Input } from "@/components/ui/input"; // Shadcn Input
 
 export default function ShopPage() {
   const [products, setProducts] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
+  // 1. Load Initial Feed
   useEffect(() => {
-    // Determine if we show Feed (Recommendations) or Catalog
-    const fetchProducts = async () => {
+    loadFeed();
+  }, []);
+
+  const loadFeed = async (filters = {}) => {
+    setLoading(true);
+    try {
+      const res = await ProductService.getFeed(filters);
+      setProducts(res.data);
+    } catch (err) {
+      toast.error("Collection unavailable");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 2. Intent-Based Search
+  const handleSearch = async (e) => {
+    if (e.key === 'Enter') {
       try {
-        const res = await UserService.getProducts({}); // Or getRecommendationFeed()
+        setLoading(true);
+        // This hits /user/search which logs intent + updates preferences
+        await ProductService.search(searchQuery); 
+        // Then we fetch the feed again, possibly filtered by the backend's understanding
+        // For now, let's just do a basic text search filter on the client or re-fetch with query
+        // Ideally, your /products API supports a 'q' param, or you use the recommendation feed
+        const res = await ProductService.getFeed({ category: searchQuery }); // Simple mapping for now
         setProducts(res.data);
+        toast.success(`Personalizing for "${searchQuery}"`);
       } catch (err) {
-        console.error(err);
-        toast.error("Failed to load products");
+        toast.error("Search failed");
       } finally {
         setLoading(false);
       }
-    };
-    fetchProducts();
-  }, []);
+    }
+  };
+
+  const handleAddToCart = async (e, variantId) => {
+    e.preventDefault();
+    try {
+      await CartService.add(variantId, 1);
+      toast.success("Added to Bag");
+    } catch (err) {
+      toast.error("Login required");
+    }
+  };
 
   return (
-    <div className="flex bg-white min-h-screen">
-      <FilterSidebar onFilter={(k, v) => console.log(k, v)} />
-      
-      <div className="flex-1 p-6 md:p-12">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-4xl font-serif">All Products</h1>
-          <button className="md:hidden flex gap-2 text-sm uppercase tracking-widest border border-black px-4 py-2">
-            <Filter size={16} /> Filters
-          </button>
+    <div className="space-y-12">
+      {/* Header & Search */}
+      <div className="flex flex-col md:flex-row justify-between items-end gap-6">
+        <div>
+          <h1 className="text-5xl font-serif tracking-tighter mb-2">The Collection</h1>
+          <p className="text-xs uppercase tracking-[0.2em] text-gray-400">Curated by Daksha AI</p>
         </div>
-
-        {loading ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-8">
-            {[1,2,3,4,5,6].map(i => (
-              <div key={i} className="space-y-4">
-                <div className="skeleton h-[400px] w-full" />
-                <div className="skeleton h-4 w-1/2" />
-                <div className="skeleton h-4 w-1/4" />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-12">
-            {products.map((p, i) => <ShopProductCard key={i} product={p} />)}
-          </div>
-        )}
+        
+        <div className="relative w-full md:w-96">
+          <Search className="absolute left-4 top-3.5 text-gray-400 w-4 h-4" />
+          <Input 
+            className="pl-12 rounded-full border-gray-200 bg-gray-50 h-12 font-serif placeholder:font-sans placeholder:text-xs placeholder:uppercase placeholder:tracking-wider focus-visible:ring-black"
+            placeholder="Search for 'Wedding' or 'Office'..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={handleSearch}
+          />
+        </div>
       </div>
+
+      {/* Product Grid */}
+      {loading ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          {[1,2,3,4].map(i => <div key={i} className="aspect-[3/4] bg-gray-100 rounded-sm animate-pulse" />)}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-12">
+          {products.map((p) => (
+            <Link to={`/dash/product/${p.product_id}`} key={p.variant_id} className="group block cursor-pointer">
+              <div className="aspect-[3/4] bg-gray-100 relative overflow-hidden rounded-sm mb-4">
+                <img 
+                  src={p.image || "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=800&q=80"} 
+                  alt={p.name || p.brand}
+                  className="w-full h-full object-cover bw-image group-hover:scale-105 transition-transform duration-700" 
+                />
+                
+                {/* AI Reasoning Badge (Mock logic based on scores) */}
+                {p.score > 0.8 && (
+                  <div className="absolute top-3 right-3 bg-white/90 backdrop-blur px-3 py-1 flex items-center gap-1 shadow-sm">
+                    <Sparkles size={10} className="text-emerald-500" />
+                    <span className="text-[10px] font-bold uppercase tracking-wide">Best Match</span>
+                  </div>
+                )}
+
+                {/* Quick Add Overlay */}
+                <button 
+                  onClick={(e) => handleAddToCart(e, p.variant_id)}
+                  className="absolute inset-x-4 bottom-4 bg-white text-black py-3 text-[10px] uppercase font-bold tracking-widest translate-y-full opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-300 hover:bg-black hover:text-white shadow-xl"
+                >
+                  Add to Bag
+                </button>
+              </div>
+
+              <div>
+                <h3 className="font-serif text-lg leading-tight group-hover:underline decoration-gray-300 underline-offset-4">
+                  {p.name || p.description}
+                </h3>
+                <div className="flex justify-between items-center mt-2 border-t border-gray-100 pt-2">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">{p.brand}</span>
+                  <span className="font-medium text-sm">₹{p.price}</span>
+                </div>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

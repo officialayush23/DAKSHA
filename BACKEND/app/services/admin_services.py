@@ -14,25 +14,41 @@ from app.models.models import UserSession, ConversationSummary
 # ================= 1. PRODUCTS & VARIANTS =================
 
 def create_product(db: Session, payload):
-    product = Product(**payload.dict())
+    product = Product(
+        name=payload.name,
+        brand=payload.brand,
+        category=payload.category,
+        gender=payload.gender,
+        fabric_type=payload.fabric_type,
+        description=payload.description,
+        occasion=payload.occasion,
+        active=payload.active if payload.active is not None else True,
+    )
     db.add(product)
     db.commit()
     db.refresh(product)
     return product
 
 def update_product(db: Session, product_id, payload):
-    product = db.query(Product).filter_by(id=product_id).first()
+    product = db.query(Product).filter(Product.id == product_id).first()
 
-    for k, v in payload.dict(exclude_unset=True).items():
-        setattr(product, k, v)
+    if not product:
+        raise ValueError("Product not found")
+
+    data = payload.dict(exclude_unset=True)
+
+    for field, value in data.items():
+        setattr(product, field, value)
 
     db.commit()
+    db.refresh(product)
 
-    # 🔥 RE-EMBED ALL VARIANTS
+    # 🔥 RE-EMBED ALL VARIANTS (name change affects semantics)
     for variant in product.variants:
         upsert_product_variant_embedding(db, variant.id)
 
     return product
+
 
 
 def delete_product(db: Session, product_id):
@@ -58,6 +74,32 @@ def create_variant(db: Session, payload):
         print(f"[EMBEDDING FAILED] variant={variant.id} err={e}")
 
     return variant
+
+
+
+def serialize_kiosk(kiosk: Kiosk):
+    store = kiosk.store
+
+    return {
+        "id": kiosk.id,
+        "name": kiosk.name,
+        "active": kiosk.active,
+        "created_at": kiosk.created_at,
+
+        # ✅ Store it is assigned to
+        "store": {
+            "id": store.id,
+            "name": store.name,
+            "city": store.city,
+            "state": store.state,
+            "address": store.address,
+            "location": (
+                mapping(to_shape(store.location))
+                if store and store.location
+                else None
+            ),
+        } if store else None,
+    }
 
 
 def update_variant(db: Session, variant_id, payload):
@@ -451,4 +493,10 @@ def create_kiosk(db: Session, payload):
     return kiosk
 
 def list_kiosks(db: Session):
-    return db.query(Kiosk).options(joinedload(Kiosk.store)).all()
+    kiosks = (
+        db.query(Kiosk)
+        .options(joinedload(Kiosk.store))
+        .filter(Kiosk.active.is_(True))
+        .all()
+    )
+    return [serialize_kiosk(k) for k in kiosks]

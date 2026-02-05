@@ -64,6 +64,7 @@ def product_feed(
             "product_id": v.product_id,
             "brand": v.product.brand,
             "category": v.product.category,
+            "name": v.product.name,
             "gender": v.product.gender,
             "occasion": v.product.occasion,
             "size": v.size,
@@ -99,7 +100,7 @@ def product_detail(
         .all()
     )
     session = get_or_create_active_session(
-        db, user.id, ChannelEnum.WEB
+        db, user.id, ChannelEnum.web
     )
     
     emit_event(
@@ -120,6 +121,7 @@ def product_detail(
         "brand": product.brand,
         "category": product.category,
         "gender": product.gender,
+        "name": product.name,
         "fabric_type": product.fabric_type,
         "description": product.description,
         "occasion": product.occasion,

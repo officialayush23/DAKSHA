@@ -28,6 +28,7 @@ def build_variant_embedding_text(
                 product.gender,
                 product.fabric_type,
                 product.occasion,
+                product.name,
                 product.description,
                 f"color {variant.color}",
                 f"size {variant.size}",

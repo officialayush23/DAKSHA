@@ -1,6 +1,6 @@
 # app/core/deps.py
 # app/core/deps.py
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status,Request
 from sqlalchemy.orm import Session
 from fastapi.security import HTTPAuthorizationCredentials
 
@@ -17,7 +17,9 @@ def get_db():
         yield db
     finally:
         db.close()
-
+        
+def get_channel(request: Request):
+    return request.headers.get("X-Channel", "web")
 
 def get_current_user(
     payload: dict = Depends(verify_supabase_jwt),

@@ -1,18 +1,26 @@
+// src/App.jsx
 import React, { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
+import { useAuth } from './context/AuthContext';
 
-// Main Layouts & Pages (Public)
-import MainLayout from './layout/MainLayout';
+// --- LAYOUTS ---
+import UserLayout from './layout/UserLayout'; // The new Dashboard Layout
+import AdminLayout from './admin/AdminLayout';
+
+// --- PUBLIC PAGES ---
 import LandingPage from './pages/LandingPage';
-import ShopPage from './pages/ShopPage';
-import ProductDetail from './pages/ProductDetail';
 import AuthPage from './pages/AuthPage';
 import ErrorPage from './pages/ErrorPage';
 
-// Admin Layouts & Pages
-import AdminLayout from './admin/AdminLayout';
-import AdminAuthPage from './admin/pages/AuthPage';
+// --- DASHBOARD PAGES ---
+import ShopPage from './pages/ShopPage';
+import ProductDetail from './pages/ProductDetail';
+import ProfilePage from './pages/ProfilePage';
+import ChatInterface from './pages/ChatInterface';
+
+// --- ADMIN PAGES ---
+import AdminAuthPage from './pages/AuthPage';
 import Dashboard from './admin/pages/Dashboard';
 import Products from './admin/pages/Products';
 import Stores from './admin/pages/Stores';
@@ -21,12 +29,15 @@ import Complaints from './admin/pages/Complaints';
 import Offers from './admin/pages/Offers';
 import Handoffs from './admin/pages/Handoffs';
 import Returns from './admin/pages/Returns';
+import Kiosks from './admin/pages/Kiosk';
 
 // --- KIOSK MODULE ---
 import KioskRoutes from './kiosk/routes';
 
-// Protected Route Component for Admin
-const ProtectedRoute = ({ children }) => {
+// --- PROTECTED ROUTE WRAPPERS ---
+
+// 1. Admin Guard (Checks Supabase Session)
+const AdminProtectedRoute = ({ children }) => {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const location = useLocation();
@@ -36,41 +47,72 @@ const ProtectedRoute = ({ children }) => {
       setSession(session);
       setLoading(false);
     });
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
     });
-
     return () => subscription.unsubscribe();
   }, []);
 
-  if (loading) return <div className="flex h-screen items-center justify-center">Loading...</div>;
+  if (loading) return <div className="flex h-screen items-center justify-center">Loading Admin...</div>;
+  if (!session) return <Navigate to="/admin/login" state={{ from: location }} replace />;
+  return children;
+};
 
-  if (!session) {
-    return <Navigate to="/admin/login" state={{ from: location }} replace />;
-  }
-
+// 2. User Dashboard Guard (Uses AuthContext)
+const UserProtectedRoute = ({ children }) => {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="h-screen flex items-center justify-center bg-[#FDFDFD]">Loading Daksha...</div>;
+  if (!user) return <Navigate to="/login" replace />;
   return children;
 };
 
 export default function App() {
   return (
     <Routes>
-      
-      {/* --- KIOSK ROUTES (Standalone Module) --- */}
-      {/* This mounts the Kiosk app at /kiosk/* */}
+      {/* ============================== */}
+      {/* 1. PUBLIC ROUTES               */}
+      {/* ============================== */}
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/login" element={<AuthPage />} />
+      <Route path="/register" element={<AuthPage isRegister />} />
+
+      {/* ============================== */}
+      {/* 2. USER DASHBOARD (Protected)  */}
+      {/* ============================== */}
+      <Route path="/dash" element={<UserProtectedRoute><UserLayout /></UserProtectedRoute>}>
+        <Route index element={<Navigate to="shop" replace />} />
+        
+        <Route path="shop" element={<ShopPage />} />
+        <Route path="product/:id" element={<ProductDetail />} />
+        <Route path="profile" element={<ProfilePage />} />
+        
+        {/* Agent/Chat Page */}
+        <Route path="agent" element={
+          <div className="h-full flex items-center justify-center">
+             <div className="w-full max-w-4xl h-full">
+               <ChatInterface />
+             </div>
+          </div>
+        } />
+        
+        {/* Placeholders for now */}
+        <Route path="orders" element={<div className="p-10 text-center text-gray-400">Order History Module Loading...</div>} />
+        <Route path="cart" element={<div className="p-10 text-center text-gray-400">Cart Module Loading...</div>} />
+        
+        <Route path="*" element={<ErrorPage />} />
+      </Route>
+
+      {/* ============================== */}
+      {/* 3. KIOSK MODULE                */}
+      {/* ============================== */}
       <Route path="/kiosk/*" element={<KioskRoutes />} />
 
-
-      {/* --- ADMIN AUTH --- */}
+      {/* ============================== */}
+      {/* 4. ADMIN PANEL                 */}
+      {/* ============================== */}
       <Route path="/admin/login" element={<AdminAuthPage />} />
-
-      {/* --- ADMIN ROUTES (Protected) --- */}
-      <Route path="/admin" element={
-        <ProtectedRoute>
-          <AdminLayout />
-        </ProtectedRoute>
-      }>
+      
+      <Route path="/admin" element={<AdminProtectedRoute><AdminLayout /></AdminProtectedRoute>}>
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="products" element={<Products />} />
@@ -80,21 +122,11 @@ export default function App() {
         <Route path="offers" element={<Offers />} />
         <Route path="handoffs" element={<Handoffs />} />
         <Route path="returns" element={<Returns />} />
+        <Route path="kiosks" element={<Kiosks />} />
         <Route path="*" element={<Navigate to="dashboard" replace />} />
       </Route>
 
-
-      {/* --- PUBLIC WEB STORE ROUTES --- */}
-      <Route path="/" element={<MainLayout />}>
-        <Route index element={<LandingPage />} />
-        <Route path="shop" element={<ShopPage />} />
-        <Route path="product/:id" element={<ProductDetail />} />
-        <Route path="login" element={<AuthPage />} />
-        <Route path="register" element={<AuthPage isRegister={true} />} />
-        <Route path="*" element={<ErrorPage />} />
-      </Route>
-
-      {/* Root redirect */}
+      {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

@@ -39,7 +39,7 @@ export default function LandingPage() {
         {/* CTA Section */}
         <section className="h-[70vh] flex flex-col items-center justify-center bg-white text-center px-6 border-t border-gray-100">
           <h2 className="text-5xl md:text-8xl font-serif mb-10">What are you waiting for?</h2>
-          <a href="/shop" className="group flex items-center gap-4 text-xl md:text-2xl tracking-widest uppercase border-b-2 border-black pb-2 hover:text-daksha-accent hover:border-daksha-accent transition-all">
+          <a href="/dash" className="group flex items-center gap-4 text-xl md:text-2xl tracking-widest uppercase border-b-2 border-black pb-2 hover:text-daksha-accent hover:border-daksha-accent transition-all">
             Enter the Shop
             <ArrowRight className="group-hover:translate-x-2 transition-transform" />
           </a>

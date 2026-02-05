@@ -2,23 +2,42 @@
 from pydantic import BaseModel
 from uuid import UUID
 from typing import Optional, List, Dict, Any
-from app.enums.db_enums import OrderStatusEnum, PickupStatusEnum
+from app.enums.db_enums import OrderStatusEnum, PickupStatusEnum,ChannelEnum,CheckoutStateEnum
 from datetime import datetime
 
 
 # ---------------- PRODUCTS ----------------
+class UserProfileUpdate(BaseModel):
+    name: Optional[str]
+    phone: Optional[str]
+    gender: Optional[str]
+class AddressLocationPatch(BaseModel):
+    lat: float
+    lng: float
 
 class ProductCreate(BaseModel):
     brand: str
     category: str
+    name: str
     gender: Optional[str]
     fabric_type: Optional[str]
     description: Optional[str]
     occasion: Optional[str]
 
-class ProductUpdate(ProductCreate):
-    active: Optional[bool]
+class ProductUpdate(BaseModel):
+    name: Optional[str] = None
+    brand: Optional[str] = None
+    category: Optional[str] = None
+    gender: Optional[str] = None
+    fabric_type: Optional[str] = None
+    description: Optional[str] = None
+    occasion: Optional[str] = None
+    active: Optional[bool] = None
 
+
+class KioskCreate(BaseModel):
+    store_id: UUID
+    name: str
 class VariantCreate(BaseModel):
     product_id: UUID
     sku: str
@@ -79,6 +98,18 @@ class StoreResponse(BaseModel):
 class AssignGlobalInventory(BaseModel):
     product_variant_id: UUID
     quantity: int
+class KioskLoginRequest(BaseModel):
+    phone: str
+    kiosk_id: UUID
+
+
+class KioskLoginResponse(BaseModel):
+    user_id: UUID
+    session_id: UUID
+    kiosk_id: UUID
+    store_id: UUID
+    primary_channel: ChannelEnum
+    active_channel: ChannelEnum
 
 class AssignStoreInventory(BaseModel):
     store_id: UUID

@@ -46,7 +46,7 @@ export default function Handoffs() {
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Data States
+  // Data States - Initialized as empty arrays to prevent undefined errors
   const [logisticsData, setLogisticsData] = useState([]);
   const [chatData, setChatData] = useState([]);
   
@@ -80,19 +80,10 @@ export default function Handoffs() {
   // 1. Fetch Logistics (Physical Handoffs)
   const fetchLogistics = async () => {
     try {
-      // Priority 1: Try the direct Handoffs endpoint
-      try {
-        const data = await AdminService.getHandoffs();
-        if (Array.isArray(data) && data.length > 0) {
-          setLogisticsData(data);
-          return;
-        }
-      } catch (e) {
-        console.warn("Direct handoffs endpoint failed, switching to store aggregation.");
-      }
-
-      // Priority 2: Aggregate from Stores (Fallback)
+      // Strategy: Aggregate Pickups from Stores
+      // (This ensures we get actual logistics data, not chat logs)
       const stores = await AdminService.listStores();
+      
       if (!Array.isArray(stores)) {
         setLogisticsData([]);
         return;
@@ -106,6 +97,8 @@ export default function Handoffs() {
           if (Array.isArray(pickups)) {
             allPickups.push(...pickups.map(p => ({
               ...p,
+              // Normalize ID: Ensure we have a valid ID string
+              id: p.id || p.pickup_id || `temp-${Math.random()}`, 
               type: 'pickup', // Tag as pickup
               store_name: store.name,
               store_city: store.city
@@ -120,6 +113,7 @@ export default function Handoffs() {
     } catch (error) {
       console.error("Logistics fetch error:", error);
       toast.error("Failed to load logistics data");
+      setLogisticsData([]);
     }
   };
 
@@ -130,7 +124,8 @@ export default function Handoffs() {
       setChatData(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Chat fetch error:", error);
-      toast.error("Failed to load chat sessions");
+      // toast.error("Failed to load chat sessions");
+      setChatData([]);
     }
   };
 
@@ -140,10 +135,11 @@ export default function Handoffs() {
     
     setSendingReply(true);
     try {
-      // Calls POST /admin/chat/message/{session_id}?message=...
-      // Note: passing message as query param based on your curl definition
+      // Determine the correct ID to use (session_id or id)
+      const sessionId = selectedItem.session_id || selectedItem.id;
+
       await apiClient(
-        `/admin/chat/message/${selectedItem.id}`, 
+        `/admin/chat/message/${sessionId}`, 
         'POST', 
         null, 
         { message: replyText } 
@@ -152,7 +148,7 @@ export default function Handoffs() {
       toast.success("Reply sent successfully");
       setReplyText("");
       setIsChatDialogOpen(false);
-      fetchChats(); // Refresh list
+      fetchChats(); // Refresh list to see update (if backend supports it)
     } catch (error) {
       console.error("Reply error:", error);
       toast.error("Failed to send message");
@@ -164,22 +160,23 @@ export default function Handoffs() {
   // --- HELPERS ---
   const getStatusBadge = (status) => {
     const s = status?.toLowerCase();
-    if (s === 'completed' || s === 'resolved') return <Badge className="bg-green-600"><CheckCircle className="w-3 h-3 mr-1"/>{status}</Badge>;
-    if (s === 'pending' || s === 'created') return <Badge className="bg-yellow-100 text-yellow-800"><Clock className="w-3 h-3 mr-1"/>{status}</Badge>;
+    if (s === 'completed' || s === 'resolved' || s === 'picked_up') return <Badge className="bg-green-600"><CheckCircle className="w-3 h-3 mr-1"/>{status}</Badge>;
+    if (s === 'pending' || s === 'created' || s === 'ready_for_pickup') return <Badge className="bg-yellow-100 text-yellow-800"><Clock className="w-3 h-3 mr-1"/>{status}</Badge>;
     if (s === 'active') return <Badge className="bg-blue-600"><MessageCircle className="w-3 h-3 mr-1"/>Active</Badge>;
     if (s === 'cancelled' || s === 'failed') return <Badge variant="destructive"><AlertCircle className="w-3 h-3 mr-1"/>{status}</Badge>;
-    return <Badge variant="outline">{status}</Badge>;
+    return <Badge variant="outline">{status || 'Unknown'}</Badge>;
   };
 
   // Filter Logic
   const filterData = (data) => {
+    if (!data) return [];
     if (!searchTerm) return data;
     const lowerTerm = searchTerm.toLowerCase();
     return data.filter(item => 
-      item.id?.toLowerCase().includes(lowerTerm) ||
-      item.store_name?.toLowerCase().includes(lowerTerm) ||
-      item.user_name?.toLowerCase().includes(lowerTerm) ||
-      item.user_email?.toLowerCase().includes(lowerTerm)
+      (item.id && item.id.toLowerCase().includes(lowerTerm)) ||
+      (item.store_name && item.store_name.toLowerCase().includes(lowerTerm)) ||
+      (item.user_name && item.user_name.toLowerCase().includes(lowerTerm)) ||
+      (item.user_email && item.user_email.toLowerCase().includes(lowerTerm))
     );
   };
 
@@ -249,9 +246,12 @@ export default function Handoffs() {
                   ) : filteredLogistics.length === 0 ? (
                     <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">No handoffs found</TableCell></TableRow>
                   ) : (
-                    filteredLogistics.map(item => (
-                      <TableRow key={item.id}>
-                        <TableCell className="font-mono text-xs">{item.id.slice(0,8)}...</TableCell>
+                    filteredLogistics.map((item, idx) => (
+                      <TableRow key={item.id || idx}>
+                        {/* --- CRASH FIX: Safe Access to ID --- */}
+                        <TableCell className="font-mono text-xs">
+                          {item.id ? item.id.toString().slice(0,8) : 'N/A'}...
+                        </TableCell>
                         <TableCell>
                           <div className="flex flex-col">
                             <span className="font-medium text-sm">{item.store_name || 'Unknown Store'}</span>
@@ -314,9 +314,11 @@ export default function Handoffs() {
                   ) : filteredChats.length === 0 ? (
                     <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">No active chat sessions</TableCell></TableRow>
                   ) : (
-                    filteredChats.map(chat => (
-                      <TableRow key={chat.id}>
-                        <TableCell className="font-mono text-xs">{chat.id.slice(0,8)}...</TableCell>
+                    filteredChats.map((chat, idx) => (
+                      <TableRow key={chat.session_id || chat.id || idx}>
+                        <TableCell className="font-mono text-xs">
+                          {(chat.session_id || chat.id || "").toString().slice(0,8)}...
+                        </TableCell>
                         <TableCell>
                           <div className="flex flex-col">
                             <span className="font-medium text-sm">{chat.user_name || 'Guest'}</span>
@@ -324,7 +326,7 @@ export default function Handoffs() {
                           </div>
                         </TableCell>
                         <TableCell className="max-w-[200px] truncate text-muted-foreground">
-                          {chat.last_message || "No messages yet"}
+                          {chat.last_message || chat.summary || "No messages yet"}
                         </TableCell>
                         <TableCell>{getStatusBadge(chat.status)}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">
@@ -373,7 +375,7 @@ export default function Handoffs() {
           <DialogHeader>
             <DialogTitle>Reply to User</DialogTitle>
             <DialogDescription>
-              Session: <span className="font-mono text-primary">{selectedItem?.id}</span>
+              Session: <span className="font-mono text-primary">{selectedItem?.session_id || selectedItem?.id}</span>
             </DialogDescription>
           </DialogHeader>
           

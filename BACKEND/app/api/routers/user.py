@@ -1,6 +1,6 @@
 # app/api/routers/user.py
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends,HTTPException
 from app.schemas.schemas import *
 from sqlalchemy.orm import Session,joinedload
 import uuid
@@ -15,7 +15,10 @@ from app.services.embedding_service import update_user_preference_summary
 from app.enums.db_enums import EventTypeEnum, EntityTypeEnum
 from app.services.session_service import get_or_create_active_session
 from app.enums.db_enums import ChannelEnum
-
+from shapely.geometry import Point
+from geoalchemy2.shape import from_shape
+from app.schemas.schemas import AddressLocationPatch
+from app.models.models import UserAddress
 router = APIRouter(prefix="/user", tags=["User"])
 @router.post("/search")
 def search_products(
@@ -169,6 +172,45 @@ def list_addresses(
     user=Depends(get_current_user),
 ):
     return db.query(UserAddress).filter(UserAddress.user_id == user.id).all()
+
+
+
+@router.patch("/addresses/{address_id}/location")
+def update_address_location(
+    address_id: uuid.UUID,
+    payload: AddressLocationPatch,
+    db: Session = Depends(get_db),
+    user = Depends(get_current_user),
+):
+    address = (
+        db.query(UserAddress)
+        .filter(
+            UserAddress.id == address_id,
+            UserAddress.user_id == user.id,
+        )
+        .first()
+    )
+
+    if not address:
+        raise HTTPException(status_code=404, detail="Address not found")
+
+    address.location = from_shape(
+        Point(payload.lng, payload.lat),
+        srid=4326,
+    )
+
+    db.commit()
+
+    return {
+        "status": "updated",
+        "address_id": address.id,
+    }
+
+
+
+
+
+
 @router.post("/session/channel")
 def update_active_channel(
     channel: str,
@@ -187,9 +229,40 @@ def update_active_channel(
 
     return {"status": "updated"}
 
+@router.get("/profile/completeness")
+def profile_completeness(
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    return {
+        "name": bool(user.name),
+        "phone": bool(user.phone),
+        "gender": bool(getattr(user, "gender", None)),
+        "address": db.query(UserAddress).filter_by(user_id=user.id).count() > 0,
+        "card": db.query(UserCard).filter_by(user_id=user.id).count() > 0,
+    }
 
 from typing import Optional
 
+@router.put("/profile")
+def update_profile(
+    payload: UserProfileUpdate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    for k, v in payload.dict(exclude_unset=True).items():
+        setattr(user, k, v)
+
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "id": user.id,
+        "name": user.name,
+        "phone": user.phone,
+        "gender": user.gender,
+        "email": user.email,
+    }
 
 
 @router.post("/register")

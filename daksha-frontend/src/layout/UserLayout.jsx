@@ -1,9 +1,8 @@
+// src/layout/UserLayout.jsx
 import React, { useEffect, useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { AppSidebar } from '../../components/app-sidebar';
-import { useAuth } from '../../context/AuthContext';
-import { apiRequest } from '../../lib/api';
-import { useAnalytics } from '../../hooks/useAnalytics'; 
+import { useAuth } from '../context/AuthContext';
+import { apiRequest, UserService } from '../lib/api';
 import { useQuery } from '@tanstack/react-query';
 import { 
   ShoppingBag, 
@@ -12,21 +11,100 @@ import {
   Sparkles, 
   User, 
   LayoutDashboard,
-  MapPin
+  MapPin,
+  LogOut,
+  Menu
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-
-// Shadcn Imports
+import { motion } from 'framer-motion';
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { 
-  SidebarProvider, 
-  SidebarInset, 
-} from '../../components/ui/sidebar';
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuTrigger 
+} from "@/components/ui/dropdown-menu";
 
-export default function DemoLayout() {
+// --- DESKTOP SIDEBAR COMPONENT ---
+const DesktopSidebar = ({ user, signOut, cartCount, isAdmin }) => {
+  const location = useLocation();
+  
+  const navItems = [
+    { title: "Shop", url: "/dash/shop", icon: ShoppingBag },
+    { title: "Concierge", url: "/dash/agent", icon: Sparkles },
+    { title: "My Bag", url: "/dash/cart", icon: ShoppingCart, badge: cartCount },
+    { title: "Orders", url: "/dash/orders", icon: Package },
+    { title: "Profile", url: "/dash/profile", icon: User },
+  ];
+
+  if (isAdmin) {
+    navItems.push({ title: "Admin Panel", url: "/admin", icon: LayoutDashboard });
+  }
+
+  return (
+    <aside className="hidden md:flex w-72 flex-col h-screen sticky top-0 border-r border-gray-100 bg-white z-50">
+      <div className="p-8">
+        <Link to="/" className="block">
+          <h1 className="text-5xl font-serif font-bold text-black tracking-tighter hover:opacity-80 transition-opacity">
+            Daksha
+          </h1>
+        </Link>
+      </div>
+
+      <nav className="flex-1 px-4 space-y-2 overflow-y-auto">
+        {navItems.map((item) => {
+          const isActive = location.pathname.startsWith(item.url);
+          return (
+            <Link 
+              key={item.title} 
+              to={item.url}
+              className={`
+                flex items-center gap-4 px-5 py-4 rounded-full transition-all duration-300 group relative
+                ${isActive ? 'bg-black text-white shadow-xl shadow-black/5' : 'text-gray-400 hover:bg-gray-50 hover:text-black'}
+              `}
+            >
+              <item.icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+              <span className="font-medium tracking-wide text-sm">{item.title}</span>
+              {item.badge > 0 && (
+                <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full ${isActive ? 'bg-white text-black' : 'bg-gray-100 text-black'}`}>
+                  {item.badge}
+                </span>
+              )}
+            </Link>
+          );
+        })}
+      </nav>
+
+      <div className="p-6 border-t border-gray-100">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex items-center gap-3 w-full p-2 rounded-xl hover:bg-gray-50 transition-colors text-left outline-none">
+              <Avatar className="h-10 w-10 border border-gray-200">
+                <AvatarFallback className="bg-gray-100 text-black font-serif">
+                  {user?.email?.[0].toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 overflow-hidden">
+                <p className="text-sm font-bold truncate text-gray-900">{user?.user_metadata?.full_name || 'Member'}</p>
+                <p className="text-xs text-gray-400 truncate">{user?.email}</p>
+              </div>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56 p-2 rounded-xl border-gray-100 shadow-xl">
+            <DropdownMenuItem onClick={signOut} className="text-red-500 focus:text-red-600 focus:bg-red-50 cursor-pointer rounded-lg p-2">
+              <LogOut className="mr-2 h-4 w-4" /> Sign Out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </aside>
+  );
+};
+
+export default function UserLayout() {
     const location = useLocation();
-    const { user, profile } = useAuth();
+    const { user, profile, signOut } = useAuth();
     const [userLocation, setUserLocation] = useState(null);
-    const { trackEvent } = useAnalytics(); 
 
     // --- Location Sync ---
     useEffect(() => {
@@ -35,11 +113,14 @@ export default function DemoLayout() {
                 navigator.geolocation.getCurrentPosition(async (position) => {
                     const { latitude, longitude } = position.coords;
                     setUserLocation({ lat: latitude, lng: longitude });
-                    try {
-                        await apiRequest(`/users/location?lat=${latitude}&lng=${longitude}`, { method: 'PATCH' });
-                        console.log("Location synced");
-                    } catch (e) {
-                        console.error("Location sync failed", e);
+                    // Only sync if user is logged in
+                    if (user) {
+                        try {
+                            // Call updated API if available, or store in local state context
+                            console.log("Location acquired:", latitude, longitude);
+                        } catch (e) {
+                            console.error("Location sync failed", e);
+                        }
                     }
                 }, (err) => {
                     console.warn("Geolocation permission denied", err);
@@ -47,84 +128,88 @@ export default function DemoLayout() {
             }
         };
         updateLocation();
-        const interval = setInterval(updateLocation, 5 * 60 * 1000);
-        return () => clearInterval(interval);
-    }, []);
+    }, [user]);
 
-    // --- Nav Data ---
+    // --- Cart Data ---
     const { data: cart } = useQuery({
         queryKey: ['cart'],
-        queryFn: () => apiRequest('/cart/'),
-        refetchInterval: 5000, 
+        queryFn: () => apiRequest('/user/cart'), // Updated Endpoint
+        refetchInterval: 10000, 
+        enabled: !!user // Only fetch if logged in
     });
+    
     const cartCount = cart?.items?.reduce((acc, item) => acc + item.quantity, 0) || 0;
     const isAdmin = profile?.role === 'admin' || user?.app_metadata?.role === 'admin';
 
     const mobileNavItems = [
-        { name: 'Shop', path: '/demo/products', icon: ShoppingBag },
-        { name: 'Agent', path: '/demo/chat', icon: Sparkles },
-        { name: 'Cart', path: '/demo/cart', icon: ShoppingCart, badge: cartCount },
-        { name: 'Orders', path: '/demo/orders', icon: Package },
-        { name: 'Profile', path: '/demo/profile', icon: User },
+        { title: 'Shop', url: '/dash/shop', icon: ShoppingBag },
+        { title: 'Agent', url: '/dash/agent', icon: Sparkles },
+        { title: 'Bag', url: '/dash/cart', icon: ShoppingCart, badge: cartCount },
+        { title: 'Profile', url: '/dash/profile', icon: User },
     ];
-    if(isAdmin) mobileNavItems.push({ name: 'Admin', path: '/demo/admin', icon: LayoutDashboard });
 
-    // Move Island to top if on Chat page
-    const isChatPage = location.pathname.includes('/chat');
+    // Check if we are in the chat view to adjust mobile padding
+    const isChatPage = location.pathname.includes('/agent');
 
     return (
-        <SidebarProvider>
-            <div className="flex min-h-screen w-full bg-white font-sans text-zinc-900">
+        <div className="flex min-h-screen w-full bg-[#FDFDFD] font-sans text-zinc-900 selection:bg-black selection:text-white">
+            
+            {/* 1. DESKTOP SIDEBAR */}
+            <DesktopSidebar 
+                user={user} 
+                signOut={signOut} 
+                cartCount={cartCount} 
+                isAdmin={isAdmin} 
+            />
+
+            {/* 2. MAIN CONTENT AREA */}
+            <div className="flex-1 flex flex-col min-h-screen relative">
                 
-                {/* --- DESKTOP SIDEBAR --- */}
-                <AppSidebar />
+                {/* Mobile Header */}
+                <header className="md:hidden sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-100 px-6 py-4 flex justify-between items-center">
+                    <Link to="/" className="text-3xl font-serif font-bold tracking-tighter">Daksha</Link>
+                    {userLocation && (
+                        <div className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">
+                            <MapPin size={10} /> Local
+                        </div>
+                    )}
+                </header>
 
-                <SidebarInset className="bg-white min-h-screen flex flex-col">
-                    {/* --- MOBILE BRANDING HEADER --- */}
-                    <div className="md:hidden pt-8 px-6 pb-2 bg-white/80 backdrop-blur-xl sticky top-0 z-40 flex justify-between items-end">
-                        <h1 className="text-4xl font-charm font-bold text-black">Weeb</h1>
-                        {userLocation && (
-                            <div className="flex items-center gap-1 text-[10px] text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full font-medium">
-                                <MapPin size={10} /> Local
-                            </div>
-                        )}
-                    </div>
+                {/* Page Content */}
+                <main className={`flex-1 w-full max-w-7xl mx-auto p-4 md:p-10 ${isChatPage ? 'pb-20' : 'pb-32'} animate-in fade-in duration-500`}>
+                    <Outlet />
+                </main>
 
-                    {/* --- MAIN CONTENT --- */}
-                    <main className="flex-1 p-6 md:p-12 max-w-7xl mx-auto w-full pb-32 md:pb-12 animate-in fade-in duration-500">
-                        <Outlet />
-                    </main>
-
-                    {/* --- DYNAMIC ISLAND (MOBILE) --- */}
-                    <div className={`md:hidden fixed left-1/2 -translate-x-1/2 z-50 w-auto transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] ${isChatPage ? 'top-6' : 'bottom-8'}`}>
-                        <motion.nav 
-                            layout
-                            className="flex items-center gap-1 bg-black/90 backdrop-blur-xl p-2 rounded-full shadow-2xl shadow-black/20 ring-1 ring-white/10"
-                        >
-                            {mobileNavItems.map((item) => {
-                                const isActive = location.pathname.startsWith(item.path);
-                                return (
-                                    <Link key={item.path} to={item.path} className="relative">
-                                        <div className={`
-                                            relative w-12 h-12 flex items-center justify-center rounded-full transition-all duration-300
-                                            ${isActive ? 'bg-white text-black scale-110 shadow-lg' : 'text-zinc-400 hover:text-zinc-200'}
-                                        `}>
-                                            <item.icon size={20} strokeWidth={isActive ? 2.5 : 2} />
-                                            {item.badge > 0 && (
-                                                <span className={`
-                                                    absolute top-2 right-2 w-2.5 h-2.5 rounded-full border-2 border-black
-                                                    ${isActive ? 'bg-black border-white' : 'bg-white'}
-                                                `} />
-                                            )}
-                                        </div>
-                                    </Link>
-                                );
-                            })}
-                        </motion.nav>
-                    </div>
-
-                </SidebarInset>
+                {/* 3. MOBILE DYNAMIC ISLAND NAV */}
+                <div className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-auto">
+                    <motion.nav 
+                        initial={{ y: 100, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        transition={{ type: "spring", stiffness: 260, damping: 20 }}
+                        className="flex items-center gap-2 bg-black/90 backdrop-blur-xl p-2 rounded-full shadow-2xl ring-1 ring-white/10"
+                    >
+                        {mobileNavItems.map((item) => {
+                            const isActive = location.pathname.startsWith(item.url);
+                            return (
+                                <Link key={item.url} to={item.url} className="relative group">
+                                    <div className={`
+                                        w-12 h-12 flex items-center justify-center rounded-full transition-all duration-300
+                                        ${isActive ? 'bg-white text-black scale-110 shadow-lg' : 'text-zinc-400 hover:text-zinc-200'}
+                                    `}>
+                                        <item.icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+                                        {item.badge > 0 && (
+                                            <span className={`
+                                                absolute top-2 right-2 w-2.5 h-2.5 rounded-full border-2 border-black
+                                                ${isActive ? 'bg-black border-white' : 'bg-white'}
+                                            `} />
+                                        )}
+                                    </div>
+                                </Link>
+                            );
+                        })}
+                    </motion.nav>
+                </div>
             </div>
-        </SidebarProvider>
+        </div>
     );
 }
