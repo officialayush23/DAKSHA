@@ -1,8 +1,7 @@
-// src/layout/UserLayout.jsx
 import React, { useEffect, useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { apiRequest, UserService } from '../lib/api';
+import { apiRequest, UserService, SessionService } from '../lib/api';
 import { useQuery } from '@tanstack/react-query';
 import { 
   ShoppingBag, 
@@ -13,11 +12,11 @@ import {
   LayoutDashboard,
   MapPin,
   LogOut,
-  Menu
+  Wifi,
+  Radio
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
 import { 
   DropdownMenu, 
   DropdownMenuContent, 
@@ -25,8 +24,8 @@ import {
   DropdownMenuTrigger 
 } from "@/components/ui/dropdown-menu";
 
-// --- DESKTOP SIDEBAR COMPONENT ---
-const DesktopSidebar = ({ user, signOut, cartCount, isAdmin }) => {
+// --- DESKTOP SIDEBAR ---
+const DesktopSidebar = ({ user, signOut, cartCount, isAdmin, sessionInfo }) => {
   const location = useLocation();
   
   const navItems = [
@@ -75,6 +74,21 @@ const DesktopSidebar = ({ user, signOut, cartCount, isAdmin }) => {
         })}
       </nav>
 
+      {/* Session Active Indicator */}
+      {sessionInfo && (
+        <div className="px-6 pb-4">
+          <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 flex items-center gap-3">
+            <div className="h-8 w-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
+              <Radio size={16} className="animate-pulse" />
+            </div>
+            <div className="overflow-hidden">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">Active Session</p>
+              <p className="text-[10px] text-emerald-600 truncate font-mono">{sessionInfo.session_id.slice(0,12)}...</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="p-6 border-t border-gray-100">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -105,37 +119,62 @@ export default function UserLayout() {
     const location = useLocation();
     const { user, profile, signOut } = useAuth();
     const [userLocation, setUserLocation] = useState(null);
+    const [sessionInfo, setSessionInfo] = useState(null);
 
-    // --- Location Sync ---
+    // --- 1. START SESSION & SYNC LOCATION ---
     useEffect(() => {
-        const updateLocation = () => {
-            if ("geolocation" in navigator) {
-                navigator.geolocation.getCurrentPosition(async (position) => {
-                    const { latitude, longitude } = position.coords;
-                    setUserLocation({ lat: latitude, lng: longitude });
-                    // Only sync if user is logged in
-                    if (user) {
-                        try {
-                            // Call updated API if available, or store in local state context
-                            console.log("Location acquired:", latitude, longitude);
-                        } catch (e) {
-                            console.error("Location sync failed", e);
+        const initUserSession = async () => {
+            if (!user) return;
+
+            try {
+                // A. Start/Get Session
+                let active = await SessionService.getActive();
+                if (!active || !active.data) { // Check if data exists in response
+                    const res = await SessionService.start('web');
+                    active = res.data;
+                } else {
+                    active = active.data;
+                }
+                setSessionInfo(active);
+
+                // B. Location Sync Logic
+                if ("geolocation" in navigator) {
+                    navigator.geolocation.getCurrentPosition(async (position) => {
+                        const { latitude, longitude } = position.coords;
+                        setUserLocation({ lat: latitude, lng: longitude });
+                        
+                        // Fetch addresses to find one to update
+                        const addrRes = await UserService.getAddresses();
+                        const addresses = addrRes.data || [];
+                        
+                        if (addresses.length > 0) {
+                            // Prioritize default, otherwise first
+                            const targetAddr = addresses.find(a => a.is_default) || addresses[0];
+                            
+                            // Call the PATCH endpoint
+                            await UserService.updateAddressLocation(targetAddr.id, latitude, longitude);
+                            console.log("📍 Location synced to backend for address:", targetAddr.id);
+                        } else {
+                            console.log("📍 Location captured but no address found to update.");
                         }
-                    }
-                }, (err) => {
-                    console.warn("Geolocation permission denied", err);
-                });
+                    }, (err) => {
+                        console.warn("Geolocation permission denied", err);
+                    });
+                }
+            } catch (e) {
+                console.error("Initialization failed", e);
             }
         };
-        updateLocation();
+
+        initUserSession();
     }, [user]);
 
-    // --- Cart Data ---
+    // --- 2. CART DATA ---
     const { data: cart } = useQuery({
         queryKey: ['cart'],
-        queryFn: () => apiRequest('/user/cart'), // Updated Endpoint
-        refetchInterval: 10000, 
-        enabled: !!user // Only fetch if logged in
+        queryFn: () => apiRequest('/user/cart'),
+        refetchInterval: 5000, 
+        enabled: !!user
     });
     
     const cartCount = cart?.items?.reduce((acc, item) => acc + item.quantity, 0) || 0;
@@ -148,29 +187,27 @@ export default function UserLayout() {
         { title: 'Profile', url: '/dash/profile', icon: User },
     ];
 
-    // Check if we are in the chat view to adjust mobile padding
     const isChatPage = location.pathname.includes('/agent');
 
     return (
         <div className="flex min-h-screen w-full bg-[#FDFDFD] font-sans text-zinc-900 selection:bg-black selection:text-white">
             
-            {/* 1. DESKTOP SIDEBAR */}
             <DesktopSidebar 
                 user={user} 
                 signOut={signOut} 
                 cartCount={cartCount} 
                 isAdmin={isAdmin} 
+                sessionInfo={sessionInfo}
             />
 
-            {/* 2. MAIN CONTENT AREA */}
             <div className="flex-1 flex flex-col min-h-screen relative">
                 
                 {/* Mobile Header */}
                 <header className="md:hidden sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-100 px-6 py-4 flex justify-between items-center">
                     <Link to="/" className="text-3xl font-serif font-bold tracking-tighter">Daksha</Link>
-                    {userLocation && (
+                    {sessionInfo && (
                         <div className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">
-                            <MapPin size={10} /> Local
+                            <Wifi size={10} className="animate-pulse" /> Live
                         </div>
                     )}
                 </header>
@@ -180,12 +217,11 @@ export default function UserLayout() {
                     <Outlet />
                 </main>
 
-                {/* 3. MOBILE DYNAMIC ISLAND NAV */}
+                {/* Mobile Nav */}
                 <div className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-auto">
                     <motion.nav 
                         initial={{ y: 100, opacity: 0 }}
                         animate={{ y: 0, opacity: 1 }}
-                        transition={{ type: "spring", stiffness: 260, damping: 20 }}
                         className="flex items-center gap-2 bg-black/90 backdrop-blur-xl p-2 rounded-full shadow-2xl ring-1 ring-white/10"
                     >
                         {mobileNavItems.map((item) => {

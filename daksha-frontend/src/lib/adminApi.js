@@ -45,6 +45,8 @@ export const apiClient = async (endpoint, method = 'GET', data = null, params = 
   }
 };
 
+
+
 // --- Admin Service ---
 export const AdminService = {
   // ==========================================
@@ -79,6 +81,9 @@ export const AdminService = {
 
   listVariants: (productId) =>
     apiClient(`/admin/products/${productId}/variants`, 'GET'),
+
+  trainModel: () => 
+    apiClient('/recommendations/train-model', 'POST'),
 
   // ==========================================
   // 🏪 STORES
@@ -203,6 +208,8 @@ export const AdminService = {
       apiClient('/admin/complaints', 'GET'),
       apiClient('/admin/offers', 'GET'),
     ]);
+
+  
 
 
     return {

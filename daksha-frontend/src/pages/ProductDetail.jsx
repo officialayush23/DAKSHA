@@ -1,130 +1,171 @@
-// src/pages/ProductDetail.jsx
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Heart, ShoppingBag, ArrowLeft, Star, Truck, ShieldCheck } from 'lucide-react';
+import { ProductService, CartService, UserService, RecommendationService, SessionService } from '../lib/api';
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, ShoppingBag, Heart, Star } from 'lucide-react';
 import { toast } from 'sonner';
-import { ProductService, CartService } from '../lib/api';
 
 export default function ProductDetail() {
   const { id } = useParams();
   const [product, setProduct] = useState(null);
-  const [reviews, setReviews] = useState([]);
   const [similar, setSimilar] = useState([]);
+  const [boughtTogether, setBoughtTogether] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedVariant, setSelectedVariant] = useState(null);
+  const [adding, setAdding] = useState(false);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        // Parallel Fetch
-        const [prodRes, simRes, revRes] = await Promise.all([
-          ProductService.getDetail(id),
-          ProductService.getSimilar(id),
-          ProductService.getReviews(id)
-        ]);
-
-        setProduct(prodRes.data);
-        setSimilar(simRes.data);
-        setReviews(revRes.data);
-
-        if(prodRes.data?.variants?.length > 0) {
-            setSelectedVariant(prodRes.data.variants[0]);
-        }
-      } catch (err) {
-        toast.error("Product unavailable");
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
+    loadData();
   }, [id]);
 
-  const handleAddToCart = async () => {
-    if (!selectedVariant) return;
+  const loadData = async () => {
+    setLoading(true);
     try {
-      await CartService.add(selectedVariant.variant_id, 1);
-      toast.success("Added to Bag");
-    } catch (err) {
-      toast.error("Login required");
+      // Parallel fetch for speed
+      const [prodData, simData, btData] = await Promise.all([
+        ProductService.getDetail(id),
+        RecommendationService.getSimilarVariants(id).catch(() => []), // Soft fail on recs
+        RecommendationService.getBoughtTogether(id).catch(() => [])
+      ]);
+      
+      setProduct(prodData);
+      setSimilar(simData || []);
+      setBoughtTogether(btData || []);
+      
+      if (prodData?.variants?.length > 0) {
+        setSelectedVariant(prodData.variants[0]);
+      }
+    } catch (error) {
+      toast.error("Failed to load product");
+    } finally {
+      setLoading(false);
     }
   };
 
-  if (loading) return <div className="h-96 flex items-center justify-center font-serif text-2xl animate-pulse">Loading Masterpiece...</div>;
-  if (!product) return <div>Not Found</div>;
+  const handleAddToCart = async () => {
+    if (!selectedVariant) return;
+    setAdding(true);
+    try {
+      const activeSession = await SessionService.getActive();
+      const sessionId = activeSession?.data?.session_id;
+      
+      if (!sessionId) {
+        toast.error("Session missing. Refresh page.");
+        return;
+      }
+
+      await CartService.add(selectedVariant.variant_id, 1, sessionId);
+      toast.success("Added to Bag");
+    } catch (error) {
+      toast.error("Failed to add to bag");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleWishlist = async () => {
+    if (!selectedVariant) return;
+    try {
+      await UserService.addToWishlist(selectedVariant.variant_id);
+      toast.success("Saved to Wishlist");
+    } catch (error) {
+      toast.error("Already in wishlist or error");
+    }
+  };
+
+  if (loading) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin" /></div>;
+  if (!product) return <div>Product not found</div>;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-24">
-      {/* Top Section */}
-      <div className="flex flex-col lg:flex-row gap-12">
-        {/* Gallery */}
-        <div className="w-full lg:w-1/2 space-y-4">
-          <div className="aspect-[3/4] bg-gray-100 overflow-hidden">
-            <img 
-              src={selectedVariant?.images?.[0] || "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=800&q=80"} 
-              className="w-full h-full object-cover" 
-            />
-          </div>
-        </div>
-
-        {/* Info */}
-        <div className="w-full lg:w-1/2 flex flex-col justify-center">
-          <div className="border-b border-gray-100 pb-8 mb-8">
-            <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-gray-400 mb-3">{product.brand}</h2>
-            <h1 className="text-5xl font-serif mb-4 leading-tight">{product.name || product.description}</h1>
-            <div className="flex items-center gap-6">
-                <span className="text-3xl font-light">₹{selectedVariant?.price || 0}</span>
-                <div className="flex items-center gap-1 bg-gray-50 px-2 py-1 rounded text-xs font-bold">
-                    <Star size={12} className="fill-black" /> {product.rating || 4.5}
-                </div>
-            </div>
-          </div>
-
-          <div className="mb-10 space-y-4">
-            <p className="text-xs font-bold uppercase tracking-widest text-gray-400">Size</p>
-            <div className="flex gap-2">
-              {product.variants.map(v => (
-                <button
-                  key={v.variant_id}
-                  onClick={() => setSelectedVariant(v)}
-                  className={`w-10 h-10 border text-xs font-medium transition-all
-                    ${selectedVariant?.variant_id === v.variant_id ? 'bg-black text-white border-black' : 'hover:border-black'}
-                  `}
-                >
-                  {v.size}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex gap-4">
-            <button onClick={handleAddToCart} className="flex-1 bg-black text-white h-14 uppercase text-xs font-bold tracking-widest hover:bg-zinc-800 transition-colors">
-              Add to Bag
-            </button>
-            <button className="w-14 border border-gray-200 flex items-center justify-center hover:border-black transition-colors">
-              <Heart size={20} />
-            </button>
-          </div>
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+      {/* Images */}
+      <div className="space-y-4">
+        <div className="aspect-[3/4] bg-zinc-100 rounded-2xl overflow-hidden shadow-sm">
+          <img 
+            src={selectedVariant?.images?.[0] || product.image || "https://placehold.co/600x800"} 
+            alt={product.name}
+            className="w-full h-full object-cover"
+          />
         </div>
       </div>
 
-      {/* Similar Products */}
-      {similar.length > 0 && (
-        <section>
-          <h3 className="font-serif text-3xl mb-8">You May Also Like</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            {similar.slice(0, 4).map(p => (
-              <Link to={`/dash/product/${p.id}`} key={p.id} className="group block">
-                <div className="aspect-[3/4] bg-gray-100 mb-4 overflow-hidden">
-                  <img src="https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=800&q=80" className="w-full h-full object-cover bw-image group-hover:scale-105 transition-transform" />
-                </div>
-                <h4 className="font-serif text-lg">{p.brand}</h4>
-                <p className="text-xs text-gray-400 uppercase">{p.category}</p>
-              </Link>
+      {/* Info */}
+      <div className="space-y-8 py-8">
+        <div>
+          <h2 className="text-sm font-bold text-zinc-400 uppercase tracking-widest mb-2">{product.brand}</h2>
+          <h1 className="text-4xl md:text-5xl font-serif font-bold text-zinc-900 mb-4">{product.name}</h1>
+          <div className="flex items-center gap-4">
+            <span className="text-3xl font-light">₹{selectedVariant?.final_price || selectedVariant?.base_price}</span>
+            {selectedVariant?.offer && (
+              <Badge className="bg-red-50 text-red-600 hover:bg-red-100 border-red-100">
+                {selectedVariant.offer}
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        <p className="text-zinc-600 leading-relaxed text-lg">{product.description}</p>
+
+        {/* Variants */}
+        <div className="space-y-4">
+          <span className="text-sm font-medium text-zinc-900">Select Variant</span>
+          <div className="flex flex-wrap gap-3">
+            {product.variants.map(v => (
+              <button
+                key={v.variant_id}
+                onClick={() => setSelectedVariant(v)}
+                className={`
+                  h-12 px-4 rounded-lg border flex items-center justify-center text-sm font-medium transition-all
+                  ${selectedVariant?.variant_id === v.variant_id 
+                    ? 'border-black bg-black text-white' 
+                    : 'border-zinc-200 text-zinc-600 hover:border-zinc-400'}
+                `}
+              >
+                {v.color} - {v.size}
+              </button>
             ))}
           </div>
-        </section>
-      )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-4 pt-4">
+          <Button 
+            size="lg" 
+            className="flex-1 h-16 rounded-full text-lg gap-3" 
+            onClick={handleAddToCart}
+            disabled={adding}
+          >
+            {adding ? <Loader2 className="animate-spin" /> : <ShoppingBag />}
+            Add to Bag
+          </Button>
+          <Button 
+            size="lg" 
+            variant="outline" 
+            className="h-16 w-16 rounded-full p-0 border-zinc-200"
+            onClick={handleWishlist}
+          >
+            <Heart />
+          </Button>
+        </div>
+
+        {/* Bought Together */}
+        {boughtTogether.length > 0 && (
+          <div className="pt-12 border-t border-zinc-100">
+            <h3 className="text-xl font-serif font-bold mb-6">Frequently Bought Together</h3>
+            <div className="flex gap-4 overflow-x-auto no-scrollbar pb-4">
+              {boughtTogether.map(p => (
+                <Link key={p.variant_id} to={`/dash/product/${p.product_id}`} className="min-w-[140px] block group">
+                  <div className="aspect-[3/4] bg-zinc-100 rounded-lg overflow-hidden mb-2">
+                    <div className="w-full h-full bg-zinc-200" />
+                  </div>
+                  <p className="text-sm font-medium truncate group-hover:underline">₹{p.final_price}</p>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

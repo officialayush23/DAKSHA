@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { AdminService } from '@/lib/adminApi';
+import { AdminService } from '@/lib/adminApi'; // Make sure RecommendationService is exported or use apiClient directly
 import { 
   Package, 
   Archive, 
@@ -15,21 +15,21 @@ import {
   Tag,
   Loader2,
   RefreshCw,
-  ShoppingBag,
-  Warehouse,
   BarChart3,
-  FileText,
-  Download,
   AlertCircle,
   MapPin,
   DollarSign,
-  Shield
+  Shield,
+  BrainCircuit // Icon for ML Training
 } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { toast } from "sonner";
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [training, setTraining] = useState(false);
+  
   const [stats, setStats] = useState({
     inventory: {
       total_stock: 0,
@@ -59,6 +59,7 @@ export default function Dashboard() {
       });
     } catch (error) {
       console.error("Failed to fetch dashboard data:", error);
+      toast.error("Failed to load dashboard data");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -72,6 +73,22 @@ export default function Dashboard() {
   const handleRefresh = () => {
     setRefreshing(true);
     fetchDashboardData();
+  };
+
+  // --- TRAIN MODEL HANDLER ---
+  const handleTrainModel = async () => {
+    setTraining(true);
+    try {
+      // Use AdminService here since we added it above
+      await AdminService.trainModel(); 
+      
+      toast.success("Training started successfully");
+    } catch (error) {
+      console.error("Training failed:", error);
+      toast.error("Failed to start model training");
+    } finally {
+      setTraining(false);
+    }
   };
 
   // Calculate stats
@@ -104,20 +121,38 @@ export default function Dashboard() {
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground">Overview of your store</p>
         </div>
-        <Button 
-          variant="outline" 
-          size="sm"
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="w-full sm:w-auto"
-        >
-          {refreshing ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4 mr-2" />
-          )}
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          {/* Train Model Button */}
+          <Button 
+            variant="secondary" 
+            size="sm"
+            onClick={handleTrainModel}
+            disabled={training}
+            className="w-full sm:w-auto"
+          >
+            {training ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <BrainCircuit className="h-4 w-4 mr-2" />
+            )}
+            Train Model
+          </Button>
+
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="w-full sm:w-auto"
+          >
+            {refreshing ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}

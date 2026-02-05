@@ -33,6 +33,8 @@ import Kiosks from './admin/pages/Kiosk';
 
 // --- KIOSK MODULE ---
 import KioskRoutes from './kiosk/routes';
+import OrdersPage from './pages/OrdersPage';
+import CartPage from './pages/CartPage';
 
 // --- PROTECTED ROUTE WRAPPERS ---
 
@@ -96,8 +98,8 @@ export default function App() {
         } />
         
         {/* Placeholders for now */}
-        <Route path="orders" element={<div className="p-10 text-center text-gray-400">Order History Module Loading...</div>} />
-        <Route path="cart" element={<div className="p-10 text-center text-gray-400">Cart Module Loading...</div>} />
+        <Route path="orders" element={<OrdersPage/>} />
+        <Route path="cart" element={<CartPage/>} />
         
         <Route path="*" element={<ErrorPage />} />
       </Route>
