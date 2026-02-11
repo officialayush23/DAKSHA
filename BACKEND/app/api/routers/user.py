@@ -1,83 +1,100 @@
 # app/api/routers/user.py
 
-from fastapi import APIRouter, Depends,HTTPException
-from app.schemas.schemas import *
-from sqlalchemy.orm import Session,joinedload
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import desc
+from typing import Optional
 import uuid
-from app.models.models import Review, Product, User, UserPreferences
+
 from app.core.deps import get_db, get_current_user
-from geoalchemy2.functions import ST_Distance
-from shapely.geometry import Point
-from geoalchemy2.shape import from_shape
-from app.services.user_services import *
+from app.schemas.schemas import (
+    WishlistAdd,
+    AddressCreate,
+    AddressUpdate,
+    AddressLocationPatch,
+    UserProfileUpdate,
+    UserRegisterPayload,
+    CardCreate,
+    ReviewCreate,
+)
+from app.models.models import (
+    Review,
+    UserPreferences,
+    UserAddress,
+)
+from app.services.user_services import (
+    add_address,
+    update_address,
+    get_user_addresses,
+    get_user_profile,
+    add_card,
+    get_cards,
+    delete_card,
+)
+
+from app.services.wishlist_service import (
+    add_to_wishlist,
+    remove_from_wishlist,
+    list_wishlist,
+)
 from app.services.event_service import emit_event
 from app.services.embedding_service import update_user_preference_summary
-from app.enums.db_enums import EventTypeEnum, EntityTypeEnum
-from app.services.session_service import get_or_create_active_session
-from app.enums.db_enums import ChannelEnum
-from shapely.geometry import Point
+from app.enums.db_enums import EventTypeEnum, EntityTypeEnum, ChannelEnum
 from geoalchemy2.shape import from_shape
-from app.schemas.schemas import AddressLocationPatch
-from app.models.models import UserAddress
+from shapely.geometry import Point
+
 router = APIRouter(prefix="/user", tags=["User"])
+
+# ======================================================
+# SEARCH (intent + signal only, NO product logic)
+# ======================================================
+
 @router.post("/search")
 def search_products(
-    payload: SearchQuery,
+    payload,
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    # 1. Log Event
     emit_event(
         db=db,
-        user_id=user.id,
-        session_id=None,
-        channel=payload.channel,
         event_type=EventTypeEnum.search,
-        entity_type=EntityTypeEnum.product,
-        reason=payload.query,
-        metadata={"source": "search_bar"},
-    )
-
-    # 2. Store Intent (Explicit)
-    # Note: user_services should have a log_intent function, or direct DB add here
-    intent = UserIntent(
-        id=uuid.uuid4(),
+        channel=payload.channel,
         user_id=user.id,
-        intent_text=payload.query,
-        confidence=1.0
+        entity_type=EntityTypeEnum.product,
+        metadata={"query": payload.query},
     )
-    db.add(intent)
-    db.commit()
 
-    # 3. Async Profile Update
     update_user_preference_summary(db, user.id)
 
     return {"status": "search_logged"}
 
-@router.post("/event", response_model=None)
+# ======================================================
+# GENERIC EVENT CAPTURE (frontend/manual)
+# ======================================================
+
+@router.post("/event")
 def capture_event(
     event_type: EventTypeEnum,
     entity_type: EntityTypeEnum,
-    # FIX: Use uuid.UUID explicitly, not SQLAlchemy's UUID type
-    entity_id: Optional[uuid.UUID] = None, 
-    reason: Optional[str] = None,
+    entity_id: Optional[uuid.UUID] = None,
     metadata: Optional[dict] = None,
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
     emit_event(
         db=db,
-        user_id=user.id,
-        session_id=None,
-        channel="web", # Default or extract from headers
         event_type=event_type,
+        channel=ChannelEnum.web,
+        user_id=user.id,
         entity_type=entity_type,
         entity_id=entity_id,
-        reason=reason,
         metadata=metadata,
     )
     return {"status": "captured"}
 
+# ======================================================
+# PREFERENCES
+# ======================================================
 
 @router.post("/preferences/recompute")
 def recompute_preferences(
@@ -87,65 +104,54 @@ def recompute_preferences(
     update_user_preference_summary(db, user.id)
     return {"status": "recomputed"}
 
+# ======================================================
+# WISHLIST
+# ====@router.get("/wishlist")
+def my_wishlist(
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    return list_wishlist(db, user_id=user.id)
+
+
 @router.post("/wishlist")
-def add_wishlist(
+def add_wishlist_item(
     payload: WishlistAdd,
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    return add_to_wishlist(db, user, payload)
+    item = add_to_wishlist(
+        db=db,
+        user_id=user.id,
+        product_variant_id=payload.product_variant_id,
+        channel=ChannelEnum.web,
+    )
+    db.commit()
+    return item
 
 
-@router.delete("/wishlist/{variant_id}", response_model=None)
-def remove_wishlist(
+@router.delete("/wishlist/{variant_id}")
+def remove_wishlist_item(
     variant_id: uuid.UUID,
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    remove_from_wishlist(db, user, variant_id)
+    removed = remove_from_wishlist(
+        db=db,
+        user_id=user.id,
+        product_variant_id=variant_id,
+        channel=ChannelEnum.web,
+    )
+    db.commit()
+
+    if not removed:
+        raise HTTPException(status_code=404, detail="Item not found")
+
     return {"status": "removed"}
 
-@router.post("/cart/items")
-def add_cart_item(
-    payload: CartItemAdd,
-    session_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    return add_to_cart(db, user, session_id, payload)
-
-
-@router.put("/cart/items/{variant_id}")
-def update_cart_item(
-    variant_id: uuid.UUID,
-    payload: CartItemUpdate,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    cart = db.query(Cart).filter(Cart.user_id == user.id).first()
-    item = db.query(CartItem).filter(
-        CartItem.cart_id == cart.id,
-        CartItem.product_variant_id == variant_id
-    ).first()
-    item.quantity = payload.quantity
-    db.commit()
-    return cart
-
-
-@router.delete("/cart/items/{variant_id}")
-def remove_cart_item(
-    variant_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    cart = db.query(Cart).filter(Cart.user_id == user.id).first()
-    db.query(CartItem).filter(
-        CartItem.cart_id == cart.id,
-        CartItem.product_variant_id == variant_id
-    ).delete()
-    db.commit()
-    return {"status": "removed"}
-
+# ======================================================
+# ADDRESSES
+# ======================================================
 
 @router.post("/addresses")
 def add_address_api(
@@ -153,7 +159,7 @@ def add_address_api(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    return add_address(db, user, payload)
+    return add_address(db, user.id, payload)
 
 
 @router.put("/addresses/{address_id}")
@@ -163,7 +169,10 @@ def update_address_api(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    return update_address(db, user, address_id, payload)
+    addr = update_address(db, user.id, address_id, payload)
+    if not addr:
+        raise HTTPException(status_code=404, detail="Address not found")
+    return addr
 
 
 @router.get("/addresses")
@@ -171,8 +180,7 @@ def list_addresses(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    return db.query(UserAddress).filter(UserAddress.user_id == user.id).all()
-
+    return get_user_addresses(db, user.id)
 
 
 @router.patch("/addresses/{address_id}/location")
@@ -180,7 +188,7 @@ def update_address_location(
     address_id: uuid.UUID,
     payload: AddressLocationPatch,
     db: Session = Depends(get_db),
-    user = Depends(get_current_user),
+    user=Depends(get_current_user),
 ):
     address = (
         db.query(UserAddress)
@@ -200,49 +208,19 @@ def update_address_location(
     )
 
     db.commit()
+    return {"status": "updated", "address_id": address.id}
 
-    return {
-        "status": "updated",
-        "address_id": address.id,
-    }
+# ======================================================
+# PROFILE
+# ======================================================
 
-
-
-
-
-
-@router.post("/session/channel")
-def update_active_channel(
-    channel: str,
+@router.get("/profile")
+def my_profile(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    session = (
-        db.query(Session)
-        .filter(Session.user_id == user.id, Session.ended_at.is_(None))
-        .first()
-    )
+    return get_user_profile(db, user.id)
 
-    if session:
-        session.active_channel = channel
-        db.commit()
-
-    return {"status": "updated"}
-
-@router.get("/profile/completeness")
-def profile_completeness(
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user),
-):
-    return {
-        "name": bool(user.name),
-        "phone": bool(user.phone),
-        "gender": bool(getattr(user, "gender", None)),
-        "address": db.query(UserAddress).filter_by(user_id=user.id).count() > 0,
-        "card": db.query(UserCard).filter_by(user_id=user.id).count() > 0,
-    }
-
-from typing import Optional
 
 @router.put("/profile")
 def update_profile(
@@ -250,125 +228,134 @@ def update_profile(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    for k, v in payload.dict(exclude_unset=True).items():
+    updates = {
+        k: v
+        for k, v in payload.dict(exclude_unset=True).items()
+        if v not in ("", None)
+    }
+
+    for k, v in updates.items():
         setattr(user, k, v)
 
     db.commit()
     db.refresh(user)
 
-    return {
-        "id": user.id,
-        "name": user.name,
-        "phone": user.phone,
-        "gender": user.gender,
-        "email": user.email,
-    }
+    emit_event(
+        db=db,
+        event_type=EventTypeEnum.profile_updated,
+        channel=ChannelEnum.web,
+        user_id=user.id,
+        entity_type=EntityTypeEnum.user,
+    )
+
+    return user
 
 
 @router.post("/register")
 def register_user(
     payload: UserRegisterPayload,
     db: Session = Depends(get_db),
-    user = Depends(get_current_user),
+    user=Depends(get_current_user),
 ):
-    """
-    Profile enrichment AFTER Supabase signup.
-    Identity already exists.
-    """
-
     user.name = payload.name
-
     if payload.phone:
         user.phone = payload.phone
 
-    # Optional: initialize preferences row (EMPTY)
     pref = db.query(UserPreferences).filter_by(user_id=user.id).first()
     if not pref:
-        pref = UserPreferences(
-            user_id=user.id,
-            preferred_categories=[],
-            preferred_sizes=[],
+        db.add(
+            UserPreferences(
+                user_id=user.id,
+                preferred_categories=[],
+                preferred_sizes=[],
+            )
         )
-        db.add(pref)
 
     db.commit()
     return {"ok": True}
 
-@router.get("/profile")
-def my_profile(db: Session = Depends(get_db), user = Depends(get_current_user)):
-    return get_user_profile(db, user.id)
+# ======================================================
+# CARDS
+# ======================================================
 
 @router.get("/cards")
-def my_cards(db: Session = Depends(get_db), user = Depends(get_current_user)):
+def my_cards(
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
     return get_cards(db, user.id)
 
+
 @router.post("/cards")
-def add_new_card(payload: dict, db: Session = Depends(get_db), user = Depends(get_current_user)):
-    # Use CardCreateSchema
+def add_new_card(
+    payload: CardCreate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
     return add_card(db, user.id, payload)
 
-@router.delete("/cards/{id}")
-def remove_card_api(id: uuid.UUID, db: Session = Depends(get_db), user = Depends(get_current_user)):
-    delete_card(db, user.id, id)
+
+@router.delete("/cards/{card_id}")
+def remove_card_api(
+    card_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    delete_card(db, user.id, card_id)
     return {"status": "deleted"}
 
+# ======================================================
+# REVIEWS (post-purchase, allowed here)
+# ======================================================
 
 @router.get("/products/{product_id}/reviews")
-def get_product_reviews(product_id: uuid.UUID, db: Session = Depends(get_db)):
-    reviews = db.query(Review).options(joinedload(Review.user))\
-                .filter(Review.product_id == product_id)\
-                .order_by(desc(Review.created_at)).all()
-    
+def get_product_reviews(
+    product_id: uuid.UUID,
+    db: Session = Depends(get_db),
+):
+    reviews = (
+        db.query(Review)
+        .options(joinedload(Review.user))
+        .filter(Review.product_id == product_id)
+        .order_by(desc(Review.created_at))
+        .all()
+    )
+
     return [
         {
             "id": r.id,
             "user_name": r.user.name if r.user else "Anonymous",
             "rating": r.rating,
             "comment": r.comment,
-            "created_at": r.created_at
+            "created_at": r.created_at,
         }
         for r in reviews
     ]
 
+
 @router.post("/reviews")
 def create_review(
-    payload: ReviewCreate, 
-    db: Session = Depends(get_db), 
-    user = Depends(get_current_user)
+    payload: ReviewCreate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
 ):
-    # Verify purchase? (Optional logic here)
     review = Review(
         user_id=user.id,
         product_id=payload.product_id,
         rating=payload.rating,
         comment=payload.comment,
-        images=payload.images
+        images=payload.images,
     )
     db.add(review)
     db.commit()
-    return {"status": "Review added"}
 
-
-
-
-@router.get("/pickup/options/{variant_id}")
-def pickup_options(variant_id, lat: float, lng: float, db: Session = Depends(get_db)):
-    user_point = from_shape(Point(lng, lat), srid=4326)
-
-    rows = (
-        db.query(Store, StoreInventory)
-        .join(StoreInventory)
-        .filter(StoreInventory.product_variant_id == variant_id)
-        .order_by(ST_Distance(Store.location, user_point))
-        .limit(5)
-        .all()
+    emit_event(
+        db=db,
+        event_type=EventTypeEnum.review_created,
+        channel=ChannelEnum.web,
+        user_id=user.id,
+        entity_type=EntityTypeEnum.product,
+        entity_id=payload.product_id,
     )
 
-    return [
-        {
-            "store": s.name,
-            "city": s.city,
-            "available": inv.in_stock,
-        }
-        for s, inv in rows
-    ]
+    return {"status": "review_added"}

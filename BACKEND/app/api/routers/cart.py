@@ -1,33 +1,72 @@
 # app/api/routers/cart.py
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-from app.core.deps import get_db, get_current_user
-from app.services.cart_service import get_active_cart, get_cart_items
-from uuid import UUID
-from app.services.user_services import remove_from_cart
 
-router = APIRouter(prefix="/user/cart", tags=["Cart"])
+import uuid
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from app.core.deps import get_db, get_current_user, get_channel
+from app.schemas.schemas import CartItemAdd
+from app.services.cart_service import (
+    add_item_to_cart,
+    remove_item_from_cart,
+    get_active_cart,
+)
+from app.enums.db_enums import ChannelEnum
+
+router = APIRouter(prefix="/cart", tags=["Cart"])
+
 
 @router.get("")
-def view_cart(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    cart = get_active_cart(db, user.id)
-    if not cart:
-        return {"cart": None}
-
-    items = get_cart_items(db, cart)
-    return {
-        "cart_id": cart.id,
-        "items": [
-            {
-                "variant_id": i.product_variant_id,
-                "quantity": i.quantity,
-                "price": i.variant.base_price,
-                "sku": i.variant.sku,
-            }
-            for i in items
-        ],
-    }
+def my_cart(
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    return get_active_cart(db, user_id=user.id)
 
 
+@router.post("/items")
+def add_cart_item(
+    payload: CartItemAdd,
+    session_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+    channel: ChannelEnum = Depends(get_channel),
+):
+    try:
+        cart = add_item_to_cart(
+            db=db,
+            user_id=user.id,
+            session_id=session_id,
+            product_variant_id=payload.product_variant_id,
+            quantity=payload.quantity,
+            channel=channel,
+            impression_id=getattr(payload, "impression_id", None),
+        )
+        db.commit()
+        return cart
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.delete("/items/{variant_id}")
+def remove_cart_item(
+    variant_id: uuid.UUID,
+    session_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+    channel: ChannelEnum = Depends(get_channel),
+):
+    removed = remove_item_from_cart(
+        db=db,
+        user_id=user.id,
+        session_id=session_id,
+        product_variant_id=variant_id,
+        channel=channel,
+    )
+    db.commit()
+
+    if not removed:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    return {"status": "removed"}

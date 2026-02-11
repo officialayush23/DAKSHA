@@ -6,8 +6,11 @@ class ChannelEnum(str, Enum):
     app = "app"
     kiosk = "kiosk"
     whatsapp = "whatsapp"
-    telegram ="telegram"
-  
+    telegram = "telegram"
+
+class UserRoleEnum(str, Enum):
+    user = "user"
+    admin = "admin"
 
 class FulfillmentTypeEnum(str, Enum):
     delivery = "delivery"
@@ -22,26 +25,11 @@ class OrderStatusEnum(str, Enum):
     delivered = "delivered"
     cancelled = "cancelled"
 
-class EventTypeEnum(str, Enum):
-    product_view = "product_view"
-    search = "search"
-    add_to_cart = "add_to_cart"
-    remove_from_cart = "remove_from_cart"
-    checkout_started = "checkout_started"
-    checkout_cancelled = "checkout_cancelled"
-    payment_started = "payment_started"
-    payment_failed = "payment_failed"
-    payment_success = "payment_success"
-    order_placed = "order_placed"
-    pickup_selected = "pickup_selected"
-    delivery_selected = "delivery_selected"
-    wishlist_add ="wishlist_add"
-
-class EntityTypeEnum(str, Enum):
-    product = "product"
-    product_variant = "product_variant"
-    cart = "cart"
-    order = "order"
+class PaymentStatusEnum(str, Enum):
+    initiated = "initiated"
+    success = "success"
+    failed = "failed"
+    abandoned = "abandoned"
 
 class PickupStatusEnum(str, Enum):
     pending = "pending"
@@ -49,18 +37,6 @@ class PickupStatusEnum(str, Enum):
     picked_up = "picked_up"
     cancelled = "cancelled"
 
-class PaymentStatusEnum(str, Enum):
-    initiated = "initiated"
-    success = "success"
-    failed = "failed"
-    abandoned = "abandoned"
-    
-    
-class UserRoleEnum(str, Enum):
-    user = "user"
-    admin = "admin"
-    
-    
 class CheckoutStateEnum(str, Enum):
     INIT = "INIT"
     CART_VALIDATED = "CART_VALIDATED"
@@ -73,6 +49,32 @@ class CheckoutStateEnum(str, Enum):
     ORDER_CONFIRMED = "ORDER_CONFIRMED"
     ROLLED_BACK = "ROLLED_BACK"
 
+class EventTypeEnum(str, Enum):
+    product_view = "product_view"
+    search = "search"
+    add_to_cart = "add_to_cart"
+    remove_from_cart = "remove_from_cart"
+    wishlist_add = "wishlist_add"
+    checkout_started = "checkout_started"
+    checkout_cancelled = "checkout_cancelled"
+    payment_started = "payment_started"
+    payment_failed = "payment_failed"
+    payment_success = "payment_success"
+    order_placed = "order_placed"
+    pickup_selected = "pickup_selected"
+    delivery_selected = "delivery_selected"
+    session_started = "session_started"
+
+
+class EntityTypeEnum(str, Enum):
+    product = "product"
+    product_variant = "product_variant"
+    cart = "cart"
+    order = "order"
+    offer = "offer"
+    checkout = "checkout"
+    user_session = "user_session"
+
 
 class ExchangeStatusEnum(str, Enum):
     requested = "requested"
@@ -80,7 +82,6 @@ class ExchangeStatusEnum(str, Enum):
     rejected = "rejected"
     completed = "completed"
     cancelled = "cancelled"
-
 
 class ReturnStatusEnum(str, Enum):
     requested = "requested"
@@ -90,7 +91,6 @@ class ReturnStatusEnum(str, Enum):
     refunded = "refunded"
     cancelled = "cancelled"
 
-
 class ShipmentStatusEnum(str, Enum):
     created = "created"
     in_transit = "in_transit"
@@ -98,3 +98,130 @@ class ShipmentStatusEnum(str, Enum):
     delivered = "delivered"
     delayed = "delayed"
     cancelled = "cancelled"
+
+class TrendingScopeEnum(str, Enum):
+    global_ = "global"   # underscore to avoid keyword clash
+    category = "category"
+    brand = "brand"
+
+
+
+class RecommendationFeedEnum(str, Enum):
+    home = "home"
+    search = "search"
+    similar = "similar"
+    image_search = "image_search"
+    trending = "trending"
+
+class ReviewSentimentEnum(str, Enum):
+    positive = "positive"
+    neutral = "neutral"
+    negative = "negative"
+
+class ProductSalesEventEnum(str, Enum):
+    sale = "sale"
+    return_ = "return"
+    exchange_out = "exchange_out"
+    exchange_in = "exchange_in"
+
+class EmbeddingModalityEnum(str, Enum):
+    text = "text"
+    image = "image"
+
+class TrainingRunStatusEnum(str, Enum):
+    started = "started"
+    completed = "completed"
+    failed = "failed"
+
+class CardBrandEnum(str, Enum):
+    visa = "visa"
+    mastercard = "mastercard"
+    rupay = "rupay"
+    amex = "amex"
+    other = "other"
+
+class KioskStatusEnum(str, Enum):
+    active = "active"
+    inactive = "inactive"
+    maintenance = "maintenance"
+
+# --- COUPONS ---
+class CouponTypeEnum(str, Enum):
+    percentage = "percentage"
+    flat = "flat"
+
+class CouponStatusEnum(str, Enum):
+    active = "active"
+    expired = "expired"
+    disabled = "disabled"
+
+class CouponScopeEnum(str, Enum):
+    global_ = "global"
+    category = "category"
+    product = "product"
+
+# --- ORDER MUTABILITY ---
+class OrderMutabilityEnum(str, Enum):
+    mutable = "mutable"
+    locked = "locked"
+    shipped = "shipped"
+
+class OrderChangeTypeEnum(str, Enum):
+    add_item = "add_item"
+    remove_item = "remove_item"
+    change_quantity = "change_quantity"
+    change_address = "change_address"
+    cancel_order = "cancel_order"
+
+class OrderChangeStatusEnum(str, Enum):
+    requested = "requested"
+    approved = "approved"
+    rejected = "rejected"
+    applied = "applied"
+
+# --- COMPLAINTS ---
+class ComplaintStatusEnum(str, Enum):
+    open = "open"
+    in_progress = "in_progress"
+    resolved = "resolved"
+    closed = "closed"
+
+class ComplaintResolverEnum(str, Enum):
+    agent = "agent"
+    admin = "admin"
+
+# --- ENGAGEMENT ---
+class DeliveryChannelEnum(str, Enum):
+    in_app = "in_app"
+    telegram = "telegram"
+    whatsapp = "whatsapp"
+    email = "email"
+
+class EngagementStateEnum(str, Enum):
+    sent = "sent"
+    unopened = "unopened"
+    opened = "opened"
+    clicked = "clicked"
+    ignored = "ignored"
+    dismissed = "dismissed"
+    converted = "converted"
+
+class FollowupReasonEnum(str, Enum):
+    no_open = "no_open"
+    no_click = "no_click"
+    price_drop = "price_drop"
+    inventory_low = "inventory_low"
+    pickup_reminder = "pickup_reminder"
+    delivery_failed = "delivery_failed"
+    agent_retry = "agent_retry"
+    
+    
+    
+# --- LOYALTY (New) ---
+class LoyaltyTransactionTypeEnum(str, Enum):
+    earned_purchase = "earned_purchase"
+    earned_bonus = "earned_bonus"
+    redeemed_checkout = "redeemed_checkout"
+    expired = "expired"
+    admin_adjustment = "admin_adjustment"
+    refund_reversal = "refund_reversal"

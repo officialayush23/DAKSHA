@@ -66,12 +66,13 @@ def rank_candidates(
         ),
 
         RecentIntentBoost AS (
-            SELECT entity_id, COUNT(*) AS interaction_count
-            FROM user_intents
-            WHERE user_id = :uid
-              AND created_at > NOW() - INTERVAL '2 days'
-            GROUP BY entity_id
-        )
+    SELECT intent_text, COUNT(*) AS interaction_count
+    FROM user_intents
+    WHERE user_id = :uid
+      AND created_at > NOW() - INTERVAL '2 days'
+    GROUP BY intent_text
+)
+
 
         SELECT
             p.id,
@@ -89,17 +90,15 @@ def rank_candidates(
                  FROM category_trending
                  WHERE product_variant_id = pv.id),
                 0
-            ) AS trend_score,
+            ) AS trend_score
 
-            COALESCE(rib.interaction_count, 0) AS intent_boost
+            
 
         FROM product_variants pv
         JOIN products p ON pv.product_id = p.id
         JOIN product_embeddings pe ON pv.id = pe.product_variant_id
         LEFT JOIN product_images pi
             ON pi.product_variant_id = pv.id AND pi.position = 1
-        LEFT JOIN RecentIntentBoost rib
-            ON pv.id = rib.entity_id
 
         WHERE pv.id::text = ANY(:candidates)
           AND p.active = true
@@ -112,8 +111,7 @@ def rank_candidates(
                  FROM category_trending
                  WHERE product_variant_id = pv.id),
                 0
-            )) +
-            (0.2 * COALESCE(rib.interaction_count, 0))
+            )) 
         ) DESC
 
         LIMIT :limit

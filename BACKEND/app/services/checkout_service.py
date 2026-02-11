@@ -203,3 +203,38 @@ def apply_coupon(db: Session, checkout: CheckoutSession, discounted_price: float
     checkout.locked_price = discounted_price
     transition(checkout, CheckoutStateEnum.COUPON_APPLIED)
     db.commit()
+
+
+
+from app.services.personalized_offer_service import get_active_personal_offers
+from app.services.loyalty_service import credit_points_for_order
+from app.services.impression_outcome_service import log_recommendation_outcome
+
+def on_order_confirmed(db, order, user_id, session_id):
+    # 1. Loyalty
+    credit_points_for_order(
+        db=db,
+        user_id=user_id,
+        order_id=order.id,
+        order_total=order.total_amount,
+        channel=order.channel,
+    )
+
+    # 2. Redeem personalized offers
+    offers = get_active_personal_offers(db, user_id)
+    for offer in offers:
+        offer.is_redeemed = True
+        offer.redeemed_order_id = order.id
+
+    # 3. Reward training
+    for imp in db.query(RecommendationImpression)\
+        .filter_by(user_id=user_id, session_id=session_id):
+
+        log_recommendation_outcome(
+            db,
+            impression_id=imp.id,
+            outcome_type="purchase",
+            reward_value=1.0,
+        )
+
+    db.commit()

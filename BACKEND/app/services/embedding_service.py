@@ -1,48 +1,52 @@
 # app/services/embedding_service.py
+import os
+import nomic
+from nomic import embed
 from sqlalchemy.orm import Session
-from app.models.models import UserPreferenceSummary, Event, Product, ProductVariant, ProductEmbedding
+from app.models.models import UserPreferenceSummary, Event, ProductVariant, ProductEmbedding
 from app.core.config import settings
-from google import genai
-from google.genai import types
-# app/services/embedding_service.py
-import numpy as np
+# Init
+nomic.login(settings.NOMIC_API_KEY)
 
-# Gemini client (official SDK)
-client = genai.Client(api_key=settings.GEMINI_API_KEY)
-
-EMBED_DIM = 768
+TEXT_MODEL = "nomic-embed-text-v1.5"
+VISION_MODEL = "nomic-embed-vision-v1.5"
+TASK_TYPE = "search_document"
+DIM = 768
 
 
-def generate_embedding(text: str) -> list[float]:
-    """
-    Generate a normalized 768-dim embedding using Gemini.
-    This is the ONLY low-level embedding function.
-    """
+def generate_text_embedding(text: str) -> list[float]:
     if not text or not text.strip():
-        return [0.0] * EMBED_DIM
+        return [0.0] * DIM
 
-    response = client.models.embed_content(
-        model="text-embedding-004",
-        contents=text,
-        config=types.EmbedContentConfig(
-            output_dimensionality=EMBED_DIM
-        ),
-    )
+    try:
+        res = embed.text(
+            texts=[text],
+            model=TEXT_MODEL,
+            task_type=TASK_TYPE,
+            dimensionality=DIM,
+        )
+        return res["embeddings"][0]
+    except Exception as e:
+        print(f"[TEXT EMBEDDING ERROR] {e}")
+        return [0.0] * DIM
 
-    values = np.array(response.embeddings[0].values, dtype=float)
-    norm = np.linalg.norm(values)
 
-    if norm == 0:
-        return values.tolist()
-
-    return (values / norm).tolist()
-
+def generate_image_embedding(image_url_or_path: str) -> list[float]:
+    try:
+        res = embed.image(
+            images=[image_url_or_path],
+            model=VISION_MODEL,
+        )
+        return res["embeddings"][0]
+    except Exception as e:
+        print(f"[IMAGE EMBEDDING ERROR] {e}")
+        return [0.0] * DIM
 
 def update_user_preference_summary(db: Session, user_id):
     """
-    Builds a rolling semantic profile of the user.
+    Builds a rolling semantic profile of the user based on recent events.
     """
-
+    # 1. Fetch last 50 significant events
     events = (
         db.query(Event)
         .filter(Event.user_id == user_id)
@@ -54,19 +58,22 @@ def update_user_preference_summary(db: Session, user_id):
     if not events:
         return
 
-    summary_text = " | ".join(
-        f"{e.event_type} {e.entity_type} {e.reason or ''}"
-        for e in events
-    )
+    # 2. Construct a narrative text for the user's intent
+    # e.g., "viewed Red Shirt | searched for 'Summer Wear' | added Blue Jeans to cart"
+    summary_parts = []
+    for e in events:
+        action = e.event_type.replace("_", " ")
+        entity = e.event_metadata_payload.get('product_name', 'item') if e.event_metadata_payload else 'item'
+        summary_parts.append(f"{action} {entity}")
+    
+    summary_text = " | ".join(summary_parts)
 
-    embedding = generate_embedding(summary_text)
+    # 3. Embed this narrative
+    embedding = generate_text_embedding(summary_text)
 
-    pref = (
-        db.query(UserPreferenceSummary)
-        .filter(UserPreferenceSummary.user_id == user_id)
-        .first()
-    )
-
+    # 4. Upsert into DB
+    pref = db.query(UserPreferenceSummary).filter(UserPreferenceSummary.user_id == user_id).first()
+    
     if pref:
         pref.summary_text = summary_text
         pref.embedding = embedding
@@ -78,6 +85,5 @@ def update_user_preference_summary(db: Session, user_id):
                 embedding=embedding,
             )
         )
-
+    
     db.commit()
-

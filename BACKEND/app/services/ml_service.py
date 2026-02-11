@@ -128,3 +128,45 @@ def get_collaborative_candidates(user_uuid: str, k=200):
     _, indices = torch.topk(scores, k=min(k, len(ITEM_MAP)))
     
     return [REVERSE_ITEM_MAP[idx.item()] for idx in indices]
+
+
+from app.models.models import OrderItem, ProductAffinity
+
+def build_affinity_graph(db: Session):
+    """
+    Populates the 'Often Bought Together' graph (product_affinities table).
+    Run this as a background task.
+    """
+    logger.info("🕸️ Building Product Affinity Graph...")
+    
+    # 1. Clear old Global affinities
+    db.query(ProductAffinity).filter(ProductAffinity.context_scope == 'global').delete()
+    
+    # 2. Compute Co-occurrences via Self-Join on OrderItems
+    # "Find pairs of items appearing in the same Order"
+    sql = text("""
+        INSERT INTO product_affinities (product_variant_id_a, product_variant_id_b, score, context_scope)
+        SELECT 
+            t1.product_variant_id, 
+            t2.product_variant_id, 
+            COUNT(*) / (SELECT COUNT(*) FROM orders)::numeric as score, -- Normalize score
+            'global'
+        FROM order_items t1
+        JOIN order_items t2 ON t1.order_id = t2.order_id
+        WHERE t1.product_variant_id != t2.product_variant_id
+        GROUP BY t1.product_variant_id, t2.product_variant_id
+        HAVING COUNT(*) > 1 -- Only significant pairs
+        ORDER BY score DESC;
+    """)
+    
+    db.execute(sql)
+    db.commit()
+    logger.info("✅ Affinity Graph Updated.")
+    
+    
+    
+def nightly_ml_jobs(db: Session):
+    from app.services.ml_service import train_collaborative_model, build_affinity_graph
+
+    train_collaborative_model(db)
+    build_affinity_graph(db)

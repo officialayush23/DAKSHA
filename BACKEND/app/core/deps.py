@@ -8,7 +8,7 @@ from app.core.database import SessionLocal
 from app.core.security import verify_supabase_jwt
 from app.core.auth import get_or_create_user
 from app.models.models import User
-from app.enums.db_enums import UserRoleEnum
+from app.enums.db_enums import UserRoleEnum, ChannelEnum
 
 
 def get_db():

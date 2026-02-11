@@ -34,5 +34,8 @@ def active(db: Session = Depends(get_db), user=Depends(get_current_user)):
 @router.post("/switch-channel")
 def switch(channel: ChannelEnum, db: Session = Depends(get_db), user=Depends(get_current_user)):
     session = get_active_session(db, user.id)
-    switch_channel(db, session, channel)
+    if not session:
+        session = start_session(db, user.id, channel)
+    else:
+        switch_channel(db, session, channel)
     return {"status": "ok"}

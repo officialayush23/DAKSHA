@@ -1,109 +1,86 @@
 # app/schemas/schemas.py
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, EmailStr
 from uuid import UUID
 from typing import Optional, List, Dict, Any
-from app.enums.db_enums import OrderStatusEnum, PickupStatusEnum,ChannelEnum,CheckoutStateEnum
 from datetime import datetime
+from decimal import Decimal
+from app.enums.db_enums import (
+    EntityTypeEnum, OrderStatusEnum, ChannelEnum, CheckoutStateEnum,
+    FulfillmentTypeEnum, ComplaintStatusEnum,
+    CouponTypeEnum, CouponScopeEnum, OrderChangeTypeEnum,
+    DeliveryChannelEnum, EngagementStateEnum
+)
 
+class BaseSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
 
-# ---------------- PRODUCTS ----------------
-class UserProfileUpdate(BaseModel):
-    name: Optional[str]
-    phone: Optional[str]
-    gender: Optional[str]
-class AddressLocationPatch(BaseModel):
-    lat: float
-    lng: float
+# --- USER & PREFERENCES ---
+class UserProfileUpdate(BaseSchema):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    gender: Optional[str] = None
 
-class ProductCreate(BaseModel):
+class UserPreferencesUpdate(BaseSchema):
+    preferred_categories: Optional[List[str]] = None
+    excluded_categories: Optional[List[str]] = None
+    preferred_price_min: Optional[Decimal] = None
+    preferred_price_max: Optional[Decimal] = None
+    preferred_fulfillment: Optional[FulfillmentTypeEnum] = None
+    min_acceptable_rating: Optional[Decimal] = None
+    preferred_sizes: Optional[List[str]] = None
+    preferred_colors: Optional[List[str]] = None
+
+class UserRegisterPayload(BaseSchema):
+    name: str
+    phone: Optional[str] = None
+    email: Optional[EmailStr] = None
+
+# --- PRODUCT ---
+class ProductCreate(BaseSchema):
     brand: str
     category: str
     name: str
-    gender: Optional[str]
-    fabric_type: Optional[str]
-    description: Optional[str]
-    occasion: Optional[str]
-
-class ProductUpdate(BaseModel):
-    name: Optional[str] = None
-    brand: Optional[str] = None
-    category: Optional[str] = None
     gender: Optional[str] = None
     fabric_type: Optional[str] = None
     description: Optional[str] = None
     occasion: Optional[str] = None
-    active: Optional[bool] = None
 
-
-class KioskCreate(BaseModel):
-    store_id: UUID
-    name: str
-class VariantCreate(BaseModel):
+class VariantCreate(BaseSchema):
     product_id: UUID
     sku: str
     color: str
     size: str
     base_price: float
 
-class VariantUpdate(BaseModel):
-    color: Optional[str]
-    size: Optional[str]
-    base_price: Optional[float]
-    active: Optional[bool]
+class VariantUpdate(BaseSchema):
+    color: Optional[str] = None
+    size: Optional[str] = None
+    base_price: Optional[float] = None
+    active: Optional[bool] = None
 
-class VariantImageCreate(BaseModel):
-    image_url: str
-    position: int
-
-# ---------------- STORES ----------------
-class RecommendedVariant(BaseModel):
-    variant_id: UUID
-    product_id: UUID
-    price: float
-    discounted_price: float | None
-    reason: str
-    rank: int
-class StoreCreate(BaseModel):
-    name: str
-    city: str
-    state: str
-    address: str
-    location: Dict[str, Any]  # GeoJSON Point
-
-class StoreUpdate(BaseModel):
-    name: Optional[str]
-    city: Optional[str]
-    state: Optional[str]
-    address: Optional[str]
-    active: Optional[bool]
-    location: Optional[Dict[str, Any]]
-    
-    
-    
-
-class StoreResponse(BaseModel):
-    id: UUID
+# --- STORES ---
+class StoreCreate(BaseSchema):
     name: str
     city: str
     state: str
     address: str
     location: Dict[str, Any]
+from pydantic import field_validator
+from app.utils.geo import serialize_point
 
-    class Config:
-        orm_mode = True
+class StoreResponse(BaseSchema):
+    id: UUID
+    name: str
+    location: List[float]
 
-
-# ---------------- INVENTORY ----------------
-
-class AssignGlobalInventory(BaseModel):
-    product_variant_id: UUID
-    quantity: int
-class KioskLoginRequest(BaseModel):
+    @field_validator("location", mode="before")
+    def parse_location(cls, v):
+        return serialize_point(v)
+class KioskLoginRequest(BaseSchema):
     phone: str
     kiosk_id: UUID
 
-
-class KioskLoginResponse(BaseModel):
+class KioskLoginResponse(BaseSchema):
     user_id: UUID
     session_id: UUID
     kiosk_id: UUID
@@ -111,178 +88,276 @@ class KioskLoginResponse(BaseModel):
     primary_channel: ChannelEnum
     active_channel: ChannelEnum
 
-class AssignStoreInventory(BaseModel):
+# --- INVENTORY ---
+class AssignStoreInventory(BaseSchema):
     store_id: UUID
     product_variant_id: UUID
     quantity: int
 
-# ---------------- PICKUPS ----------------
+class InventoryCheckResponse(BaseSchema):
+    variant_id: UUID
+    store_id: UUID
+    available: bool
+    quantity: int
+    reserved: int
 
-class PickupStatusUpdate(BaseModel):
-    status: PickupStatusEnum
-    
-# --- COMPLAINTS SCHEMAS (Added) ---
-class ComplaintCreate(BaseModel):
+# --- COUPONS ---
+class CouponCreate(BaseSchema):
+    code: str
+    coupon_type: CouponTypeEnum
+    value: float
+    scope: CouponScopeEnum
+    scope_value: Optional[str] = None
+    min_order_value: Optional[float] = None
+    max_discount: Optional[float] = None
+    valid_to: Optional[datetime] = None
+
+class CouponApplyRequest(BaseSchema):
+    code: str
+    cart_id: UUID
+
+# --- CART & ORDER ---
+class CartItemAdd(BaseSchema):
+    product_variant_id: UUID
+    quantity: int
+
+class OrderCreate(BaseSchema):
     user_id: UUID
-    order_id: Optional[UUID]
-    session_id: Optional[UUID]
+    fulfillment_type: FulfillmentTypeEnum
+    store_id: Optional[UUID] = None
+    delivery_address: Optional[str] = None
+
+class OrderStatusUpdate(BaseSchema):
+    status: OrderStatusEnum
+    description: Optional[str] = None
+
+class OrderChangeRequestCreate(BaseSchema):
+    order_id: UUID
+    change_type: OrderChangeTypeEnum
+    change_payload: Dict[str, Any]
+
+# --- CHECKOUT ---
+class CheckoutStartResponse(BaseSchema):
+    checkout_id: UUID
+    state: CheckoutStateEnum
+    reserved_until: Optional[datetime]
+
+class CheckoutIntrospection(BaseSchema):
+    checkout_id: UUID
+    state: CheckoutStateEnum
+    locked_price: Optional[float]
+    payment_attempts: int
+    last_error: Optional[str]
+
+# --- COMPLAINTS ---
+class ComplaintCreate(BaseSchema):
+    user_id: UUID
+    order_id: Optional[UUID] = None
+    session_id: Optional[UUID] = None
     category: str
     description: str
 
-class ComplaintStatusUpdate(BaseModel):
-    status: str
-    resolution_notes: Optional[str]
+class ComplaintStatusUpdate(BaseSchema):
+    status: ComplaintStatusEnum
+    resolution_notes: Optional[str] = None
 
-# --- OFFERS (Refined) ---
-class OfferCreate(BaseModel):
-    name: str
-    min_cart_value: float
-    max_discount_amount: float
-    discount_type: str
-    discount_value: float
-    eligible_category: Optional[str]
-    stackable: bool
-    valid_from: str # ISO Date string
-    valid_to: str   # ISO Date string
-    active: bool
+# --- AGENT OBSERVABILITY ---
+class EngagementEventTrack(BaseSchema):
+    user_id: UUID
+    entity_type: EntityTypeEnum
+    entity_id: UUID
+    channel: DeliveryChannelEnum
+    state: EngagementStateEnum
+    metadata: Optional[Dict[str, Any]] = None
 
-class OfferUpdate(OfferCreate):
-    pass
+class AgentRunLog(BaseSchema):
+    session_id: UUID
+    agent_name: str
+    agent_role: str
+    trigger_event: str
+    confidence: float
+    metadata: Optional[Dict[str, Any]] = None
 
-# ---------------- DELIVERY ----------------
+class DecisionRecordLog(BaseSchema):
+    agent_run_id: UUID
+    decision_type: str
+    decision_output: Dict[str, Any]
+    confidence: float
+    rationale: str
 
-class OrderStatusUpdate(BaseModel):
-    status: OrderStatusEnum
-    description: Optional[str]
+# --- MESSAGING ---
+class OutboundMessageCreate(BaseSchema):
+    user_id: UUID
+    channel: DeliveryChannelEnum
+    message_type: str
+    content: str
+    engagement_event_id: Optional[UUID] = None
 
-# ---------------- COMPLAINTS ----------------
+# --- ANALYTICS ---
+class RecommendedVariant(BaseSchema):
+    variant_id: UUID
+    product_id: UUID
+    price: float
+    discounted_price: Optional[float] = None
+    reason: str
+    rank: int
 
-class ComplaintStatusUpdate(BaseModel):
-    status: str
-    resolution_notes: Optional[str]
-
-# ---------- ADDRESSES ----------
-
-class AddressCreate(BaseModel):
-    label: str
-    address_line1: str
-    address_line2: Optional[str]
-    city: str
-    state: str
-    pincode: str
-    country: Optional[str] = "India"
-    location: Optional[Dict[str, Any]]  # GeoJSON Point
-    is_default: bool = False
-
-
-class AddressUpdate(BaseModel):
-    label: Optional[str]
-    address_line1: Optional[str]
-    address_line2: Optional[str]
-    city: Optional[str]
-    state: Optional[str]
-    pincode: Optional[str]
-    country: Optional[str]
-    location: Optional[Dict[str, Any]]
-    is_default: Optional[bool]
-
-
-# ---------- WISHLIST ----------
-
-class WishlistAdd(BaseModel):
-    product_variant_id: UUID
-
-
-# ---------- CART ----------
-
-class CartItemAdd(BaseModel):
-    product_variant_id: UUID
-    quantity: int
-
-
-class CartItemUpdate(BaseModel):
-    quantity: int
-
-
-# ---------- SEARCH ----------
-
-class SearchQuery(BaseModel):
-    query: str
-    channel: str  # web/app/kiosk/whatsapp
-    
-    
-class ReviewCreate(BaseModel):
+class ReviewCreate(BaseSchema):
     product_id: UUID
     rating: int
     comment: Optional[str] = None
     images: Optional[List[str]] = []
 
-class ReviewResponse(BaseModel):
+class ReviewResponse(BaseSchema):
     id: UUID
-    user_name: str
+    user_name: Optional[str] = "Anonymous"
     rating: int
     comment: Optional[str]
     created_at: datetime
     
     
-class LoyaltyEarn(BaseModel):
-    order_id: UUID
+    
+from app.enums.db_enums import LoyaltyTransactionTypeEnum
+class LocationInput(BaseModel):
+    coordinates: List[float] # [longitude, latitude]
+
+class AddressCreate(BaseSchema):
+    name: str
+    phone: str
+    address_line: str
+    city: str
+    state: str
+    pincode: str
+    type: Optional[str] = "home"
+    is_default: Optional[bool] = False
+    location: Optional[LocationInput] = None
+# --- NEW: LOYALTY ---
+class LoyaltyLedgerSchema(BaseSchema):
+    id: UUID
+    transaction_type: LoyaltyTransactionTypeEnum
     points: int
+    balance_snapshot: Optional[int]
+    reference_note: Optional[str]
+    created_at: datetime
 
+# --- NEW: PERSONALIZED OFFERS ---
+class PersonalizedOfferSchema(BaseSchema):
+    id: UUID
+    offer_name: Optional[str]
+    discount_value: float
+    discount_type: CouponTypeEnum
+    expires_at: datetime
+    is_redeemed: bool
 
-class ShipmentCreate(BaseModel):
-    order_id: UUID
-    carrier: str
-    tracking_number: str
-    estimated_delivery: datetime
+# --- NEW: AGENT HANDOFF ---
+class AgentHandoffCreate(BaseSchema):
+    session_id: UUID
+    reason: str
+    summary: str
+    from_agent_name: str
+    
+    
+class AddressUpdate(BaseSchema):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    address_line: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    type: Optional[str] = None
+    is_default: Optional[bool] = None
+    location: Optional[LocationInput] = None
 
-class ReturnCreate(BaseModel):
-    order_id: UUID
+class AddressLocationPatch(BaseSchema):
+    lat: float
+    lng: float
+
+# --- SEARCH SCHEMA ---
+class SearchQuery(BaseSchema):
+    query: str
+    channel: ChannelEnum = ChannelEnum.web
+
+# --- WISHLIST SCHEMA ---
+class WishlistAdd(BaseSchema):
+    product_variant_id: UUID
+
+class CartItemUpdate(BaseSchema):
+    quantity: int
+
+class CardCreate(BaseSchema):
+    card_brand: str # Use Enum in real app
+    card_last4: str
+    token: str
+    card_name: Optional[str] = None
+    is_default: bool = False
+    
+    
+class AssignGlobalInventory(BaseSchema):
     product_variant_id: UUID
     quantity: int
-    reason: str
-
-class ExchangeCreate(BaseModel):
-    order_id: UUID
-    old_variant_id: UUID
-    new_variant_id: UUID
-class PersonalizedOffer(BaseModel):
-    variant_id: UUID
-    discount_percent: int
-    reason: str
-class UserRegisterPayload(BaseModel):
-    name: str
-    phone: Optional[str] = None
-
-from app.enums.db_enums import ChannelEnum
-
-class SessionStartResponse(BaseModel):
-    session_id: UUID
-    primary_channel: ChannelEnum
-    active_channel: ChannelEnum
-    started_at: datetime
-
-class SessionActiveResponse(SessionStartResponse):
-    pass
-
-from app.enums.db_enums import CheckoutStateEnum
-
-class CheckoutStartResponse(BaseModel):
-    checkout_id: UUID
-    state: CheckoutStateEnum
-    reserved_until: Optional[datetime]
-
-class CheckoutIntrospection(BaseModel):
-    checkout_id: UUID
-    state: CheckoutStateEnum
-    locked_price: Optional[float]
-    reserved_until: Optional[datetime]
-    payment_attempts: int
-    last_error: Optional[str]
     
-from app.enums.db_enums import OrderStatusEnum
+class KioskCreate(BaseSchema):
+    store_id: UUID
+    name: str
+
+class PickupStatusUpdate(BaseSchema):
+    status: str
+    scheduled_time: Optional[datetime] = None
+
+class ReturnDecision(BaseSchema):
+    approved: bool
+    reason: str
+
+class ExchangeDecision(BaseSchema):
+    approved: bool
+    reason: str
+
+class PickupStatusUpdate(BaseSchema):
+    status: str
+    scheduled_time: Optional[datetime] = None
+class AdminReason(BaseSchema):
+    reason: str
+class AdminUserListItem(BaseSchema):
+    id: UUID
+    name: Optional[str]
+    email: Optional[str]
+    phone: Optional[str]
+    created_at: datetime
 
 
-class UpdateDeliveryStatusRequest(BaseModel):
-    status: OrderStatusEnum
+# app/schemas/schemas.py
+
+class VariantCreateNested(BaseSchema):
+    sku: str
+    color: str
+    size: str
+    base_price: float
+
+class ProductCreate(BaseSchema):
+    brand: str
+    category: str
+    name: str
+    gender: Optional[str] = None
+    fabric_type: Optional[str] = None
     description: Optional[str] = None
+    occasion: Optional[str] = None
+
+    # NEW
+    variants: List[VariantCreateNested] = []
+
+
+class AgentInventoryView(BaseSchema):
+    product_name: str
+    variant_sku: str
+
+    global_stock_available: bool
+    local_store_id: Optional[UUID]
+    local_stock_available: bool
+
+    alternative_stores: List[UUID]
+class SessionContext(BaseSchema):
+    current_intent: Optional[str] = None
+    detected_constraints: Dict[str, Any] = {}
+    last_product_viewed: Optional[UUID] = None
+    funnel_stage: Optional[str] = None
+    confidence: Optional[float] = None
