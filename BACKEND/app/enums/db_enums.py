@@ -198,13 +198,20 @@ class DeliveryChannelEnum(str, Enum):
     email = "email"
 
 class EngagementStateEnum(str, Enum):
+    pending = "pending"
     sent = "sent"
+    failed = "failed"
     unopened = "unopened"
     opened = "opened"
     clicked = "clicked"
     ignored = "ignored"
     dismissed = "dismissed"
     converted = "converted"
+class OutboundMessageStatusEnum(str, Enum):
+    pending = "pending"   # created, not yet sent
+    sent = "sent"         # provider accepted / delivered
+    failed = "failed"     # provider rejected / network error
+
 
 class FollowupReasonEnum(str, Enum):
     no_open = "no_open"

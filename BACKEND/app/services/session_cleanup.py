@@ -5,7 +5,7 @@ from app.models.models import UserSession
 
 # Constants matching your Postgres Cron Job
 SESSION_TTL_ANON_HOURS = 24
-SESSION_TTL_AUTH_HOURS = 168  # 7 days
+  # 7 days
 
 def expire_sessions(db: Session):
     """
@@ -20,14 +20,6 @@ def expire_sessions(db: Session):
         UserSession.ended_at.is_(None),
         UserSession.user_id.is_(None),
         UserSession.started_at < anon_cutoff
-    ).update({UserSession.ended_at: now}, synchronize_session=False)
-
-    # 2. Expire Authenticated Sessions > 7 days
-    auth_cutoff = now - timedelta(hours=SESSION_TTL_AUTH_HOURS)
-    db.query(UserSession).filter(
-        UserSession.ended_at.is_(None),
-        UserSession.user_id.is_not(None),
-        UserSession.started_at < auth_cutoff
     ).update({UserSession.ended_at: now}, synchronize_session=False)
 
     db.commit()

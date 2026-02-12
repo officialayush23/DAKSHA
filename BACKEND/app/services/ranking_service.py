@@ -3,7 +3,8 @@
 
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from app.services.embedding_service import generate_embedding
+from app.services.embedding_service import generate_text_embedding
+
 
 # NOTE:
 # Collaborative filtering is used at recall-time (candidate generation).
@@ -23,7 +24,7 @@ def rank_candidates(
     # 1. Intent Vector (Python-side, NOT SQL-side)
     # --------------------------------------------------
     intent_vector = (
-        generate_embedding(intent_text)
+        generate_text_embedding(intent_text)
         if intent_text
         else [0.0] * 768
     )

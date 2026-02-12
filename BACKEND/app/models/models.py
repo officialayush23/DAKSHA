@@ -1,12 +1,13 @@
-# app/models/modeles.py
+# app/models/models.py
 import uuid
 from datetime import datetime, time
 from typing import List, Optional, Dict, Any
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     String, Boolean, ForeignKey, Numeric, Integer, Text, DateTime,
-    ARRAY, UniqueConstraint, Index, func
+    ARRAY, UniqueConstraint, Index, func, PrimaryKeyConstraint
 )
+
 from sqlalchemy.dialects.postgresql import UUID, JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship, DeclarativeBase
 from pgvector.sqlalchemy import Vector
@@ -30,10 +31,11 @@ class User(Base):
     loyalty_tier: Mapped[Optional[str]]
     role: Mapped[db_enums.UserRoleEnum] = mapped_column(default=db_enums.UserRoleEnum.user)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+   
+
     loyalty_history: Mapped[List["LoyaltyLedger"]] = relationship(back_populates="user")
     personalized_offers: Mapped[List["UserPersonalizedOffer"]] = relationship(back_populates="user")
     agent_handoffs: Mapped[List["AgentHandoff"]] = relationship(back_populates="user")
-
     sessions: Mapped[List["UserSession"]] = relationship(back_populates="user")
     orders: Mapped[List["Order"]] = relationship(back_populates="user")
     carts: Mapped[List["Cart"]] = relationship(back_populates="user")
@@ -42,7 +44,16 @@ class User(Base):
     wishlist: Mapped[List["UserWishlist"]] = relationship(back_populates="user")
     behavior: Mapped[Optional["UserBehaviorAggregate"]] = relationship(back_populates="user")
     addresses: Mapped[List["UserAddress"]] = relationship(back_populates="user")
-
+    telegram_info: Mapped[Optional["TelegramUser"]] = relationship(back_populates="user")
+class TelegramUser(Base):
+    __tablename__ = "telegram_users"
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    chat_id: Mapped[str] = mapped_column(unique=True)
+    username: Mapped[Optional[str]]
+    opt_in: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    
+    user: Mapped["User"] = relationship(back_populates="telegram_info")
 class UserCard(Base):
     __tablename__ = "user_cards"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -53,13 +64,8 @@ class UserCard(Base):
     card_name: Mapped[Optional[str]]
     is_default: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
     user: Mapped["User"] = relationship(back_populates="cards")
-    
-    # FIX: Use Index for partial uniqueness instead of UniqueConstraint to avoid where-clause errors
-    __table_args__ = (
-        Index("one_default_card_per_user", "user_id", unique=True, postgresql_where=(is_default == True)),
-    )
+    __table_args__ = (Index("one_default_card_per_user", "user_id", unique=True, postgresql_where=(is_default == True)),)
 
 class UserPreferences(Base):
     __tablename__ = "user_preferences"
@@ -74,7 +80,6 @@ class UserPreferences(Base):
     preferred_colors: Mapped[Optional[List[str]]] = mapped_column(ARRAY(Text))
     updated_by: Mapped[Optional[str]]
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    
     user: Mapped["User"] = relationship(back_populates="preferences")
 
 class UserBehaviorAggregate(Base):
@@ -85,9 +90,7 @@ class UserBehaviorAggregate(Base):
     most_common_size: Mapped[Optional[str]]
     most_common_color: Mapped[Optional[str]]
     last_computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
     user: Mapped["User"] = relationship(back_populates="behavior")
-
 class UserWishlist(Base):
     __tablename__ = "user_wishlist"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -125,6 +128,10 @@ class UserSession(Base):
     summary: Mapped[Optional["ConversationSummary"]] = relationship(back_populates="session")
     checkouts: Mapped[List["CheckoutSession"]] = relationship(back_populates="session")
     events: Mapped[List["Event"]] = relationship(back_populates="session")
+    context: Mapped[Dict[str, Any]] = mapped_column(
+    JSONB,
+    default=dict
+)
 
 class Conversation(Base):
     __tablename__ = "conversations"
@@ -327,7 +334,14 @@ class Order(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     fulfillment_type: Mapped[Optional[db_enums.FulfillmentTypeEnum]]
     store_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("stores.id"))
+    delivery_address_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    ForeignKey("user_addresses.id")
+)
     delivery_address: Mapped[Optional[str]] = mapped_column(Text)
+    agent_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("agent_runs.id")
+    )
+
     order_status: Mapped[Optional[db_enums.OrderStatusEnum]]
     mutability_state: Mapped[db_enums.OrderMutabilityEnum] = mapped_column(default=db_enums.OrderMutabilityEnum.mutable)
     total_amount: Mapped[Optional[float]] = mapped_column(Numeric)
@@ -405,6 +419,9 @@ class Payment(Base):
     failure_reason: Mapped[Optional[str]] = mapped_column(Text)
     idempotency_key: Mapped[Optional[str]]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    agent_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("agent_runs.id")
+    )
     
     order: Mapped["Order"] = relationship(back_populates="payment")
     __table_args__ = (UniqueConstraint("checkout_id", "idempotency_key", name="uq_payment_idempotency"),)
@@ -439,7 +456,6 @@ class Shipment(Base):
     status: Mapped[db_enums.ShipmentStatusEnum]
     estimated_delivery: Mapped[Optional[datetime]]
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    
     order: Mapped["Order"] = relationship(back_populates="shipment")
 
 class Return(Base):
@@ -451,6 +467,9 @@ class Return(Base):
     reason: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[db_enums.ReturnStatusEnum]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    agent_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("agent_runs.id")
+    )
 
 class Exchange(Base):
     __tablename__ = "exchanges"
@@ -460,6 +479,9 @@ class Exchange(Base):
     new_variant_id: Mapped[uuid.UUID]
     status: Mapped[db_enums.ExchangeStatusEnum]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    agent_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("agent_runs.id")
+    )
 
 class Complaint(Base):
     __tablename__ = "complaints"
@@ -504,6 +526,7 @@ class CouponRedemption(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orders.id"))
     redeemed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    coupon: Mapped["Coupon"] = relationship()
     __table_args__ = (UniqueConstraint("coupon_id", "order_id"),)
 
 class Event(Base):
@@ -519,29 +542,39 @@ class Event(Base):
     price: Mapped[Optional[float]] = mapped_column(Numeric)
     anonymous_id: Mapped[Optional[uuid.UUID]]
     # FIX: Renamed attribute to prevent collision with SQLAlchemy 'metadata'
-    event_metadata_payload: Mapped[Optional[Dict[str, Any]]] = mapped_column("event_metadata", JSONB)
+    event_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column("event_metadata", JSONB)
     
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     session: Mapped["UserSession"] = relationship(back_populates="events")
 
 class UserEngagementEvent(Base):
     __tablename__ = "user_engagement_events"
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+
     user_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
     session_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("sessions.id"))
+
     entity_type: Mapped[db_enums.EntityTypeEnum]
     entity_id: Mapped[uuid.UUID]
+
     channel: Mapped[db_enums.DeliveryChannelEnum]
     feed: Mapped[Optional[db_enums.RecommendationFeedEnum]]
+
     state: Mapped[db_enums.EngagementStateEnum]
-    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     opened_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     interacted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
     agent_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("agent_runs.id"))
     decision_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("decision_records.id"))
-    
-    # FIX: Renamed attribute to prevent collision with SQLAlchemy 'metadata'
-    event_metadata_data: Mapped[Optional[Dict[str, Any]]] = mapped_column("metadata", JSONB)
+
+    event_metadata_data: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        "metadata", JSONB
+    )
 
 class EngagementFollowup(Base):
     __tablename__ = "engagement_followups"
@@ -556,17 +589,29 @@ class EngagementFollowup(Base):
 
 class OutboundMessage(Base):
     __tablename__ = "outbound_messages"
-    session_id: Optional[UUID] = None
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     session_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("sessions.id"))
+
     channel: Mapped[db_enums.DeliveryChannelEnum]
+
     external_message_id: Mapped[Optional[str]]
-    engagement_event_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("user_engagement_events.id"))
+
+    engagement_event_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("user_engagement_events.id")
+    )
+
     message_type: Mapped[Optional[str]]
     content: Mapped[Optional[str]] = mapped_column(Text)
-    status: Mapped[Optional[str]]
-    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    status: Mapped[db_enums.OutboundMessageStatusEnum]
+
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
 
 class AgentRun(Base):
     __tablename__ = "agent_runs"
@@ -620,10 +665,17 @@ class RecommendationImpression(Base):
 
 class RecommendationOutcome(Base):
     __tablename__ = "recommendation_outcomes"
-    impression_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+
+    impression_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("recommendation_impressions.id"),
+        primary_key=True
+    )
     outcome_type: Mapped[Optional[str]]
     reward: Mapped[Optional[float]] = mapped_column(Numeric)
-    occurred_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
 
 class TrainingSignal(Base):
     __tablename__ = "training_signals"
@@ -634,6 +686,10 @@ class TrainingSignal(Base):
     signal_strength: Mapped[Optional[float]] = mapped_column(Numeric)
     source: Mapped[Optional[str]]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    impression_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    ForeignKey("recommendation_impressions.id")
+)
+
 
 class ProductSalesFact(Base):
     __tablename__ = "product_sales_facts"
@@ -658,23 +714,48 @@ class ProductMonthlyStat(Base):
     net_revenue: Mapped[Optional[float]] = mapped_column(Numeric)
     order_count: Mapped[Optional[int]]
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
 class TrendingProduct(Base):
     __tablename__ = "trending_products"
-    scope: Mapped[db_enums.TrendingScopeEnum] = mapped_column(primary_key=True)
-    scope_value: Mapped[str] = mapped_column(primary_key=True)
-    product_variant_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
-    rank_position: Mapped[int] = mapped_column(primary_key=True)
+
+    scope: Mapped[db_enums.TrendingScopeEnum] = mapped_column()
+    scope_value: Mapped[str] = mapped_column()
+    product_variant_id: Mapped[uuid.UUID] = mapped_column()
+
+    rank_position: Mapped[int]
     trending_score: Mapped[float] = mapped_column(Numeric)
+
     year: Mapped[int]
     month: Mapped[int]
-    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
     variant: Mapped["ProductVariant"] = relationship(
         "ProductVariant",
         foreign_keys=[product_variant_id],
         lazy="joined",
     )
 
+    __table_args__ = (
+        PrimaryKeyConstraint(
+    "scope",
+    "scope_value",
+    "product_variant_id",
+    "year",
+    "month",
+    name="pk_trending_products",
+)
+,
+    )
+
+class UserPreferenceSummary(Base):
+    __tablename__ = "user_preference_summary"
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    summary_text: Mapped[Optional[str]] = mapped_column(Text)
+    embedding: Mapped[List[float]] = mapped_column(Vector(768))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 class ModelTrainingRun(Base):
     __tablename__ = "model_training_runs"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

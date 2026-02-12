@@ -3,7 +3,7 @@ import os
 import nomic
 from nomic import embed
 from sqlalchemy.orm import Session
-from app.models.models import UserPreferenceSummary, Event, ProductVariant, ProductEmbedding
+from app.models.models import UserPreferenceSummary, Event, ProductVariant, ProductMultimodalEmbedding
 from app.core.config import settings
 # Init
 nomic.login(settings.NOMIC_API_KEY)
