@@ -3,7 +3,6 @@
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
-
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, desc
 from shapely.geometry import shape
@@ -25,8 +24,6 @@ from app.models.models import (
     OrderStatusHistory,
     Coupon,
     CouponEmbedding,
-    UserPersonalizedOffer,
-    UserPersonalizedOfferEmbedding,
     OutboundMessage,
     AgentHandoff,
     AgentRun,
@@ -50,14 +47,29 @@ from app.services.coupon_embedding_service import upsert_coupon_embedding
 # ADMIN AUDIT + AGENT LOGGING (MANDATORY)
 # =========================================================
 
-def admin_audit_log(db: Session, *, admin_id: Optional[uuid.UUID], action: str, entity_type: str, entity_id: Optional[uuid.UUID], reason: str, source: str = "admin"):
-    """Immutable log of who did what and why."""
-    db.add(DecisionRecord(
-        user_id=admin_id,
-        decision_type=action,
-        decision_output={"entity_type": entity_type, "entity_id": str(entity_id), "source": source},
-        rationale=reason,
-    ))
+
+def admin_audit_log(
+    db: Session,
+    *,
+    admin_id: Optional[uuid.UUID],
+    action: str,
+    entity_type: str,
+    entity_id: Optional[uuid.UUID],
+    reason: str,
+    source: str = "admin",
+):
+    db.add(
+        DecisionRecord(
+            user_id=admin_id,
+            decision_type=action,
+            decision_output={
+                "entity_type": entity_type,
+                "entity_id": str(entity_id),
+                "source": source,
+            },
+            rationale=reason,
+        )
+    )
 
 def log_agent_action(
     db: Session,
@@ -228,6 +240,11 @@ def delete_variant(db: Session, variant_id, admin_id, reason: str):
 # =========================================================
 # INVENTORY (GLOBAL + STORE ALLOCATION)
 # =========================================================
+def assert_global_inventory_consistency(inv: GlobalInventory):
+    if inv.assigned_stock < 0 or inv.reserved_stock < 0:
+        raise ValueError("Inventory cannot go negative")
+    if inv.assigned_stock + inv.reserved_stock != inv.total_stock:
+        raise ValueError("GlobalInventory invariant violated")
 
 # =========================================================
 # 2. INVENTORY & STORES
@@ -243,6 +260,7 @@ def assign_global_inventory(db: Session, payload, admin_id, reason: str):
         inv.reserved_stock += payload.quantity
     
     admin_audit_log(db, admin_id=admin_id, action="assign_global_inventory", entity_type="global_inventory", entity_id=payload.product_variant_id, reason=reason)
+    assert_global_inventory_consistency(inv)
     db.commit()
     return inv
 
@@ -271,6 +289,8 @@ def assign_store_inventory(db: Session, payload, admin_id, reason: str):
 
     global_inv.reserved_stock -= payload.quantity
     global_inv.assigned_stock += payload.quantity
+
+    assert_global_inventory_consistency(global_inv)
 
     admin_audit_log(
         db,
@@ -423,37 +443,6 @@ def update_order_status(db: Session, order_id: uuid.UUID, payload, admin_id, rea
     db.commit()
     return order
 
-# =========================================================
-# COUPONS (GLOBAL + PERSONALIZED + EMBEDDINGS)
-# =========================================================
-
-
-def create_personalized_coupon(
-    db: Session,
-    payload,
-    admin_id,
-    reason: str,
-):
-    offer = UserPersonalizedOffer(**payload.dict())
-    db.add(offer)
-    db.commit()
-    db.refresh(offer)
-
-    emb = generate_text_embedding(
-        f"{offer.offer_name} {offer.discount_type} {offer.discount_value} {offer.condition_text}"
-    )
-    db.add(UserPersonalizedOfferEmbedding(offer_id=offer.id, embedding=emb))
-
-    admin_audit_log(
-        db,
-        admin_id=admin_id,
-        action="create_personalized_coupon",
-        entity_type="user_personalized_offer",
-        entity_id=offer.id,
-        reason=reason,
-    )
-    db.commit()
-    return offer
 
 
 # =========================================================
@@ -511,7 +500,9 @@ def trigger_model_training(
     return run
 
 def apply_active_discount_rules(db: Session, variant: ProductVariant):
-    now = func.now()
+    
+    now = datetime.utcnow()
+
 
     rules = (
         db.query(ProductDiscountRule)
@@ -536,14 +527,16 @@ def apply_active_discount_rules(db: Session, variant: ProductVariant):
     if not applicable:
         return None
 
-    best = max(applicable, key=lambda r: r.value)
+    best = max(applicable, key=lambda r: float(r.value))
 
-    if best.discount_type == CouponTypeEnum.percent:
+    if best.discount_type == CouponTypeEnum.percentage:
         discount_percent = best.value
-        display_price = variant.base_price * (1 - best.value / 100)
+        display_price = variant.base_price * (1 - float(best.value) / 100)
+
     else:
         discount_percent = None
-        display_price = max(variant.base_price - best.value, 0)
+        display_price = max(variant.base_price - float(best.value), 0)
+
 
     snapshot = ProductPriceSnapshot(
         product_variant_id=variant.id,
@@ -556,6 +549,7 @@ def apply_active_discount_rules(db: Session, variant: ProductVariant):
     db.merge(snapshot)
     db.commit()
     return snapshot
+
 def list_all_discount_rules(db: Session): 
     return db.query(ProductDiscountRule).order_by(ProductDiscountRule.created_at.desc()).all()
 

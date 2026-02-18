@@ -1,5 +1,5 @@
 # app/api/routers/admin_user.py
-from BACKEND.app.schemas.schemas import ComplaintStatusUpdate, OrderStatusUpdate, PickupStatusUpdate
+from app.schemas.schemas import ComplaintStatusUpdate, OrderStatusUpdate, PickupStatusUpdate
 from fastapi import APIRouter, Depends, Query
 from datetime import datetime
 from sqlalchemy.orm import Session

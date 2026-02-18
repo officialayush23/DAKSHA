@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text, func, desc
 from app.services.embedding_service import generate_text_embedding
 from app.services.impression_service import log_impressions
-from app.services.offer_service import attach_offers_to_products
 from app.models.models import ProductVariant, Product, UserPreferenceSummary
+from app.services.pricing_service import resolve_variant_price
 
 def get_hybrid_recommendations(
     db: Session, 
@@ -61,19 +61,21 @@ def get_hybrid_recommendations(
         variant = db.query(ProductVariant).get(c['id'])
         if not variant: continue
         
+        price = resolve_variant_price(db, variant)
+
         final_results.append({
             "variant_id": variant.id,
+            "product_id": variant.product_id,
             "name": variant.product.name,
-            "price": float(variant.base_price),
-            "score": float(c['score']) if c.get('score') else 0.0,
-            "reason": c['reason']
+            "brand": variant.product.brand,
+            "category": variant.product.category,
+            "base_price": price["base_price"],
+            "final_price": price["final_price"],
+            "offer_name": price["offer_name"],
+            "score": float(c.get("score", 0.0)),
+            "reason": c["reason"],
         })
 
-    # 4. Attach Prices
-    final_results = attach_offers_to_products(db, final_results)
-
-    # 5. Log
-    log_impressions(db, user_id, final_results, "hybrid", session_id)
     
     return final_results[:limit]
 

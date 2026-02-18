@@ -194,7 +194,6 @@ def get_user_pickups(db: Session, user_id: uuid.UUID):
         .order_by(Pickup.updated_at.desc())
         .all()
     )
-
 def admin_update_user_complaint(
     db: Session,
     complaint_id: uuid.UUID,
@@ -203,10 +202,10 @@ def admin_update_user_complaint(
     reason: str,
 ):
     complaint = db.get(Complaint, complaint_id)
-
     if not complaint:
         return None
 
+    old_status = complaint.status
     complaint.status = status
 
     db.add(
@@ -215,14 +214,17 @@ def admin_update_user_complaint(
             decision_type="admin_update_complaint",
             decision_output={
                 "complaint_id": str(complaint_id),
-                "new_status": status,
+                "old_status": str(old_status),
+                "new_status": str(status),
                 "actor_type": "admin",
             },
             rationale=reason,
         )
     )
+
     db.commit()
     return complaint
+
 def admin_update_user_order_status(
     db: Session,
     order_id: uuid.UUID,

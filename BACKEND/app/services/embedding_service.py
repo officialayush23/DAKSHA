@@ -63,7 +63,7 @@ def update_user_preference_summary(db: Session, user_id):
     summary_parts = []
     for e in events:
         action = e.event_type.replace("_", " ")
-        entity = e.event_metadata_payload.get('product_name', 'item') if e.event_metadata_payload else 'item'
+        entity = e.event_metadata.get('product_name', 'item') if e.event_metadata else 'item'
         summary_parts.append(f"{action} {entity}")
     
     summary_text = " | ".join(summary_parts)

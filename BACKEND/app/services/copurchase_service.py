@@ -2,7 +2,9 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Dict, Any
-from app.services.offer_service import attach_offers_to_products
+from app.services.pricing_service import resolve_variant_price
+from app.models.models import ProductVariant
+
 from app.services.impression_service import log_impressions
 
 def get_bought_together(
@@ -35,9 +37,30 @@ def get_bought_together(
     
     rows = db.execute(query, {"vid": variant_id, "limit": limit}).fetchall()
     items = [dict(row._mapping) for row in rows]
+    hydrated = []
+    for row in rows:
+        variant = db.query(ProductVariant).get(row.variant_id)
+        if not variant:
+            continue
 
-    # 2. Attach Pricing
-    items = attach_offers_to_products(db, items)
+        price = resolve_variant_price(db, variant)
+
+        hydrated.append({
+            "variant_id": variant.id,
+            "product_id": variant.product_id,
+            "name": row.name,
+            "brand": row.brand,
+            "category": row.category,
+            "image": row.image_url,
+            "base_price": price["base_price"],
+            "final_price": price["final_price"],
+            "offer_name": price["offer_name"],
+            "score": float(row.score),
+            "reason": "bought_together",
+        })
+
+    items = hydrated
+
 
     # 3. Log
     if user_id:

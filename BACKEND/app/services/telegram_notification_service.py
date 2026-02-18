@@ -30,7 +30,7 @@ async def send_telegram_and_log(
         entity_type=EntityTypeEnum.user_session,
         entity_id=session_id,
         channel=DeliveryChannelEnum.telegram,
-        state=EngagementStateEnum.pending,
+        state=EngagementStateEnum.unopened,
         event_metadata_data={
             "message_type": message_type,
             "source": source,
@@ -48,7 +48,7 @@ async def send_telegram_and_log(
         engagement.state = EngagementStateEnum.sent
         status = "sent"
     except Exception:
-        engagement.state = EngagementStateEnum.failed
+        engagement.state = EngagementStateEnum.ignored
         status = "failed"
 
     outbound = OutboundMessage(

@@ -6,10 +6,11 @@ import math
 import random
 import time  # For timing the training
 import logging
+from sqlalchemy import text
 from datetime import datetime
 from sqlalchemy.orm import Session
 from app.models.models import Event
-from app.enums.db_enums import EventTypeEnum
+from app.enums.db_enums import EntityTypeEnum, EventTypeEnum
 from app.ml.pytorch_model import TwoTowerModel
 
 # Setup standard logging
@@ -41,7 +42,11 @@ def train_collaborative_model(db: Session):
     logger.info("🚀 Starting Collaborative Model Training...")
 
     # 1. Fetch Data
-    events = db.query(Event).filter(Event.entity_id.isnot(None)).all()
+    events = db.query(Event).filter(
+    Event.user_id.isnot(None),
+    Event.entity_type == EntityTypeEnum.product_variant,
+).all()
+
     if not events:
         logger.warning("⚠️ No interaction data found in 'events' table. Training aborted.")
         return {"status": "No data to train"}
@@ -170,3 +175,4 @@ def nightly_ml_jobs(db: Session):
 
     train_collaborative_model(db)
     build_affinity_graph(db)
+

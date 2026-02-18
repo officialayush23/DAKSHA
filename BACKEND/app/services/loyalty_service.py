@@ -42,7 +42,11 @@ POINT_EXPIRY_DAYS = 365
 def get_balance(db: Session, user_id: uuid.UUID) -> int:
     return (
         db.query(func.coalesce(func.sum(LoyaltyLedger.points), 0))
-        .filter(LoyaltyLedger.user_id == user_id)
+        .filter(
+            LoyaltyLedger.user_id == user_id,
+            (LoyaltyLedger.expires_at.is_(None)) |
+            (LoyaltyLedger.expires_at > func.now())
+        )
         .scalar()
     )
 
@@ -52,7 +56,7 @@ def get_lifetime_earned(db: Session, user_id: uuid.UUID) -> int:
         db.query(func.coalesce(func.sum(LoyaltyLedger.points), 0))
         .filter(
             LoyaltyLedger.user_id == user_id,
-            LoyaltyLedger.points > 0,
+            LoyaltyLedger.transaction_type == LoyaltyTransactionTypeEnum.earned_purchase,
         )
         .scalar()
     )
@@ -149,12 +153,15 @@ def debit_points(
     db.add(ledger)
 
     emit_event(
-        db=db,
-        event_type=EventTypeEnum.loyalty_redeem,
-        channel=channel,
-        user_id=user_id,
-        quantity=points,
-        metadata={"reason": reason},
-    )
+    db=db,
+    event_type=EventTypeEnum.loyalty_redeem,
+    channel=channel,
+    user_id=user_id,
+    entity_type=EntityTypeEnum.loyalty,
+    entity_id=ledger.id,
+    quantity=points,
+    metadata={"reason": reason},
+)
+
 
     return balance - points

@@ -346,6 +346,23 @@ class ProductCreate(BaseSchema):
     variants: List[VariantCreateNested] = []
 
 
+
+class ProductDiscountRuleCreate(BaseModel):
+    name: str
+
+    discount_type: CouponTypeEnum
+    value: float
+
+    category_filter: Optional[str] = None
+    brand_filter: Optional[str] = None
+    product_ids_filter: Optional[List[UUID]] = None
+
+    active: bool = True
+    valid_from: datetime
+    valid_to: Optional[datetime] = None
+
+    class Config:
+        orm_mode = True
 class AgentInventoryView(BaseSchema):
     product_name: str
     variant_sku: str

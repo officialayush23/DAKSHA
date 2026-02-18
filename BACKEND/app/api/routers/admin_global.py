@@ -20,10 +20,12 @@ router = APIRouter(
 @router.post("/products")
 def create_product_api(
     payload: ProductCreate,
+    reason: str = Query(...),
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
-    return create_product(db, payload, admin)
+    return create_product(db, payload, admin.id, reason)
+
 
 @router.get("/products")
 def list_products_api(
@@ -43,10 +45,11 @@ def get_product_api(
 @router.delete("/products/{product_id}")
 def delete_product_api(
     product_id: UUID,
+    reason: str = Query(...),
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
-    return delete_product(db, product_id, admin)
+    return delete_product(db, product_id, admin,reason)
 
 # =========================================================
 # VARIANTS + EMBEDDINGS
@@ -56,9 +59,10 @@ def delete_product_api(
 def create_variant_api(
     payload: VariantCreate,
     db: Session = Depends(get_db),
+    reason: str = Query(...),
     admin=Depends(get_current_admin),
 ):
-    return create_variant(db, payload, admin)
+    return create_variant(db, payload, admin,reason)
 
 @router.get("/variants")
 def list_variants_api(
@@ -78,19 +82,23 @@ def get_variant_api(
 @router.put("/variants/{variant_id}")
 def update_variant_api(
     variant_id: UUID,
+    
     payload: VariantUpdate,
+    reason: str = Query(...),
+    
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
-    return update_variant(db, variant_id, payload, admin)
+    return update_variant(db, variant_id, payload, admin,reason)
 
 @router.delete("/variants/{variant_id}")
 def delete_variant_api(
     variant_id: UUID,
+    reason: str = Query(...),
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
-    return delete_variant(db, variant_id, admin)
+    return delete_variant(db, variant_id, admin,reason)
 
 # =========================================================
 # PRODUCT IMAGES + IMAGE EMBEDDINGS
@@ -100,10 +108,11 @@ def delete_variant_api(
 def add_product_image_api(
     variant_id: UUID,
     image_url: str,
+    reason: str = Query(...),
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
-    return add_product_image(db, variant_id, image_url, admin)
+    return add_product_image(db, variant_id, image_url, admin,reason)
 
 # =========================================================
 # INVENTORY (GLOBAL + STORE)
@@ -113,17 +122,19 @@ def add_product_image_api(
 def assign_global_inventory_api(
     payload: AssignGlobalInventory,
     db: Session = Depends(get_db),
+    reason: str = Query(...),
     admin=Depends(get_current_admin),
 ):
-    return assign_global_inventory(db, payload, admin)
+    return assign_global_inventory(db, payload, admin,reason)
 
 @router.post("/inventory/store")
 def assign_store_inventory_api(
     payload: AssignStoreInventory,
     db: Session = Depends(get_db),
+    reason: str = Query(...),
     admin=Depends(get_current_admin),
 ):
-    return assign_store_inventory(db, payload, admin)
+    return assign_store_inventory(db, payload, admin,reason)
 
 @router.get("/inventory/global")
 def list_global_inventory_api(
@@ -147,9 +158,10 @@ def list_store_inventory_api(
 def create_store_api(
     payload: StoreCreate,
     db: Session = Depends(get_db),
+    reason: str = Query(...),
     admin=Depends(get_current_admin),
 ):
-    return create_store(db, payload, admin)
+    return create_store(db, payload, admin,reason)
 
 @router.get("/stores")
 def list_stores_api(
@@ -166,9 +178,10 @@ def list_stores_api(
 def create_kiosk_api(
     payload: KioskCreate,
     db: Session = Depends(get_db),
+    reason: str = Query(...),
     admin=Depends(get_current_admin),
 ):
-    return create_kiosk(db, payload, admin)
+    return create_kiosk(db, payload, admin,reason)
 
 @router.get("/kiosks")
 def list_kiosks_api(
@@ -222,18 +235,20 @@ def update_order_status_api(
     order_id: UUID,
     payload: OrderStatusUpdate,
     db: Session = Depends(get_db),
+    reason: str = Query(...),
     admin=Depends(get_current_admin),
 ):
-    return update_order_status(db, order_id, payload, admin)
+    return update_order_status(db, order_id, payload, admin,reason)
 
 @router.patch("/orders/{order_id}/address")
 def change_order_address_api(
     order_id: UUID,
     payload: AddressUpdate,
     db: Session = Depends(get_db),
+    reason: str = Query(...),
     admin=Depends(get_current_admin),
 ):
-    return change_order_address(db, order_id, payload, admin)
+    return change_order_address(db, order_id, payload, admin,reason)
 
 # =========================================================
 # RETURNS & EXCHANGES
@@ -271,10 +286,11 @@ def list_exchanges_api(
 @router.post("/coupons")
 def create_coupon_api(
     payload: CouponCreate,
+    reason: str = Query(...),
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
-    return create_coupon(db, payload, admin)
+    return create_coupon(db, payload, admin,reason)
 
 @router.get("/coupons")
 def list_coupons_api(
@@ -291,9 +307,10 @@ def list_coupons_api(
 def create_discount_rule_api(
     payload: ProductDiscountRuleCreate,
     db: Session = Depends(get_db),
+    reason: str = Query(...),
     admin=Depends(get_current_admin),
 ):
-    return create_product_discount_rule(db, payload, admin)
+    return create_product_discount_rule(db, payload, admin,reason)
 
 @router.get("/discount-rules")
 def list_discount_rules_api(
@@ -346,9 +363,10 @@ def list_decision_records_api(
 def trigger_training_api(
     model_name: str,
     db: Session = Depends(get_db),
+    reason: str = Query(...),
     admin=Depends(get_current_admin),
 ):
-    return trigger_model_training(db, model_name, admin)
+    return trigger_model_training(db, model_name, admin,reason)
 
 @router.get("/ml/training-runs")
 def list_training_runs_api(

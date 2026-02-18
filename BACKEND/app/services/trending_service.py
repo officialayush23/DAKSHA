@@ -1,8 +1,9 @@
 # app/services/trending_service.py
+from app.models.models import ProductVariant
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from app.services.offer_service import attach_offers_to_products
 from app.services.impression_service import log_impressions
+from app.services.pricing_service import resolve_variant_price
 
 def get_trending_feed(db: Session, user_id: str = None, limit: int = 20):
     """
@@ -26,9 +27,33 @@ def get_trending_feed(db: Session, user_id: str = None, limit: int = 20):
     
     results = db.execute(query, {"limit": limit}).fetchall()
     items = [dict(row._mapping) for row in results]
+    
+    hydrated = []
+    for row in results:
+        variant = db.query(ProductVariant).get(row.variant_id)
+        
+        if not variant:
+            continue
 
-    # Hydrate with offers (Real-time pricing)
-    items = attach_offers_to_products(db, items)
+        price = resolve_variant_price(db, variant)
+
+        hydrated.append({
+            "variant_id": variant.id,
+            "product_id": variant.product_id,
+            "name": row.name,
+            "brand": row.brand,
+            "category": row.category,
+            "image": row.image_url,
+            "base_price": price["base_price"],
+            "final_price": price["final_price"],
+            "offer_name": price["offer_name"],
+            "score": float(row.trending_score),
+            "reason": "trending",
+        })
+
+    items = hydrated
+
+
 
     # Log Impression
     if user_id:
