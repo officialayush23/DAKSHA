@@ -941,27 +941,24 @@ class FulfillmentAttempt(Base):
     
 class UserAddress(Base):
     __tablename__ = "user_addresses"
+
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    
-    name: Mapped[str]
-    phone: Mapped[str]
-    address_line: Mapped[str] = mapped_column(Text)
-    city: Mapped[str]
-    state: Mapped[str]
-    pincode: Mapped[str]
-    type: Mapped[str] = mapped_column(default="home") # 'home' or 'work'
+
+    label: Mapped[Optional[str]]
+    address_line1: Mapped[str]
+    address_line2: Mapped[Optional[str]]
+
+    city: Mapped[Optional[str]]
+    state: Mapped[Optional[str]]
+    pincode: Mapped[Optional[str]]
+    country: Mapped[str] = mapped_column(default="India")
+
     is_default: Mapped[bool] = mapped_column(default=False)
-    
-    # PostGIS Location for fast distance querying
-    location: Mapped[Optional[str]] = mapped_column(Geography('POINT', srid=4326))
-    
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user: Mapped["User"] = relationship(back_populates="addresses")
-    
-    
 
 
 # IMPORTANT: In your User class inside models.py, add this line:

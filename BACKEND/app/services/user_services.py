@@ -28,17 +28,16 @@ def add_address(db: Session, user_id: uuid.UUID, payload):
         location_geom = WKTElement(f"POINT({lng} {lat})", srid=4326)
 
     addr = UserAddress(
-        user_id=user_id,
-        name=payload.name,
-        phone=payload.phone,
-        address_line=payload.address_line,
-        city=payload.city,
-        state=payload.state,
-        pincode=payload.pincode,
-        type=payload.type,
-        is_default=payload.is_default,
-        location=location_geom,
-    )
+    user_id=user_id,
+    label=payload.label,
+    address_line1=payload.address_line1,
+    address_line2=payload.address_line2,
+    city=payload.city,
+    state=payload.state,
+    pincode=payload.pincode,
+    country="India",
+    is_default=payload.is_default,
+)
     db.add(addr)
     db.commit()  # NOTE: acceptable for now
     return addr

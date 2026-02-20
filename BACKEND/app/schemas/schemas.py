@@ -222,12 +222,12 @@ class LocationInput(BaseModel):
     coordinates: List[float] # [longitude, latitude]
 
 class AddressCreate(BaseSchema):
-    name: str
-    phone: str
-    address_line: str
-    city: str
-    state: str
-    pincode: str
+    label: str | None
+    address_line1: str
+    address_line2: str | None
+    city: str | None
+    state: str | None
+    pincode: str | None
     type: Optional[str] = "home"
     is_default: Optional[bool] = False
     location: Optional[LocationInput] = None

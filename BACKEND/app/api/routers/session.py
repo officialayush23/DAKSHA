@@ -11,7 +11,11 @@ router = APIRouter(prefix="/session", tags=["Session"])
 
 @router.post("/start")
 def start(channel: ChannelEnum, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    session = start_session(db, user.id, channel)
+    session = start_session(
+    db,
+    user_id=user.id,
+    channel=channel
+)
     return {
         "session_id": session.id,
         "primary_channel": session.primary_channel,
@@ -21,7 +25,10 @@ def start(channel: ChannelEnum, db: Session = Depends(get_db), user=Depends(get_
 
 @router.get("/active")
 def active(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    session = get_active_session(db, user.id)
+    session = get_active_session(
+    db,
+    user_id=user.id
+)
     if not session:
         return None
     return {
@@ -33,7 +40,11 @@ def active(db: Session = Depends(get_db), user=Depends(get_current_user)):
 
 @router.post("/switch-channel")
 def switch(channel: ChannelEnum, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    session = get_active_session(db, user.id)
+    session = start_session(
+    db,
+    user_id=user.id,
+    channel=channel
+)
     if not session:
         session = start_session(db, user.id, channel)
     else:

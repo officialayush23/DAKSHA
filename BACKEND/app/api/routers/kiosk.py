@@ -87,7 +87,7 @@ def resume_on_kiosk(
     )
 
 
-# 5. BIND SESSION TO USER VIA KIOSK - QR FLOW (UPDATED)
+# 5. BIND SESSION TO USER VIA KIOSK 
 @router.post("/session/bind")
 def bind_session_to_user(
     session_id: UUID,
