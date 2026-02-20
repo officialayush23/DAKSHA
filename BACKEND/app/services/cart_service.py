@@ -41,7 +41,8 @@ def get_or_create_cart(
         session_id=session_id,
     )
     db.add(cart)
-    db.flush()  # IMPORTANT: no commit here
+    db.flush()
+    # IMPORTANT: no commit here
     return cart
 
 
