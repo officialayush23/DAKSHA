@@ -205,12 +205,16 @@ class ProductVariant(Base):
     images: Mapped[List["ProductImage"]] = relationship(back_populates="variant")
     inventory_global: Mapped["GlobalInventory"] = relationship(uselist=False, back_populates="variant")
     embeddings: Mapped[List["ProductMultimodalEmbedding"]] = relationship(back_populates="variant")
-    affinity_a: Mapped[List["ProductAffinity"]] = relationship(
-    foreign_keys="ProductAffinity.product_variant_id_a"
+    affinity_a = relationship(
+    "ProductAffinity",
+    foreign_keys="ProductAffinity.product_variant_id_a",
+    back_populates="variant_a"
 )
 
-affinity_b: Mapped[List["ProductAffinity"]] = relationship(
-    foreign_keys="ProductAffinity.product_variant_id_b"
+    affinity_b = relationship(
+    "ProductAffinity",
+    foreign_keys="ProductAffinity.product_variant_id_b",
+    back_populates="variant_b"
 )
 
 class ProductImage(Base):
@@ -818,15 +822,30 @@ class LoyaltyLedger(Base):
 
 class ProductAffinity(Base):
     __tablename__ = "product_affinities"
-    product_variant_id_a: Mapped[uuid.UUID] = mapped_column(ForeignKey("product_variants.id", ondelete="CASCADE"), primary_key=True)
-    product_variant_id_b: Mapped[uuid.UUID] = mapped_column(ForeignKey("product_variants.id", ondelete="CASCADE"), primary_key=True)
-    score: Mapped[float] = mapped_column(Numeric)
-    context_scope: Mapped[str] = mapped_column(String, primary_key=True, default='global')
-    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    variant_a: Mapped["ProductVariant"] = relationship(foreign_keys=[product_variant_id_a])
-    variant_b: Mapped["ProductVariant"] = relationship(foreign_keys=[product_variant_id_b])
+    product_variant_id_a = mapped_column(
+        ForeignKey("product_variants.id", ondelete="CASCADE"),
+        primary_key=True
+    )
+    product_variant_id_b = mapped_column(
+        ForeignKey("product_variants.id", ondelete="CASCADE"),
+        primary_key=True
+    )
 
+    score = mapped_column(Numeric)
+    context_scope = mapped_column(String, primary_key=True, default="global")
+
+    variant_a = relationship(
+        "ProductVariant",
+        foreign_keys=[product_variant_id_a],
+        back_populates="affinity_a"
+    )
+
+    variant_b = relationship(
+        "ProductVariant",
+        foreign_keys=[product_variant_id_b],
+        back_populates="affinity_b"
+    )
 
 class UserPersonalizedOffer(Base):
     __tablename__ = "user_personalized_offers"
