@@ -7,7 +7,7 @@ def log_impressions(
     db: Session,
     user_id,
     results,
-    feed_type: str,
+    feed: str,
     session_id=None,
 ):
     """
@@ -29,7 +29,7 @@ def log_impressions(
                 user_id=user_id,
                 session_id=session_id,
                 product_variant_id=variant_id,
-                feed_type=feed_type,
+                feed=feed,
                 rank_position=idx + 1,
             )
         )

@@ -10,7 +10,6 @@ from sqlalchemy import (
 
 from sqlalchemy.dialects.postgresql import UUID, JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship, DeclarativeBase
-from pgvector.sqlalchemy import Vector
 from geoalchemy2 import Geography
 from app.enums import db_enums
 
@@ -35,7 +34,11 @@ class User(Base):
 
     loyalty_history: Mapped[List["LoyaltyLedger"]] = relationship(back_populates="user")
     personalized_offers: Mapped[List["UserPersonalizedOffer"]] = relationship(back_populates="user")
-    agent_handoffs: Mapped[List["AgentHandoff"]] = relationship(back_populates="user")
+    agent_handoffs: Mapped[List["AgentHandoff"]] = relationship(
+    "AgentHandoff",
+    foreign_keys="AgentHandoff.user_id",
+    back_populates="user",
+)
     sessions: Mapped[List["UserSession"]] = relationship(back_populates="user")
     orders: Mapped[List["Order"]] = relationship(back_populates="user")
     carts: Mapped[List["Cart"]] = relationship(back_populates="user")
@@ -202,6 +205,17 @@ class ProductVariant(Base):
     images: Mapped[List["ProductImage"]] = relationship(back_populates="variant")
     inventory_global: Mapped["GlobalInventory"] = relationship(uselist=False, back_populates="variant")
     embeddings: Mapped[List["ProductMultimodalEmbedding"]] = relationship(back_populates="variant")
+    affinity_a = relationship(
+    "ProductAffinity",
+    foreign_keys="ProductAffinity.product_variant_id_a",
+    back_populates="variant_a"
+)
+
+    affinity_b = relationship(
+    "ProductAffinity",
+    foreign_keys="ProductAffinity.product_variant_id_b",
+    back_populates="variant_b"
+)
 
 class ProductImage(Base):
     __tablename__ = "product_images"
@@ -704,7 +718,10 @@ class ProductSalesFact(Base):
 
 class ProductMonthlyStats(Base):
     __tablename__ = "product_monthly_stats"
-    product_variant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    product_variant_id: Mapped[uuid.UUID] = mapped_column(
+    ForeignKey("product_variants.id", ondelete="CASCADE"),
+    primary_key=True
+)
     year: Mapped[int] = mapped_column(primary_key=True)
     month: Mapped[int] = mapped_column(primary_key=True)
     units_sold: Mapped[Optional[int]]
@@ -717,9 +734,12 @@ class ProductMonthlyStats(Base):
 class TrendingProduct(Base):
     __tablename__ = "trending_products"
 
-    scope: Mapped[db_enums.TrendingScopeEnum] = mapped_column()
-    scope_value: Mapped[str] = mapped_column()
-    product_variant_id: Mapped[uuid.UUID] = mapped_column()
+    scope: Mapped[db_enums.TrendingScopeEnum]
+    scope_value: Mapped[str]
+
+    product_variant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("product_variants.id", ondelete="CASCADE")
+    )
 
     rank_position: Mapped[int]
     trending_score: Mapped[float] = mapped_column(Numeric)
@@ -734,20 +754,18 @@ class TrendingProduct(Base):
 
     variant: Mapped["ProductVariant"] = relationship(
         "ProductVariant",
-        foreign_keys=[product_variant_id],
         lazy="joined",
     )
 
     __table_args__ = (
         PrimaryKeyConstraint(
-    "scope",
-    "scope_value",
-    "product_variant_id",
-    "year",
-    "month",
-    name="pk_trending_products",
-)
-,
+            "scope",
+            "scope_value",
+            "product_variant_id",
+            "year",
+            "month",
+            name="pk_trending_products",
+        ),
     )
 
 class UserPreferenceSummary(Base):
@@ -804,15 +822,30 @@ class LoyaltyLedger(Base):
 
 class ProductAffinity(Base):
     __tablename__ = "product_affinities"
-    product_variant_id_a: Mapped[uuid.UUID] = mapped_column(ForeignKey("product_variants.id", ondelete="CASCADE"), primary_key=True)
-    product_variant_id_b: Mapped[uuid.UUID] = mapped_column(ForeignKey("product_variants.id", ondelete="CASCADE"), primary_key=True)
-    score: Mapped[float] = mapped_column(Numeric)
-    context_scope: Mapped[str] = mapped_column(String, primary_key=True, default='global')
-    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    variant_a: Mapped["ProductVariant"] = relationship(foreign_keys=[product_variant_id_a])
-    variant_b: Mapped["ProductVariant"] = relationship(foreign_keys=[product_variant_id_b])
+    product_variant_id_a = mapped_column(
+        ForeignKey("product_variants.id", ondelete="CASCADE"),
+        primary_key=True
+    )
+    product_variant_id_b = mapped_column(
+        ForeignKey("product_variants.id", ondelete="CASCADE"),
+        primary_key=True
+    )
 
+    score = mapped_column(Numeric)
+    context_scope = mapped_column(String, primary_key=True, default="global")
+
+    variant_a = relationship(
+        "ProductVariant",
+        foreign_keys=[product_variant_id_a],
+        back_populates="affinity_a"
+    )
+
+    variant_b = relationship(
+        "ProductVariant",
+        foreign_keys=[product_variant_id_b],
+        back_populates="affinity_b"
+    )
 
 class UserPersonalizedOffer(Base):
     __tablename__ = "user_personalized_offers"
@@ -852,21 +885,37 @@ class ProductDiscountRule(Base):
 
 class AgentHandoff(Base):
     __tablename__ = "agent_handoffs"
+
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
     session_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("sessions.id"))
+
+    # customer who triggered handoff
     user_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
-    
+
+    # admin assigned
+    assigned_to_admin_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
+
     from_agent_name: Mapped[Optional[str]]
     reason: Mapped[Optional[str]]
     summary: Mapped[Optional[str]] = mapped_column(Text)
-    
-    assigned_to_admin_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
+
     status: Mapped[db_enums.ComplaintStatusEnum] = mapped_column(default=db_enums.ComplaintStatusEnum.open)
-    
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
-    user: Mapped["User"] = relationship(foreign_keys=[user_id], back_populates="agent_handoffs")
+    # ✅ clarify relationships
+    user: Mapped["User"] = relationship(
+        "User",
+        foreign_keys=[user_id],
+        back_populates="agent_handoffs",
+    )
+
+    assigned_admin: Mapped["User"] = relationship(
+        "User",
+        foreign_keys=[assigned_to_admin_id],
+    )
 
 
 class FulfillmentAttempt(Base):
