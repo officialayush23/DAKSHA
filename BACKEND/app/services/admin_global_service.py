@@ -37,8 +37,7 @@ from app.enums.db_enums import *
 from app.services.embedding_service import generate_text_embedding
 from app.services.product_embedding_service import (
     upsert_variant_text_embedding,
-    upsert_variant_image_embeddings,
-    upsert_product_variant_embedding # Wrapper wrapper
+    upsert_variant_image_embeddings, # Wrapper wrapper
 )
 from app.services.coupon_embedding_service import upsert_coupon_embedding
 
@@ -136,7 +135,7 @@ def update_product(db: Session, product_id, payload, admin_id, reason: str):
 
     # 🔥 RE-EMBED ALL VARIANTS
     for v in product.variants:
-        upsert_product_variant_embedding(db, v.id)
+        upsert_variant_text_embedding(db, v.id)
 
     admin_audit_log(
         db,
@@ -206,7 +205,7 @@ def update_variant(db: Session, variant_id, payload, admin_id, reason: str):
         setattr(variant, k, v)
 
     db.commit()
-    upsert_product_variant_embedding(db, variant.id)
+    upsert_variant_text_embedding(db, variant.id)
 
     admin_audit_log(
         db,

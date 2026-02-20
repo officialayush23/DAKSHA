@@ -7,22 +7,16 @@ import asyncio
 from app.services.session_cleanup import expire_sessions
 from app.core.database import SessionLocal
 from app.api.routers import (
-    admin,
+    admin_global,
+    admin_user,
     user,
-    recommendation,
-    chat,
-    admin_chat,
     kiosk,
-    payment,
-    telegram,
     cart,
-    checkout,
     orders,
     session,
-    support,
-    admin_delivery,
+    # support,
     products,
-    loyalty,admin_kiosk
+    loyalty,
 )
 
 app = FastAPI(title="Agentic Commerce Platform")
@@ -54,20 +48,15 @@ app.add_middleware(
 )
 
 # ---------- ROUTERS ----------
-app.include_router(admin.router)
+app.include_router(admin_global.router)
+app.include_router(admin_user.router)
 app.include_router(user.router)
-app.include_router(recommendation.router)
-app.include_router(chat.router)
-app.include_router(admin_chat.router)
 app.include_router(kiosk.router)
-app.include_router(telegram.router)
-app.include_router(payment.router)
 app.include_router(cart.router)
-app.include_router(checkout.router)
 app.include_router(orders.router)
 app.include_router(session.router)
-app.include_router(support.router)
-app.include_router(admin_delivery.router)
+# app.include_router(support.router)
+
 app.include_router(loyalty.router)
 app.include_router(products.router)
-app.include_router(admin_kiosk.router)
+
