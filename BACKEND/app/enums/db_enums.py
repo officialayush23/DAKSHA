@@ -55,6 +55,7 @@ class EventTypeEnum(str, Enum):
     add_to_cart = "add_to_cart"
     remove_from_cart = "remove_from_cart"
     wishlist_add = "wishlist_add"
+    wishlist_remove = "wishlist_remove"
     checkout_started = "checkout_started"
     checkout_cancelled = "checkout_cancelled"
     payment_started = "payment_started"
