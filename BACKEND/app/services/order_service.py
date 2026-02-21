@@ -18,3 +18,9 @@ def get_order(db: Session, order_id: uuid.UUID, user_id: uuid.UUID):
         .filter(Order.id == order_id, Order.user_id == user_id)
         .first()
     )
+
+def get_order_feedback_status(db: Session, order_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+    order = get_order(db, order_id, user_id)
+    if not order:
+        raise ValueError("Order not found")
+    return order.feedback_requested
