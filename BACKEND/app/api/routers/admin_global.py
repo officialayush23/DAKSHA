@@ -130,7 +130,7 @@ def assign_global_inventory_api(
     reason: str = Query(...),
     admin=Depends(get_current_admin),
 ):
-    return assign_global_inventory(db, payload, admin,reason)
+    return assign_global_inventory(db, payload, admin.id,reason)
 
 @router.post("/inventory/store")
 def assign_store_inventory_api(
@@ -139,7 +139,7 @@ def assign_store_inventory_api(
     reason: str = Query(...),
     admin=Depends(get_current_admin),
 ):
-    return assign_store_inventory(db, payload, admin,reason)
+    return assign_store_inventory(db, payload, admin.id,reason)
 
 @router.get("/inventory/global")
 def list_global_inventory_api(

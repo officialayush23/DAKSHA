@@ -352,7 +352,7 @@ class Order(Base):
     ForeignKey("user_addresses.id")
 )
     delivery_address: Mapped[Optional[str]] = mapped_column(Text)
-    agent_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    last_agent_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("agent_runs.id")
     )
 
