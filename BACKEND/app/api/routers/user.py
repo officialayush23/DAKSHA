@@ -37,7 +37,7 @@ from app.services.user_services import (
 from app.services.wishlist_service import (
     add_to_wishlist,
     remove_from_wishlist,
-    list_wishlist,
+    get_hydrated_wishlist,
 )
 from app.services.event_service import emit_event
 from app.services.embedding_service import update_user_preference_summary
@@ -108,13 +108,15 @@ def recompute_preferences(
 
 # ======================================================
 # WISHLIST
-# ====@router.get("/wishlist")
+@router.get("/wishlist")
 def my_wishlist(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    return list_wishlist(db, user_id=user.id)
-
+    """
+    Returns the user's fully hydrated wishlist.
+    """
+    return get_hydrated_wishlist(db, user_id=user.id)
 
 @router.post("/wishlist")
 def add_wishlist_item(

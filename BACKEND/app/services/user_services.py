@@ -17,17 +17,6 @@ def add_address(db: Session, user_id: uuid.UUID, payload):
             UserAddress.user_id == user_id
         ).update({"is_default": False})
 
-    location_geom = None
-    if payload.location:
-        if isinstance(payload.location, list):
-            lng, lat = payload.location
-        elif isinstance(payload.location, dict) and "coordinates" in payload.location:
-            lng, lat = payload.location["coordinates"]
-        else:
-            raise ValueError("Invalid location format")
-
-        location_geom = WKTElement(f"POINT({lng} {lat})", srid=4326)
-
     addr = UserAddress(
     user_id=user_id,
     label=payload.label,
@@ -62,19 +51,11 @@ def update_address(db: Session, user_id: uuid.UUID, address_id, payload):
 
     data = payload.dict(exclude_unset=True)
 
-    # Fix: Handle location update specifically
-    if "location" in data:
-        loc_data = data.pop("location")
-        if loc_data and "coordinates" in loc_data:
-            lng, lat = loc_data["coordinates"]
-            addr.location = WKTElement(f"POINT({lng} {lat})", srid=4326)
-
     for k, v in data.items():
         setattr(addr, k, v)
 
     db.commit()
     return addr
-
 
 
 # ========== PROFILE ==========
