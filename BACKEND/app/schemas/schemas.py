@@ -10,7 +10,8 @@ from app.enums.db_enums import (
     CouponTypeEnum, CouponScopeEnum, OrderChangeTypeEnum,
     DeliveryChannelEnum, EngagementStateEnum
 )
-
+from pydantic import field_validator
+from app.utils.geo import serialize_point
 class BaseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 class ProductImagePayload(BaseModel):
@@ -66,8 +67,7 @@ class StoreCreate(BaseSchema):
     state: str
     address: str
     location: Dict[str, Any]
-from pydantic import field_validator
-from app.utils.geo import serialize_point
+
 
 class StoreResponse(BaseSchema):
     id: UUID
