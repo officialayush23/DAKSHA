@@ -239,7 +239,9 @@ class LoyaltyLedgerSchema(BaseSchema):
     balance_snapshot: Optional[int]
     reference_note: Optional[str]
     created_at: datetime
-
+class LocationPing(BaseModel):
+    lat: float
+    lng: float
 # --- NEW: PERSONALIZED OFFERS ---
 class PersonalizedOfferSchema(BaseSchema):
     id: UUID

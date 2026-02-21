@@ -1,4 +1,5 @@
 # app/api/routers/admin_global.py
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from uuid import UUID
@@ -26,6 +27,10 @@ def create_product_api(
 ):
     return create_product(db, payload, admin.id, reason)
 
+@router.get("/inventory/kpis")
+def get_inventory_kpis_endpoint(db: Session = Depends(get_db)):
+    # Make sure to import get_inventory_kpis from your service
+    return get_inventory_kpis(db)
 
 @router.get("/products")
 def list_products_api(

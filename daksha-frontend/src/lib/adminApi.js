@@ -53,34 +53,34 @@ export const AdminService = {
   // 📦 PRODUCTS
   // ==========================================
   createProduct: (data) =>
-    apiClient('/admin/products', 'POST', data),
+    apiClient('/admin/global/products?reason=admin_create_product', 'POST', data),
 
   listProducts: (limit = 100, offset = 0) =>
-    apiClient('/admin/products', 'GET', null, { limit, offset }),
+    apiClient('/admin/global/products', 'GET', null, { limit, offset }),
 
   updateProduct: (id, data) =>
-    apiClient(`/admin/products/${id}`, 'PUT', data),
+    apiClient(`/admin/global/products/${id}?reason=admin_update_product_${id}`, 'PUT', data),
 
   deleteProduct: (id) =>
-    apiClient(`/admin/products/${id}`, 'DELETE'),
+    apiClient(`/admin/global/products/${id}?reason=admin_delete_product_${id}`, 'DELETE'),
 
   // ==========================================
   // 🎨 VARIANTS
   // ==========================================
   createVariant: (data) =>
-    apiClient('/admin/variants', 'POST', data),
+    apiClient('/admin/global/variants?reason=admin_create_variant', 'POST', data),
 
   updateVariant: (id, data) =>
-    apiClient(`/admin/variants/${id}`, 'PUT', data),
+    apiClient(`/admin/global/variants/${id}?reason=admin_update_variant_${id}`, 'PUT', data),
 
   deleteVariant: (id) =>
-    apiClient(`/admin/variants/${id}`, 'DELETE'),
+    apiClient(`/admin/global/variants/${id}?reason=admin_delete_variant_${id}`, 'DELETE'),
 
   addImage: (id, data) =>
-    apiClient(`/admin/variants/${id}/images`, 'POST', data),
+    apiClient(`/admin/global/variants/${id}/images?reason=admin_add_image_to_variant_${id}`, 'POST', data),
 
   listVariants: (productId) =>
-    apiClient(`/admin/products/${productId}/variants`, 'GET'),
+    apiClient(`/admin/global/products/${productId}/variants`, 'GET'),
 
   trainModel: () => 
     apiClient('/recommendations/train-model', 'POST'),
@@ -89,124 +89,124 @@ export const AdminService = {
   // 🏪 STORES
   // ==========================================
   listStores: () =>
-    apiClient('/admin/stores', 'GET'),
+    apiClient('/admin/global/stores', 'GET'),
 
   createStore: (data) =>
-    apiClient('/admin/stores', 'POST', data),
+  apiClient('/admin/global/stores', 'POST', data, { reason: 'admin_create_store' }),
 
   updateStore: (id, data) =>
-    apiClient(`/admin/stores/${id}`, 'PUT', data),
+    apiClient(`/admin/global/stores/${id}?reason=admin_update_store_${id}`, 'PUT', data),
 
   getStoreKpis: (id) =>
-    apiClient(`/admin/stores/${id}/kpis`, 'GET'),
+    apiClient(`/admin/global/stores/${id}/kpis`, 'GET'),
 
   listStorePickups: (id) =>
-    apiClient(`/admin/stores/${id}/pickups`, 'GET'),
+    apiClient(`/admin/global/stores/${id}/pickups`, 'GET'),
 
   // ==========================================
   // 📦 INVENTORY (MANAGE & VIEW)
   // ==========================================
   // 1. Manage (POST)
   assignGlobalInventory: (data) =>
-    apiClient('/admin/inventory/global', 'POST', data),
+    apiClient('/admin/global/inventory/global', 'POST', data),
 
   assignStoreInventory: (data) =>
-    apiClient('/admin/inventory/store', 'POST', data),
+    apiClient('/admin/global/inventory/store', 'POST', data),
 
   // 2. View (GET)
   getInventoryKpis: () =>
-    apiClient('/admin/inventory/kpis', 'GET'),
+    apiClient('/admin/global/inventory/kpis', 'GET'),
 
   getGlobalInventoryItem: (productId) =>
-    apiClient(`/admin/inventory/global/${productId}`, 'GET'),
+    apiClient(`/admin/global/inventory/${productId}`, 'GET'),
 
   getStoreInventoryForVariant: (storeId, variantId) =>
-    apiClient(`/admin/inventory/store/${storeId}/variant/${variantId}`, 'GET'),
+    apiClient(`/admin/global/inventory/store/${storeId}/variant/${variantId}`, 'GET'),
 
 
   // ==========================================
   // 🚚 ORDERS & PICKUPS
   // ==========================================
   updatePickup: (id, data) =>
-    apiClient(`/admin/pickups/${id}`, 'PUT', data),
+    apiClient(`/admin/global/pickups/${id}`, 'PUT', data),
 
   updateDelivery: (id, data) =>
-    apiClient(`/admin/orders/${id}/status`, 'PUT', data),
+    apiClient(`/admin/global/orders/${id}/status`, 'PUT', data),
 
   getOrder: (id) =>
-    apiClient(`/admin/orders/${id}`, 'GET'),
+    apiClient(`/admin/global/orders/${id}`, 'GET'),
 
   // ==========================================
   // 🚚 DELIVERY ORDERS (NEW)
   // ==========================================
   getDeliveryOrders: (status = null) =>
-    apiClient('/admin/delivery/orders', 'GET', null, { status }),
+    apiClient('/admin/global/delivery/orders', 'GET', null, { status }),
 
   getDeliveryOrderDetail: (orderId) =>
-    apiClient(`/admin/delivery/orders/${orderId}`, 'GET'),
+    apiClient(`/admin/global/delivery/orders/${orderId}`, 'GET'),
 
   updateDeliveryOrderStatus: (orderId, data) =>
-    apiClient(`/admin/delivery/orders/${orderId}/status`, 'POST', data),
+    apiClient(`/admin/global/delivery/orders/${orderId}/status`, 'POST', data),
 
   // ==========================================
   // 💬 CHAT HANDOFFS (NEW)
   // ==========================================
   getChatHandoffs: () =>
-    apiClient('/admin/chat/handoffs', 'GET'),
+    apiClient('/admin/global/chat/handoffs', 'GET'),
   // ==========================================
   // 🖥️ KIOSKS
   // ==========================================
   listKiosks: () =>
-    apiClient('/admin/kiosks', 'GET'),
+    apiClient('/admin/global/kiosks', 'GET'),
 
   createKiosk: (data) =>
-    apiClient('/admin/kiosks', 'POST', data),
+    apiClient('/admin/global/kiosks?reason=admin_create_kiosk', 'POST', data),
   // ==========================================
   // 🏷️ OFFERS
   // ==========================================
   listOffers: () =>
-    apiClient('/admin/offers', 'GET'),
+    apiClient('/admin/global/offers', 'GET'),
 
   createOffer: (data) =>
-    apiClient('/admin/offers', 'POST', data),
+    apiClient('/admin/global/offers', 'POST', data),
 
   updateOffer: (id, data) =>
-    apiClient(`/admin/offers/${id}`, 'PUT', data),
+    apiClient(`/admin/global/offers/${id}`, 'PUT', data),
 
   deleteOffer: (id) =>
-    apiClient(`/admin/offers/${id}`, 'DELETE'),
+    apiClient(`/admin/global/offers/${id}`, 'DELETE'),
 
   // ==========================================
   // 🤝 SUPPORT & COMPLAINTS
   // ==========================================
   getHandoffs: () =>
-    apiClient('/admin/handoffs', 'GET'),
+    apiClient('/admin/global/handoffs', 'GET'),
 
   listComplaints: () =>
-    apiClient('/admin/complaints', 'GET'),
+    apiClient('/admin/global/complaints', 'GET'),
 
   updateComplaint: (id, data) =>
-    apiClient(`/admin/complaints/${id}`, 'PUT', data),
+    apiClient(`/admin/global/complaints/${id}`, 'PUT', data),
 
   // ==========================================
   // ↩️ RETURNS
   // ==========================================
   listReturns: () =>
-    apiClient('/admin/returns', 'GET'),
+    apiClient('/admin/global/returns', 'GET'),
 
   // Note: Status is passed as a query param { status: 'approved' }
   updateReturn: (id, status) =>
-    apiClient(`/admin/returns/${id}`, 'PATCH', null, { status }),
+    apiClient(`/admin/global/returns/${id}`, 'PATCH', null, { status }),
 
   // ==========================================
   // 📊 DASHBOARD STATS
   // ==========================================
   getDashboardStats: async () => {
     const [inventoryKpis, stores, complaints, offers] = await Promise.allSettled([
-      apiClient('/admin/inventory/kpis', 'GET'),
-      apiClient('/admin/stores', 'GET'),
-      apiClient('/admin/complaints', 'GET'),
-      apiClient('/admin/offers', 'GET'),
+      apiClient('/admin/global/inventory/kpis', 'GET'),
+      apiClient('/admin/global/stores', 'GET'),
+      apiClient('/admin/global/complaints', 'GET'),
+      apiClient('/admin/global/offers', 'GET'),
     ]);
 
   

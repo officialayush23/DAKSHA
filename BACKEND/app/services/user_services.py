@@ -2,7 +2,8 @@
 import uuid
 from sqlalchemy.orm import Session
 from geoalchemy2 import WKTElement
-
+from datetime import datetime, timedelta
+from app.models.models import UserLocation
 from app.models.models import UserAddress, UserWishlist, UserCard, User
 from app.services.event_service import emit_event
 from app.enums.db_enums import EventTypeEnum, EntityTypeEnum
@@ -110,3 +111,49 @@ def delete_card(db: Session, user_id: uuid.UUID, card_id):
         UserCard.user_id == user_id,
     ).delete()
     db.commit()
+
+
+
+
+LOCATION_TTL_MINUTES = 15  # auto-expire stale GPS
+
+
+def upsert_user_location(
+    db: Session,
+    *,
+    session_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    lng: float,
+    lat: float,
+):
+    """
+    Called frequently by frontend.
+    Updates location for session.
+    """
+
+    point = WKTElement(f"POINT({lng} {lat})", srid=4326)
+    expiry = datetime.utcnow() + timedelta(minutes=LOCATION_TTL_MINUTES)
+
+    loc = (
+        db.query(UserLocation)
+        .filter(UserLocation.session_id == session_id)
+        .first()
+    )
+
+    if loc:
+        loc.location = point
+        loc.recorded_at = datetime.utcnow()
+        loc.expires_at = expiry
+        if user_id:
+            loc.user_id = user_id
+    else:
+        loc = UserLocation(
+            session_id=session_id,
+            user_id=user_id,
+            location=point,
+            expires_at=expiry,
+        )
+        db.add(loc)
+
+    db.commit()
+    return loc

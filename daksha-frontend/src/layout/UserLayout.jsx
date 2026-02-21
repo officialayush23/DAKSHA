@@ -3,12 +3,12 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { apiRequest, UserService, SessionService } from '../lib/api';
 import { useQuery } from '@tanstack/react-query';
-import { 
-  ShoppingBag, 
-  ShoppingCart, 
-  Package, 
-  Sparkles, 
-  User, 
+import {
+  ShoppingBag,
+  ShoppingCart,
+  Package,
+  Sparkles,
+  User,
   LayoutDashboard,
   MapPin,
   LogOut,
@@ -17,17 +17,17 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuTrigger 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 
 // --- DESKTOP SIDEBAR ---
 const DesktopSidebar = ({ user, signOut, cartCount, isAdmin, sessionInfo }) => {
   const location = useLocation();
-  
+
   const navItems = [
     { title: "Shop", url: "/dash/shop", icon: ShoppingBag },
     { title: "Concierge", url: "/dash/agent", icon: Sparkles },
@@ -54,8 +54,8 @@ const DesktopSidebar = ({ user, signOut, cartCount, isAdmin, sessionInfo }) => {
         {navItems.map((item) => {
           const isActive = location.pathname.startsWith(item.url);
           return (
-            <Link 
-              key={item.title} 
+            <Link
+              key={item.title}
               to={item.url}
               className={`
                 flex items-center gap-4 px-5 py-4 rounded-full transition-all duration-300 group relative
@@ -83,7 +83,7 @@ const DesktopSidebar = ({ user, signOut, cartCount, isAdmin, sessionInfo }) => {
             </div>
             <div className="overflow-hidden">
               <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">Active Session</p>
-              <p className="text-[10px] text-emerald-600 truncate font-mono">{sessionInfo.session_id.slice(0,12)}...</p>
+              <p className="text-[10px] text-emerald-600 truncate font-mono">{sessionInfo.session_id.slice(0, 12)}...</p>
             </div>
           </div>
         </div>
@@ -116,136 +116,134 @@ const DesktopSidebar = ({ user, signOut, cartCount, isAdmin, sessionInfo }) => {
 };
 
 export default function UserLayout() {
-    const location = useLocation();
-    const { user, profile, signOut } = useAuth();
-    const [userLocation, setUserLocation] = useState(null);
-    const [sessionInfo, setSessionInfo] = useState(null);
+  const location = useLocation();
+  const { user, profile, signOut } = useAuth();
+  const [userLocation, setUserLocation] = useState(null);
+  const [sessionInfo, setSessionInfo] = useState(null);
 
-    // --- 1. START SESSION & SYNC LOCATION ---
-    useEffect(() => {
-        const initUserSession = async () => {
-            if (!user) return;
+  // --- 1. START SESSION & SYNC LOCATION ---
+  useEffect(() => {
+    const initUserSession = async () => {
+      if (!user) return;
 
-            try {
-                // A. Start/Get Session
-                let active = await SessionService.getActive();
-                if (!active || !active.data) { // Check if data exists in response
-                    const res = await SessionService.start('web');
-                    active = res.data;
-                } else {
-                    active = active.data;
+      try {
+        // A. Start/Get Session
+        let active = await SessionService.getActive();
+        if (!active || !active.data) { // Check if data exists in response
+          const res = await SessionService.start('web');
+          active = res.data;
+        } else {
+          active = active.data;
+        }
+        setSessionInfo(active);
+
+        // B. Location Sync Logic
+        if ("geolocation" in navigator) {
+          navigator.geolocation.getCurrentPosition(
+            async (position) => {
+              const { latitude, longitude } = position.coords;
+
+              setUserLocation({ lat: latitude, lng: longitude });
+
+              await apiRequest("/user/ping", {
+                method: "POST",
+                params: {
+                  lat: latitude,
+                  lng: longitude
                 }
-                setSessionInfo(active);
+              });
 
-                // B. Location Sync Logic
-                if ("geolocation" in navigator) {
-                    navigator.geolocation.getCurrentPosition(async (position) => {
-                        const { latitude, longitude } = position.coords;
-                        setUserLocation({ lat: latitude, lng: longitude });
-                        
-                        // Fetch addresses to find one to update
-                        const addrRes = await UserService.getAddresses();
-                        const addresses = addrRes.data || [];
-                        
-                        if (addresses.length > 0) {
-                            // Prioritize default, otherwise first
-                            const targetAddr = addresses.find(a => a.is_default) || addresses[0];
-                            
-                            // Call the PATCH endpoint
-                            await UserService.updateAddressLocation(targetAddr.id, latitude, longitude);
-                            console.log("📍 Location synced to backend for address:", targetAddr.id);
-                        } else {
-                            console.log("📍 Location captured but no address found to update.");
-                        }
-                    }, (err) => {
-                        console.warn("Geolocation permission denied", err);
-                    });
-                }
-            } catch (e) {
-                console.error("Initialization failed", e);
-            }
-        };
+              console.log("📡 live location synced");
+            },
+            (err) => console.warn("Geolocation denied", err),
+            { enableHighAccuracy: true }
+          );
+        }
+      } catch (e) {
+        console.error("Initialization failed", e);
+      }
+    };
 
-        initUserSession();
-    }, [user]);
+    initUserSession();
+  }, [user]);
 
-    // --- 2. CART DATA ---
-    const { data: cart } = useQuery({
-        queryKey: ['cart'],
-        queryFn: () => apiRequest('/user/cart'),
-        refetchInterval: 5000, 
-        enabled: !!user
-    });
-    
-    const cartCount = cart?.items?.reduce((acc, item) => acc + item.quantity, 0) || 0;
-    const isAdmin = profile?.role === 'admin' || user?.app_metadata?.role === 'admin';
+  // --- 2. CART DATA ---
+  const { data: cart } = useQuery({
+    queryKey: ['cart'],
+    queryFn: () => apiRequest('/user/cart'),
+    refetchInterval: 5000,
+    enabled: !!user
+  });
 
-    const mobileNavItems = [
-        { title: 'Shop', url: '/dash/shop', icon: ShoppingBag },
-        { title: 'Agent', url: '/dash/agent', icon: Sparkles },
-        { title: 'Bag', url: '/dash/cart', icon: ShoppingCart, badge: cartCount },
-        { title: 'Profile', url: '/dash/profile', icon: User },
-    ];
+  const cartCount = cart?.items?.reduce((acc, item) => acc + item.quantity, 0) || 0;
+  const isAdmin = profile?.role === 'admin' || user?.app_metadata?.role === 'admin';
 
-    const isChatPage = location.pathname.includes('/agent');
+  const mobileNavItems = [
+    { title: 'Shop', url: '/dash/shop', icon: ShoppingBag },
+    { title: 'Agent', url: '/dash/agent', icon: Sparkles },
+    { title: 'Bag', url: '/dash/cart', icon: ShoppingCart, badge: cartCount },
+    { title: 'Profile', url: '/dash/profile', icon: User },
+  ];
 
-    return (
-        <div className="flex min-h-screen w-full bg-[#FDFDFD] font-sans text-zinc-900 selection:bg-black selection:text-white">
-            
-            <DesktopSidebar 
-                user={user} 
-                signOut={signOut} 
-                cartCount={cartCount} 
-                isAdmin={isAdmin} 
-                sessionInfo={sessionInfo}
-            />
+  const isChatPage = location.pathname.includes('/agent');
 
-            <div className="flex-1 flex flex-col min-h-screen relative">
-                
-                {/* Mobile Header */}
-                <header className="md:hidden sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-100 px-6 py-4 flex justify-between items-center">
-                    <Link to="/" className="text-3xl font-serif font-bold tracking-tighter">Daksha</Link>
-                    {sessionInfo && (
-                        <div className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">
-                            <Wifi size={10} className="animate-pulse" /> Live
-                        </div>
-                    )}
-                </header>
+  return (
+    <div className="flex min-h-screen w-full bg-[#FDFDFD] font-sans text-zinc-900 selection:bg-black selection:text-white">
 
-                {/* Page Content */}
-                <main className={`flex-1 w-full max-w-7xl mx-auto p-4 md:p-10 ${isChatPage ? 'pb-20' : 'pb-32'} animate-in fade-in duration-500`}>
-                    <Outlet />
-                </main>
+      <DesktopSidebar
+        user={user}
+        signOut={signOut}
+        cartCount={cartCount}
+        isAdmin={isAdmin}
+        sessionInfo={sessionInfo}
+      />
 
-                {/* Mobile Nav */}
-                <div className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-auto">
-                    <motion.nav 
-                        initial={{ y: 100, opacity: 0 }}
-                        animate={{ y: 0, opacity: 1 }}
-                        className="flex items-center gap-2 bg-black/90 backdrop-blur-xl p-2 rounded-full shadow-2xl ring-1 ring-white/10"
-                    >
-                        {mobileNavItems.map((item) => {
-                            const isActive = location.pathname.startsWith(item.url);
-                            return (
-                                <Link key={item.url} to={item.url} className="relative group">
-                                    <div className={`
+      <div className="flex-1 flex flex-col min-h-screen relative">
+
+        {/* Mobile Header */}
+        <header className="md:hidden sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-100 px-6 py-4 flex justify-between items-center">
+          <Link to="/" className="text-3xl font-serif font-bold tracking-tighter">Daksha</Link>
+          {sessionInfo && (
+            <div className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">
+              <Wifi size={10} className="animate-pulse" /> Live
+            </div>
+          )}
+        </header>
+
+        {/* Page Content */}
+        <main className={`flex-1 w-full max-w-7xl mx-auto p-4 md:p-10 ${isChatPage ? 'pb-20' : 'pb-32'} animate-in fade-in duration-500`}>
+          <Outlet />
+        </main>
+
+        {/* Mobile Nav */}
+        <div className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-auto">
+          <motion.nav
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="flex items-center gap-2 bg-black/90 backdrop-blur-xl p-2 rounded-full shadow-2xl ring-1 ring-white/10"
+          >
+            {mobileNavItems.map((item) => {
+              const isActive = location.pathname.startsWith(item.url);
+              return (
+                <Link key={item.url} to={item.url} className="relative group">
+                  <div className={`
                                         w-12 h-12 flex items-center justify-center rounded-full transition-all duration-300
                                         ${isActive ? 'bg-white text-black scale-110 shadow-lg' : 'text-zinc-400 hover:text-zinc-200'}
                                     `}>
-                                        <item.icon size={20} strokeWidth={isActive ? 2.5 : 2} />
-                                        {item.badge > 0 && (
-                                            <span className={`
+                    <item.icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+                    {item.badge > 0 && (
+                      <span className={`
                                                 absolute top-2 right-2 w-2.5 h-2.5 rounded-full border-2 border-black
                                                 ${isActive ? 'bg-black border-white' : 'bg-white'}
                                             `} />
-                                        )}
-                                    </div>
-                                </Link>
-                            );
-                        })}
-                    </motion.nav>
-                </div>
-            </div>
+                    )}
+                  </div>
+                </Link>
+              );
+            })}
+          </motion.nav>
         </div>
-    );
+      </div>
+    </div>
+  );
 }

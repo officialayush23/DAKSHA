@@ -78,7 +78,10 @@ export const UserService = {
   
   // 🔥 Specific Location Patch API
   updateAddressLocation: (addressId, lat, lng) => 
-    api.patch(`/user/addresses/${addressId}/location`, { lat, lng }),
+    api.post("/user/ping", {
+    lng: lng,
+    lat: lat
+  }),
   
   // Cards
   getCards: () => api.get('/user/cards'),

@@ -1,5 +1,6 @@
 # app/services/admin_global_service.py
 
+from itertools import product
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
@@ -7,7 +8,8 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, desc
 from shapely.geometry import shape
 from geoalchemy2.shape import from_shape
-
+from geoalchemy2.shape import to_shape
+from shapely.geometry import mapping
 from app.models.models import (
     Product,
     ProductVariant,
@@ -114,9 +116,9 @@ def create_product(db: Session, payload, admin_id, reason: str):
             create_variant(
     db,
     payload=v_data,
-    product_id=product.id,
     admin_id=admin_id,
     reason="Initial creation",
+    product_id=product.id,
 )
 
 
@@ -132,6 +134,7 @@ def update_product(db: Session, product_id, payload, admin_id, reason: str):
         setattr(product, k, v)
 
     db.commit()
+    db.refresh(product)
 
     # 🔥 RE-EMBED ALL VARIANTS
     for v in product.variants:
@@ -149,7 +152,16 @@ def update_product(db: Session, product_id, payload, admin_id, reason: str):
 
 
 def delete_product(db: Session, product_id, admin_id, reason: str):
+
+    variants = db.query(ProductVariant.id).filter(
+        ProductVariant.product_id == product_id
+    ).all()
+
+    for v in variants:
+        delete_variant(db, v.id, admin_id, "cascade delete")
+
     db.query(Product).filter(Product.id == product_id).delete()
+
     admin_audit_log(
         db,
         admin_id=admin_id,
@@ -158,6 +170,7 @@ def delete_product(db: Session, product_id, admin_id, reason: str):
         entity_id=product_id,
         reason=reason,
     )
+
     db.commit()
 
 
@@ -186,25 +199,61 @@ def create_variant(db: Session, payload, admin_id, reason: str, product_id: uuid
     admin_audit_log(db, admin_id=admin_id, action="create_variant", entity_type="product_variant", entity_id=variant.id, reason=reason)
     return variant
 
-def add_product_image(db: Session, variant_id: uuid.UUID, image_url: str, admin_id: uuid.UUID):
-    pos = db.query(func.max(ProductImage.position)).filter(ProductImage.product_variant_id == variant_id).scalar() or 0
-    img = ProductImage(product_variant_id=variant_id, image_url=image_url, position=pos + 1)
+def add_product_image(db, variant_id: uuid.UUID, image_url: str, admin_id: uuid.UUID, reason: str):
+    pos = db.query(func.max(ProductImage.position)).filter(
+        ProductImage.product_variant_id == variant_id
+    ).scalar() or 0
+
+    img = ProductImage(
+        product_variant_id=variant_id,
+        image_url=image_url,
+        position=pos + 1
+    )
+
     db.add(img)
     db.commit()
 
-    # 🔥 SYNC EMBEDDINGS (Vision + Text)
+    # 🔥 Sync embeddings
     upsert_variant_image_embeddings(db, variant_id)
-    upsert_variant_text_embedding(db, variant_id) # Re-embed text as it might reference image count
-    
+    upsert_variant_text_embedding(db, variant_id)
+
+    admin_audit_log(
+        db,
+        admin_id=admin_id,
+        action="add_product_image",
+        entity_type="product_image",
+        entity_id=variant_id,
+        reason=reason,
+    )
+
     return img
 
-
+def get_inventory_kpis(db: Session):
+    total_variants = db.query(func.count(ProductVariant.id)).scalar() or 0
+    
+    # Total stock across the entire system
+    global_stock = db.query(func.sum(GlobalInventory.total_stock)).scalar() or 0
+    
+    # Stock that is physically currently at stores
+    store_stock = db.query(func.sum(StoreInventory.in_stock)).scalar() or 0
+    
+    # Stock sitting in the global warehouse (reserved/unassigned to stores yet)
+    warehouse_stock = db.query(func.sum(GlobalInventory.reserved_stock)).scalar() or 0
+    
+    return {
+        "total_variants_tracked": total_variants,
+        "total_global_stock": global_stock,
+        "stock_at_stores": store_stock,
+        "stock_in_warehouse": warehouse_stock
+    }
+    
 def update_variant(db: Session, variant_id, payload, admin_id, reason: str):
     variant = db.get(ProductVariant, variant_id)
     for k, v in payload.dict(exclude_unset=True).items():
         setattr(variant, k, v)
 
     db.commit()
+    on_pricing_change(db, variant.id)
     upsert_variant_text_embedding(db, variant.id)
 
     admin_audit_log(
@@ -224,7 +273,19 @@ def on_pricing_change(db: Session, variant_id):
     apply_active_discount_rules(db, variant)
 
 def delete_variant(db: Session, variant_id, admin_id, reason: str):
-    db.query(ProductVariant).filter(ProductVariant.id == variant_id).delete()
+
+    db.query(ProductMultimodalEmbedding).filter(
+        ProductMultimodalEmbedding.product_variant_id == variant_id
+    ).delete()
+
+    db.query(ProductImage).filter(
+        ProductImage.product_variant_id == variant_id
+    ).delete()
+
+    db.query(ProductVariant).filter(
+        ProductVariant.id == variant_id
+    ).delete()
+
     admin_audit_log(
         db,
         admin_id=admin_id,
@@ -233,6 +294,7 @@ def delete_variant(db: Session, variant_id, admin_id, reason: str):
         entity_id=variant_id,
         reason=reason,
     )
+
     db.commit()
 
 
@@ -252,7 +314,12 @@ def assert_global_inventory_consistency(inv: GlobalInventory):
 def assign_global_inventory(db: Session, payload, admin_id, reason: str):
     inv = db.get(GlobalInventory, payload.product_variant_id)
     if not inv:
-        inv = GlobalInventory(product_variant_id=payload.product_variant_id, total_stock=payload.quantity, reserved_stock=payload.quantity, assigned_stock=0)
+        inv = GlobalInventory(
+    product_variant_id=payload.product_variant_id,
+    total_stock=payload.quantity,
+    reserved_stock=payload.quantity,
+    assigned_stock=0
+)
         db.add(inv)
     else:
         inv.total_stock += payload.quantity
@@ -306,7 +373,23 @@ def assign_store_inventory(db: Session, payload, admin_id, reason: str):
 # =========================================================
 # STORES + KIOSKS
 # =========================================================
-# Replace the existing create_store function with this:
+
+
+def serialize_store(store):
+    geojson = None
+    if store.location:
+        geojson = mapping(to_shape(store.location))
+
+    return {
+        "id": store.id,
+        "name": store.name,
+        "city": store.city,
+        "state": store.state,
+        "address": store.address,
+        "active": store.active,
+        "location": geojson,
+    }
+    
 def create_store(db: Session, payload, admin_id, reason: str):
     # Fix: Ensure we pass a Dict to shape(), not a Pydantic model
     loc_data = payload.location.dict() if hasattr(payload.location, 'dict') else payload.location
@@ -319,7 +402,7 @@ def create_store(db: Session, payload, admin_id, reason: str):
     db.add(store)
     db.commit()
     admin_audit_log(db, admin_id=admin_id, action="create_store", entity_type="store", entity_id=store.id, reason=reason)
-    return store 
+    return serialize_store(store) 
 
 
 
@@ -553,7 +636,8 @@ def list_all_discount_rules(db: Session):
     return db.query(ProductDiscountRule).order_by(ProductDiscountRule.created_at.desc()).all()
 
 def list_all_stores(db: Session):
-    return db.query(Store).order_by(Store.created_at.desc()).all()
+    stores = db.query(Store).all()
+    return [serialize_store(s) for s in stores]
 
 def list_all_orders(db: Session):
     return db.query(Order).order_by(Order.created_at.desc()).all()
@@ -578,13 +662,23 @@ def list_all_kiosks(db: Session):
 # =======================
 
 def list_all_products(db: Session):
-    return db.query(Product).order_by(Product.created_at.desc()).all()
+    return (
+        db.query(Product)
+        .options(joinedload(Product.variants))
+        .order_by(Product.created_at.desc())
+        .all()
+    )
 
 def get_product(db: Session, product_id):
     return db.get(Product, product_id)
 
 def list_all_variants(db: Session):
-    return db.query(ProductVariant).order_by(ProductVariant.created_at.desc()).all()
+    return (
+        db.query(ProductVariant)
+        .options(joinedload(ProductVariant.images))
+        .order_by(ProductVariant.created_at.desc())
+        .all()
+    )
 
 def get_variant(db: Session, variant_id):
     return db.get(ProductVariant, variant_id)

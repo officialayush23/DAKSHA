@@ -171,7 +171,7 @@ class UserIntent(Base):
 # ==========================================
 # 3. CATALOG
 # ==========================================
-
+from sqlalchemy.dialects.postgresql import TSVECTOR
 class Product(Base):
     __tablename__ = "products"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -183,7 +183,7 @@ class Product(Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
     occasion: Mapped[Optional[str]]
     active: Mapped[bool] = mapped_column(default=True)
-    search_tsv: Mapped[Optional[str]] = mapped_column(TSVECTOR)
+    search_tsv: Mapped[Any] = mapped_column(TSVECTOR)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     
     variants: Mapped[List["ProductVariant"]] = relationship(back_populates="product")

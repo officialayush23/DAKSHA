@@ -32,7 +32,6 @@ import {
   Plus,
   MoreHorizontal,
   Loader2,
-  Search,
   Package,
   Palette,
   ChevronRight,
@@ -40,18 +39,12 @@ import {
   Edit,
   Trash2,
   Image as ImageIcon,
-  Copy,
   RefreshCw,
-  Grid3x3,
-  List,
-  Upload,
-  X,
   Warehouse,
   Globe,
   Boxes,
   Store,
   Eye,
-  CheckCircle2
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -67,8 +60,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Switch } from "@/components/ui/switch";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 
 export default function Products() {
@@ -80,7 +72,6 @@ export default function Products() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
-  const [viewMode, setViewMode] = useState("list");
 
   // Real API Inventory Stats
   const [inventoryStats, setInventoryStats] = useState({
@@ -96,7 +87,7 @@ export default function Products() {
   const [isImageDialogOpen, setIsImageDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isInventoryDialogOpen, setIsInventoryDialogOpen] = useState(false);
-  const [isViewInventoryOpen, setIsViewInventoryOpen] = useState(false); // NEW
+  const [isViewInventoryOpen, setIsViewInventoryOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Expanded products for tree view
@@ -112,7 +103,7 @@ export default function Products() {
   const [inventoryType, setInventoryType] = useState('global');
   const [inventoryForm, setInventoryForm] = useState({ store_id: "", quantity: "" });
 
-  // Inventory View State (NEW)
+  // Inventory View State
   const [viewInventoryData, setViewInventoryData] = useState(null);
   const [viewStoreId, setViewStoreId] = useState("");
   const [viewStoreData, setViewStoreData] = useState(null);
@@ -127,27 +118,44 @@ export default function Products() {
     { value: "male", label: "Male" }, { value: "female", label: "Female" },
     { value: "unisex", label: "Unisex" }, { value: "kids", label: "Kids" }
   ];
-  const CATEGORIES = ["Shoes", "Clothing", "Accessories", "Bags", "Jewelry", "Watches", "Eyewear", "Fragrances", "Skincare", "Home"];
-  const SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"];
-  const COLORS = ["Black", "White", "Red", "Blue", "Green", "Yellow", "Purple", "Pink", "Orange", "Brown"];
+  const SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL", "One Size"];
+  const COLORS = ["Black", "White", "Red", "Blue", "Green", "Yellow", "Purple", "Pink", "Orange", "Brown", "Grey", "Multi"];
 
-  const [productForm, setProductForm] = useState({ brand: "", category: "", gender: "", fabric_type: "", description: "", occasion: "", active: true });
+  const [productForm, setProductForm] = useState({ name: "", brand: "", category: "", gender: "", fabric_type: "", description: "", occasion: "", active: true });
   const [variantForm, setVariantForm] = useState({ product_id: "", sku: "", color: "", size: "", base_price: "", active: true });
   const [imageForm, setImageForm] = useState({ position: 0 });
 
-  const categories = Array.from(new Set(products.map(p => p.category).filter(Boolean)));
-
-  const fetchData = async () => {
+const fetchData = async () => {
     setLoading(true);
     try {
       const [productsData, storesData, kpisData] = await Promise.all([
         AdminService.listProducts(),
         AdminService.listStores(),
-        AdminService.getInventoryKpis()
+        // Add a .catch() here so a 404 on KPIs doesn't crash the Products and Stores fetch
+        AdminService.getInventoryKpis().catch(err => {
+            console.warn("KPIs endpoint failed, using default values", err);
+            return { 
+              total_variants_tracked: 0, 
+              total_global_stock: 0, 
+              stock_at_stores: 0, 
+              stock_in_warehouse: 0 
+            };
+        })
       ]);
-      setProducts(Array.isArray(productsData) ? productsData : []);
+      
+      const fetchedProducts = Array.isArray(productsData) ? productsData : [];
+      setProducts(fetchedProducts);
+      
+      const initialVariants = {};
+      fetchedProducts.forEach(p => {
+        if (p.variants && Array.isArray(p.variants)) {
+          initialVariants[p.id] = p.variants;
+        }
+      });
+      setVariants(initialVariants);
+
       setStores(Array.isArray(storesData) ? storesData : storesData.data || []);
-      setInventoryStats(kpisData || { total_variants_tracked: 0, total_global_stock: 0, stock_at_stores: 0, stock_in_warehouse: 0 });
+      setInventoryStats(kpisData);
       toast.success("Dashboard data loaded");
     } catch (error) {
       console.error("Failed to fetch data:", error);
@@ -170,63 +178,120 @@ export default function Products() {
     }
   };
 
-  // --- CRUD Operations (Abbreviated for clarity - same as previous) ---
+  // --- CRUD Operations ---
   const handleCreateProduct = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     try {
       const cleanFormData = {
-        name: productForm.name.trim(), // <--- Include Name
+        name: productForm.name.trim(),
         brand: productForm.brand.trim(),
         category: productForm.category.trim(),
         gender: productForm.gender.trim(),
         fabric_type: productForm.fabric_type.trim(),
         description: productForm.description.trim(),
-        occasion: productForm.occasion.trim()
+        occasion: productForm.occasion.trim(),
+        active: productForm.active
       };
 
       await AdminService.createProduct(cleanFormData);
-      toast.success("Product created"); resetProductForm(); setIsProductDialogOpen(false); fetchData();
-    } catch (error) { toast.error("Failed"); } finally { setIsSubmitting(false); }
-  };
-  const handleUpdateProduct = async (e) => {
-    e.preventDefault(); if (!editingProduct) return; setIsSubmitting(true);
-    try {
-      await AdminService.updateProduct(editingProduct.id, productForm);
-      toast.success("Updated"); resetProductForm(); setEditingProduct(null); setIsProductDialogOpen(false); fetchData();
-    } catch (error) { toast.error("Failed"); } finally { setIsSubmitting(false); }
-  };
-  const handleDeleteProduct = async () => {
-    if (!deletingItem.id) return; setIsSubmitting(true);
-    try {
-      await AdminService.deleteProduct(deletingItem.id);
-      toast.success("Deleted"); setIsDeleteDialogOpen(false); setDeletingItem({ type: '', id: '', name: '' }); fetchData();
-    } catch (error) { toast.error("Failed"); } finally { setIsSubmitting(false); }
-  };
-  const handleCreateVariant = async (e) => {
-    e.preventDefault(); setIsSubmitting(true);
-    try {
-      await AdminService.createVariant({ ...variantForm, base_price: parseFloat(variantForm.base_price) || 0 });
-      toast.success("Created"); resetVariantForm(); setIsVariantDialogOpen(false); if (variantForm.product_id) fetchVariants(variantForm.product_id);
-    } catch (error) { toast.error("Failed"); } finally { setIsSubmitting(false); }
-  };
-  const handleUpdateVariant = async (e) => {
-    e.preventDefault(); if (!editingVariant) return; setIsSubmitting(true);
-    try {
-      await AdminService.updateVariant(editingVariant.id, { ...variantForm, base_price: parseFloat(variantForm.base_price) || 0 });
-      toast.success("Updated"); resetVariantForm(); setEditingVariant(null); setIsVariantDialogOpen(false); if (variantForm.product_id) fetchVariants(variantForm.product_id);
-    } catch (error) { toast.error("Failed"); } finally { setIsSubmitting(false); }
-  };
-  const handleDeleteVariant = async () => {
-    if (!deletingItem.id) return; setIsSubmitting(true);
-    try {
-      await AdminService.deleteVariant(deletingItem.id);
-      toast.success("Deleted"); setIsDeleteDialogOpen(false); setDeletingItem({ type: '', id: '', name: '' });
-      const v = variants[deletingItem.productId]?.find(v => v.id === deletingItem.id); if (v) fetchVariants(v.product_id);
-    } catch (error) { toast.error("Failed"); } finally { setIsSubmitting(false); }
+      toast.success("Product created"); 
+      resetProductForm(); 
+      setIsProductDialogOpen(false); 
+      fetchData();
+    } catch (error) { 
+        toast.error("Failed to create product"); 
+    } finally { 
+        setIsSubmitting(false); 
+    }
   };
 
-  // --- Inventory Management (MANAGE) ---
+  const handleUpdateProduct = async (e) => {
+    e.preventDefault(); 
+    if (!editingProduct) return; 
+    setIsSubmitting(true);
+    try {
+      await AdminService.updateProduct(editingProduct.id, productForm);
+      toast.success("Product updated"); 
+      resetProductForm(); 
+      setEditingProduct(null); 
+      setIsProductDialogOpen(false); 
+      fetchData();
+    } catch (error) { 
+        toast.error("Failed to update product"); 
+    } finally { 
+        setIsSubmitting(false); 
+    }
+  };
+
+  const handleDeleteProduct = async () => {
+    if (!deletingItem.id) return; 
+    setIsSubmitting(true);
+    try {
+      await AdminService.deleteProduct(deletingItem.id);
+      toast.success("Product deleted"); 
+      setIsDeleteDialogOpen(false); 
+      setDeletingItem({ type: '', id: '', name: '' }); 
+      fetchData();
+    } catch (error) { 
+        toast.error("Failed to delete product"); 
+    } finally { 
+        setIsSubmitting(false); 
+    }
+  };
+
+  const handleCreateVariant = async (e) => {
+    e.preventDefault(); 
+    setIsSubmitting(true);
+    try {
+      await AdminService.createVariant({ ...variantForm, base_price: parseFloat(variantForm.base_price) || 0 });
+      toast.success("Variant created"); 
+      resetVariantForm(); 
+      setIsVariantDialogOpen(false); 
+      if (variantForm.product_id) fetchVariants(variantForm.product_id);
+    } catch (error) { 
+        toast.error("Failed to create variant"); 
+    } finally { 
+        setIsSubmitting(false); 
+    }
+  };
+
+  const handleUpdateVariant = async (e) => {
+    e.preventDefault(); 
+    if (!editingVariant) return; 
+    setIsSubmitting(true);
+    try {
+      await AdminService.updateVariant(editingVariant.id, { ...variantForm, base_price: parseFloat(variantForm.base_price) || 0 });
+      toast.success("Variant updated"); 
+      resetVariantForm(); 
+      setEditingVariant(null); 
+      setIsVariantDialogOpen(false); 
+      if (variantForm.product_id) fetchVariants(variantForm.product_id);
+    } catch (error) { 
+        toast.error("Failed to update variant"); 
+    } finally { 
+        setIsSubmitting(false); 
+    }
+  };
+
+  const handleDeleteVariant = async () => {
+    if (!deletingItem.id) return; 
+    setIsSubmitting(true);
+    try {
+      await AdminService.deleteVariant(deletingItem.id);
+      toast.success("Variant deleted"); 
+      setIsDeleteDialogOpen(false); 
+      setDeletingItem({ type: '', id: '', name: '' });
+      // Fetch variants for the parent product to update the list
+      if (deletingItem.productId) fetchVariants(deletingItem.productId);
+    } catch (error) { 
+        toast.error("Failed to delete variant"); 
+    } finally { 
+        setIsSubmitting(false); 
+    }
+  };
+
+  // --- Inventory Management ---
   const openInventoryDialog = (variant, type) => {
     setCurrentVariant(variant);
     setInventoryType(type);
@@ -252,7 +317,6 @@ export default function Products() {
     } catch (error) { toast.error(error.message); } finally { setIsSubmitting(false); }
   };
 
-  // --- Inventory View (VIEW) ---
   const openViewInventory = async (variant) => {
     setCurrentVariant(variant);
     setViewInventoryData(null);
@@ -262,11 +326,7 @@ export default function Products() {
     setViewLoading(true);
 
     try {
-      // 1. Fetch Global Inventory List for this Product (Parent)
-      // The API returns a list of all variants' inventory for the product
       const globalList = await AdminService.getGlobalInventoryItem(variant.product_id);
-
-      // 2. Find THIS specific variant in the list
       const thisVariantData = Array.isArray(globalList)
         ? globalList.find(item => item.product_variant_id === variant.id)
         : null;
@@ -288,11 +348,7 @@ export default function Products() {
     }
 
     try {
-      const res = await AdminService.getStoreInventoryForVariant(
-        storeId,
-        currentVariant.id
-      );
-
+      const res = await AdminService.getStoreInventoryForVariant(storeId, currentVariant.id);
       setViewStoreData(res);
     } catch (error) {
       console.error("Error fetching store inventory", error);
@@ -302,14 +358,15 @@ export default function Products() {
     }
   };
 
-
   // --- Image Upload ---
   const handleImageUpload = async (e) => {
-    e.preventDefault(); if (!currentVariant || !imageFile) return; setUploadingImage(true);
+    e.preventDefault(); 
+    if (!currentVariant || !imageFile) return; 
+    setUploadingImage(true);
     try {
       const formData = new FormData(); formData.append('file', imageFile);
       const res = await fetch(
-        `http://localhost:8000/admin/variants/${currentVariant.id}/images`,
+        `http://localhost:8000/admin/global/variants/${currentVariant.id}/images`,
         {
           method: 'POST',
           body: formData,
@@ -322,27 +379,42 @@ export default function Products() {
       if (!res.ok) throw new Error("Upload failed");
       const { image_url } = await res.json();
       await AdminService.addImage(currentVariant.id, { image_url, position: parseInt(imageForm.position) || 0 });
-      toast.success("Image added"); resetImageForm(); setIsImageDialogOpen(false); if (currentVariant.product_id) fetchVariants(currentVariant.product_id);
-    } catch (error) { toast.error("Failed"); } finally { setUploadingImage(false); }
+      toast.success("Image added"); 
+      resetImageForm(); 
+      setIsImageDialogOpen(false); 
+      if (currentVariant.product_id) fetchVariants(currentVariant.product_id);
+    } catch (error) { 
+        toast.error("Failed to add image"); 
+    } finally { 
+        setUploadingImage(false); 
+    }
   };
+
   const handleFileChange = (e) => {
     const file = e.target.files[0]; if (!file) return;
     if (!file.type.startsWith('image/')) return toast.error('Images only');
-    setImageFile(file); const reader = new FileReader(); reader.onloadend = () => setImagePreview(reader.result); reader.readAsDataURL(file);
+    setImageFile(file); 
+    const reader = new FileReader(); 
+    reader.onloadend = () => setImagePreview(reader.result); 
+    reader.readAsDataURL(file);
   };
 
   // --- Helpers ---
   const toggleProductExpansion = async (pid) => {
-    const isExpanded = expandedProducts[pid]; setExpandedProducts(prev => ({ ...prev, [pid]: !isExpanded }));
+    const isExpanded = expandedProducts[pid]; 
+    setExpandedProducts(prev => ({ ...prev, [pid]: !isExpanded }));
+    // Only fetch if we didn't receive eager-loaded variants from the main payload
     if (!isExpanded && !variants[pid]) await fetchVariants(pid);
   };
+
   const resetProductForm = () => setProductForm({ name: "", brand: "", category: "", gender: "", fabric_type: "", description: "", occasion: "", active: true });
   const resetVariantForm = () => setVariantForm({ product_id: "", sku: "", color: "", size: "", base_price: "", active: true });
   const resetImageForm = () => { setImageForm({ position: 0 }); setImageFile(null); setImagePreview(null); setCurrentVariant(null); };
+  
   const openEditProductDialog = (p) => {
     setEditingProduct(p);
     setProductForm({
-      name: p.name || "", // <--- Load Name
+      name: p.name || "",
       brand: p.brand || "",
       category: p.category || "",
       gender: p.gender || "",
@@ -353,14 +425,19 @@ export default function Products() {
     });
     setIsProductDialogOpen(true);
   };
-  const openEditVariantDialog = (v, pid) => { setEditingVariant(v); setVariantForm({ ...v, product_id: pid, active: v.active !== false }); setIsVariantDialogOpen(true); };
+
+  const openEditVariantDialog = (v, pid) => { 
+      setEditingVariant(v); 
+      setVariantForm({ ...v, product_id: pid, active: v.active !== false }); 
+      setIsVariantDialogOpen(true); 
+  };
   const openAddImageDialog = (v) => { setCurrentVariant(v); setIsImageDialogOpen(true); };
   const openDeleteDialog = (type, id, name, pid = null) => { setDeletingItem({ type, id, name, productId: pid }); setIsDeleteDialogOpen(true); };
 
   useEffect(() => { fetchData(); }, []);
 
   const filteredProducts = products.filter(p => {
-    const matchesSearch = p.brand?.toLowerCase().includes(searchTerm.toLowerCase()) || p.category?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = p.brand?.toLowerCase().includes(searchTerm.toLowerCase()) || p.category?.toLowerCase().includes(searchTerm.toLowerCase()) || p.name?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = filterCategory === "all" || p.category === filterCategory;
     const matchesStatus = filterStatus === "all" || (filterStatus === "active" ? p.active !== false : p.active === false);
     return matchesSearch && matchesCategory && matchesStatus;
@@ -368,7 +445,7 @@ export default function Products() {
 
   return (
     <div className="space-y-6">
-      {/* Header & Stats (Same as before) */}
+      {/* Header & Stats */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div><h1 className="text-3xl font-bold tracking-tight">Products & Inventory</h1><p className="text-muted-foreground">Manage catalog and stock</p></div>
         <div className="flex items-center gap-2">
@@ -390,20 +467,37 @@ export default function Products() {
           <div className="divide-y">
             {filteredProducts.map((product) => {
               const isExpanded = expandedProducts[product.id];
-              const productVariants = variants[product.id] || [];
+              // FIX: Fallback to eager-loaded product.variants if present
+              const productVariants = variants[product.id] || product.variants || [];
+              
               return (
                 <Collapsible key={product.id} open={isExpanded} onOpenChange={() => toggleProductExpansion(product.id)}>
                   <div className="p-4 hover:bg-muted/30 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start gap-3">
                         <CollapsibleTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">{isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</Button>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 mt-1">{isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</Button>
                         </CollapsibleTrigger>
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 rounded-full bg-blue-100 dark:bg-blue-900/30"><Package className="h-4 w-4 text-blue-600" /></div>
+                        <div className="flex items-start gap-3">
+                          <div className="p-2 mt-1 rounded-full bg-blue-100 dark:bg-blue-900/30"><Package className="h-4 w-4 text-blue-600" /></div>
                           <div>
-                            <div className="flex items-center gap-2"><h3 className="font-medium">{product.brand}</h3><span className="text-muted-foreground">•</span><span className="text-primary font-medium">{product.category}</span></div>
-                            <p className="text-sm text-muted-foreground">{product.description}</p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="font-semibold text-lg">{product.name}</h3>
+                                <span className="text-muted-foreground">•</span>
+                                <span className="text-primary font-medium">{product.brand}</span>
+                                <Badge variant={product.active !== false ? "default" : "secondary"}>
+                                    {product.active !== false ? "Active" : "Inactive"}
+                                </Badge>
+                            </div>
+                            
+                            <div className="flex gap-2 mt-2 flex-wrap text-xs text-muted-foreground">
+                              {product.category && <Badge variant="outline">{product.category}</Badge>}
+                              {product.gender && <Badge variant="outline">{product.gender}</Badge>}
+                              {product.fabric_type && <Badge variant="outline">{product.fabric_type}</Badge>}
+                              {product.occasion && <Badge variant="outline">{product.occasion}</Badge>}
+                            </div>
+
+                            <p className="text-sm text-muted-foreground mt-2 max-w-2xl">{product.description}</p>
                           </div>
                         </div>
                       </div>
@@ -426,11 +520,25 @@ export default function Products() {
                       <div className="border rounded-lg bg-muted/30">
                         {variantsLoading[product.id] ? <div className="h-24 flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : (
                           <Table>
-                            <TableHeader><TableRow className="bg-muted/50"><TableHead>SKU</TableHead><TableHead>Color</TableHead><TableHead>Size</TableHead><TableHead>Price</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                            <TableHeader>
+                                <TableRow className="bg-muted/50">
+                                    <TableHead>SKU</TableHead>
+                                    <TableHead>Status</TableHead>
+                                    <TableHead>Color</TableHead>
+                                    <TableHead>Size</TableHead>
+                                    <TableHead>Price</TableHead>
+                                    <TableHead className="text-right">Actions</TableHead>
+                                </TableRow>
+                            </TableHeader>
                             <TableBody>
                               {productVariants.map(variant => (
                                 <TableRow key={variant.id}>
-                                  <TableCell className="font-mono text-xs">{variant.sku}</TableCell>
+                                  <TableCell className="font-mono text-xs font-semibold">{variant.sku}</TableCell>
+                                  <TableCell>
+                                    <Badge variant={variant.active !== false ? "default" : "secondary"} className="text-[10px]">
+                                        {variant.active !== false ? "Active" : "Inactive"}
+                                    </Badge>
+                                  </TableCell>
                                   <TableCell><div className="flex items-center gap-2">{variant.color && <div className="h-3 w-3 rounded-full border" style={{ backgroundColor: variant.color.toLowerCase() }} />}<span>{variant.color}</span></div></TableCell>
                                   <TableCell>{variant.size && <Badge variant="outline">{variant.size}</Badge>}</TableCell>
                                   <TableCell>₹{variant.base_price}</TableCell>
@@ -482,7 +590,6 @@ export default function Products() {
             <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin" /></div>
           ) : (
             <div className="space-y-6 py-4">
-              {/* Global Section */}
               <div className="space-y-2">
                 <h4 className="text-sm font-medium flex items-center gap-2"><Globe className="h-4 w-4 text-blue-500" /> Global Overview</h4>
                 {viewInventoryData ? (
@@ -509,7 +616,6 @@ export default function Products() {
 
               <div className="border-t" />
 
-              {/* Store Section */}
               <div className="space-y-3">
                 <h4 className="text-sm font-medium flex items-center gap-2"><Store className="h-4 w-4 text-green-600" /> Check Store Stock</h4>
                 <div className="flex gap-2">
@@ -587,39 +693,102 @@ export default function Products() {
         </DialogContent>
       </Dialog>
 
-      {/* Other Dialogs (Product, Variant, Image, Delete) */}
+      {/* PRODUCT DIALOG */}
       <Dialog open={isProductDialogOpen} onOpenChange={o => { if (!o) resetProductForm(); setIsProductDialogOpen(o); }}>
-        <DialogContent className="sm:max-w-[600px]"><DialogHeader><DialogTitle>{editingProduct ? 'Edit' : 'Create'} Product</DialogTitle></DialogHeader>
+        <DialogContent className="sm:max-w-[650px]">
+            <DialogHeader><DialogTitle>{editingProduct ? 'Edit' : 'Create'} Product</DialogTitle></DialogHeader>
           <form onSubmit={editingProduct ? handleUpdateProduct : handleCreateProduct}>
             <div className="grid gap-4 py-4">
-
-              <div className="grid grid-cols-2 gap-4"><div className="grid gap-2">
-                <Label htmlFor="name">Product Name *</Label>
-                <Input
-                  id="name"
-                  value={productForm.name}
-                  onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
-                  required
-                  placeholder="e.g. Air Max 90"
-                />
-              </div><div className="grid gap-2"><Label>Brand</Label><Input value={productForm.brand} onChange={e => setProductForm({ ...productForm, brand: e.target.value })} required /></div><div className="grid gap-2"><Label>Category</Label><Select value={productForm.category} onValueChange={v => setProductForm({ ...productForm, category: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div></div>
-              <div className="grid grid-cols-2 gap-4"><div className="grid gap-2"><Label>Gender</Label><Select value={productForm.gender} onValueChange={v => setProductForm({ ...productForm, gender: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{GENDER_OPTIONS.map(g => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}</SelectContent></Select></div><div className="grid gap-2"><Label>Fabric</Label><Input value={productForm.fabric_type} onChange={e => setProductForm({ ...productForm, fabric_type: e.target.value })} /></div></div>
-              <div className="grid gap-2"><Label>Description</Label><Textarea value={productForm.description} onChange={e => setProductForm({ ...productForm, description: e.target.value })} required /></div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                    <Label htmlFor="name">Product Name *</Label>
+                    <Input id="name" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} required placeholder="e.g. Air Max 90" />
+                </div>
+                <div className="grid gap-2">
+                    <Label>Brand</Label>
+                    <Input value={productForm.brand} onChange={e => setProductForm({ ...productForm, brand: e.target.value })} placeholder="e.g. Nike" required />
+                </div>
+                <div className="grid gap-2">
+                    <Label>Category</Label>
+                    <Input value={productForm.category} onChange={e => setProductForm({ ...productForm, category: e.target.value })} placeholder="e.g. Shoes" />
+                </div>
+                <div className="grid gap-2">
+                    <Label>Gender</Label>
+                    <Select value={productForm.gender} onValueChange={v => setProductForm({ ...productForm, gender: v })}>
+                        <SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger>
+                        <SelectContent>{GENDER_OPTIONS.map(g => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                      <Label>Fabric Type / Material</Label>
+                      <Input value={productForm.fabric_type} onChange={e => setProductForm({ ...productForm, fabric_type: e.target.value })} placeholder="e.g. Cotton, Leather" />
+                  </div>
+                  <div className="grid gap-2">
+                      <Label>Occasion</Label>
+                      <Input value={productForm.occasion} onChange={e => setProductForm({ ...productForm, occasion: e.target.value })} placeholder="e.g. Casual, Formal" />
+                  </div>
+              </div>
+              <div className="grid gap-2">
+                  <Label>Description</Label>
+                  <Textarea value={productForm.description} onChange={e => setProductForm({ ...productForm, description: e.target.value })} rows={3} placeholder="Enter a detailed description..." required />
+              </div>
+              <div className="flex items-center space-x-2 mt-2">
+                <Switch id="active-status" checked={productForm.active} onCheckedChange={(c) => setProductForm({ ...productForm, active: c })} />
+                <Label htmlFor="active-status">Product is Active</Label>
+              </div>
             </div>
-            <DialogFooter><Button type="submit" disabled={isSubmitting}>Save</Button></DialogFooter>
+            <DialogFooter><Button type="submit" disabled={isSubmitting}>Save Product</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
+      {/* VARIANT DIALOG */}
       <Dialog open={isVariantDialogOpen} onOpenChange={o => { if (!o) resetVariantForm(); setIsVariantDialogOpen(o); }}>
-        <DialogContent><DialogHeader><DialogTitle>{editingVariant ? 'Edit' : 'Create'} Variant</DialogTitle></DialogHeader>
+        <DialogContent>
+            <DialogHeader><DialogTitle>{editingVariant ? 'Edit' : 'Create'} Variant</DialogTitle></DialogHeader>
           <form onSubmit={editingVariant ? handleUpdateVariant : handleCreateVariant}>
             <div className="grid gap-4 py-4">
-              <div className="grid gap-2"><Label>Product</Label><Select value={variantForm.product_id} onValueChange={v => setVariantForm({ ...variantForm, product_id: v })} disabled={!!editingVariant}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{products.map(p => <SelectItem key={p.id} value={p.id}>{p.brand}</SelectItem>)}</SelectContent></Select></div>
-              <div className="grid grid-cols-2 gap-4"><div className="grid gap-2"><Label>SKU</Label><Input value={variantForm.sku} onChange={e => setVariantForm({ ...variantForm, sku: e.target.value })} /></div><div className="grid gap-2"><Label>Price</Label><Input type="number" value={variantForm.base_price} onChange={e => setVariantForm({ ...variantForm, base_price: e.target.value })} /></div></div>
-              <div className="grid grid-cols-2 gap-4"><div className="grid gap-2"><Label>Color</Label><Select value={variantForm.color} onValueChange={v => setVariantForm({ ...variantForm, color: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{COLORS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div><div className="grid gap-2"><Label>Size</Label><Select value={variantForm.size} onValueChange={v => setVariantForm({ ...variantForm, size: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{SIZES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div></div>
+              <div className="grid gap-2">
+                  <Label>Parent Product</Label>
+                  <Select value={variantForm.product_id} onValueChange={v => setVariantForm({ ...variantForm, product_id: v })} disabled={!!editingVariant}>
+                      <SelectTrigger><SelectValue placeholder="Select product" /></SelectTrigger>
+                      <SelectContent>{products.map(p => <SelectItem key={p.id} value={p.id}>{p.brand} - {p.name}</SelectItem>)}</SelectContent>
+                  </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                      <Label>SKU</Label>
+                      <Input value={variantForm.sku} onChange={e => setVariantForm({ ...variantForm, sku: e.target.value })} placeholder="e.g. NK-AM90-BLK-10" required />
+                  </div>
+                  <div className="grid gap-2">
+                      <Label>Base Price (₹)</Label>
+                      <Input type="number" step="0.01" value={variantForm.base_price} onChange={e => setVariantForm({ ...variantForm, base_price: e.target.value })} placeholder="0.00" required />
+                  </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                      <Label>Color</Label>
+                      <Select value={variantForm.color} onValueChange={v => setVariantForm({ ...variantForm, color: v })}>
+                          <SelectTrigger><SelectValue placeholder="Select color" /></SelectTrigger>
+                          <SelectContent>{COLORS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                      </Select>
+                  </div>
+                  <div className="grid gap-2">
+                      <Label>Size</Label>
+                      <Select value={variantForm.size} onValueChange={v => setVariantForm({ ...variantForm, size: v })}>
+                          <SelectTrigger><SelectValue placeholder="Select size" /></SelectTrigger>
+                          <SelectContent>{SIZES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                      </Select>
+                  </div>
+              </div>
+              <div className="flex items-center space-x-2 mt-2">
+                <Switch id="variant-active-status" checked={variantForm.active} onCheckedChange={(c) => setVariantForm({ ...variantForm, active: c })} />
+                <Label htmlFor="variant-active-status">Variant is Active</Label>
+              </div>
             </div>
-            <DialogFooter><Button type="submit" disabled={isSubmitting}>Save</Button></DialogFooter>
+            <DialogFooter><Button type="submit" disabled={isSubmitting}>Save Variant</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
@@ -627,15 +796,17 @@ export default function Products() {
       <Dialog open={isImageDialogOpen} onOpenChange={setIsImageDialogOpen}>
         <DialogContent><DialogHeader><DialogTitle>Add Image</DialogTitle></DialogHeader>
           <form onSubmit={handleImageUpload}>
-            <div className="grid gap-4 py-4"><Input type="file" onChange={handleFileChange} accept="image/*" /><Input type="number" placeholder="Position" value={imageForm.position} onChange={e => setImageForm({ position: e.target.value })} /></div>
-            <DialogFooter><Button type="submit" disabled={uploadingImage}>Upload</Button></DialogFooter>
+            <div className="grid gap-4 py-4"><Input type="file" onChange={handleFileChange} accept="image/*" /><Input type="number" placeholder="Position (e.g., 0)" value={imageForm.position} onChange={e => setImageForm({ position: e.target.value })} /></div>
+            <DialogFooter><Button type="submit" disabled={uploadingImage}>Upload Image</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <DialogContent><DialogHeader><DialogTitle>Confirm Delete</DialogTitle><DialogDescription>Delete {deletingItem.name}?</DialogDescription></DialogHeader>
-          <DialogFooter><Button variant="destructive" onClick={deletingItem.type === 'product' ? handleDeleteProduct : handleDeleteVariant} disabled={isSubmitting}>Delete</Button></DialogFooter></DialogContent>
+        <DialogContent>
+            <DialogHeader><DialogTitle>Confirm Delete</DialogTitle><DialogDescription>Are you sure you want to delete {deletingItem.name}? This action cannot be undone.</DialogDescription></DialogHeader>
+          <DialogFooter><Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button><Button variant="destructive" onClick={deletingItem.type === 'product' ? handleDeleteProduct : handleDeleteVariant} disabled={isSubmitting}>Delete</Button></DialogFooter>
+        </DialogContent>
       </Dialog>
     </div>
   );

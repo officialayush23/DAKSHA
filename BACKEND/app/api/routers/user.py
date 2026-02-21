@@ -5,7 +5,9 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc
 from typing import Optional
 import uuid
-
+from app.core.deps import get_db, get_current_user
+from app.services.user_services import upsert_user_location
+from app.services.session_service import get_active_session
 from app.core.deps import get_db, get_current_user
 from app.schemas.schemas import (
     WishlistAdd,
@@ -359,3 +361,28 @@ def create_review(
     )
 
     return {"status": "review_added"}
+
+
+
+
+@router.post("/ping")
+def update_location(
+    lng: float,
+    lat: float,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    session = get_active_session(db, user_id=user.id)
+
+    if not session:
+        return {"status": "no_active_session"}
+
+    upsert_user_location(
+        db,
+        session_id=session.id,
+        user_id=user.id,
+        lng=lng,
+        lat=lat,
+    )
+
+    return {"status": "updated"}
