@@ -14,6 +14,7 @@ from app.enums.db_enums import (
 )
 from app.services import support_service
 from app.schemas.schemas import ComplaintCreate, ComplaintStatusUpdate
+from app.schemas.schemas import * 
 
 router = APIRouter(prefix="/support", tags=["Support"])
 
@@ -21,51 +22,6 @@ router = APIRouter(prefix="/support", tags=["Support"])
 # REQUEST/RESPONSE MODELS
 # ==========================================
 
-class ReturnRequest(BaseModel):
-    order_id: UUID
-    product_variant_id: UUID
-    quantity: int
-    reason: str
-
-    class Config:
-        from_attributes = True
-
-class ComplaintRequest(BaseModel):
-    order_id: Optional[UUID] = None
-    session_id: Optional[UUID] = None
-    category: str
-    description: str
-
-    class Config:
-        from_attributes = True
-
-class ComplaintUpdateRequest(BaseModel):
-    status: ComplaintStatusEnum
-    resolution_notes: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-
-class ExchangeRequest(BaseModel):
-    order_id: UUID
-    old_variant_id: UUID
-    new_variant_id: UUID
-
-    class Config:
-        from_attributes = True
-
-class CancelRequest(BaseModel):
-    reason: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-
-class StatusUpdateRequest(BaseModel):
-    status: str
-    reason: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 # ==========================================
 # RETURN ENDPOINTS
