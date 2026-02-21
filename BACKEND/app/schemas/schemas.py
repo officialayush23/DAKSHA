@@ -231,7 +231,7 @@ class AddressCreate(BaseSchema):
     pincode: str | None
     type: Optional[str] = "home"
     is_default: Optional[bool] = False
-    location: Optional[LocationInput] = None
+
 # --- NEW: LOYALTY ---
 class LoyaltyLedgerSchema(BaseSchema):
     id: UUID
