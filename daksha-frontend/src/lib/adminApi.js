@@ -108,10 +108,10 @@ export const AdminService = {
   // ==========================================
   // 1. Manage (POST)
   assignGlobalInventory: (data) =>
-    apiClient('/admin/global/inventory/global', 'POST', data),
+    apiClient('/admin/global/inventory/global?reason=admin_assign_global_inventory', 'POST', data),
 
   assignStoreInventory: (data) =>
-    apiClient('/admin/global/inventory/store', 'POST', data),
+    apiClient('/admin/global/inventory/store?reason=admin_assign_store_inventory', 'POST', data),
 
   // 2. View (GET)
   getInventoryKpis: () =>
