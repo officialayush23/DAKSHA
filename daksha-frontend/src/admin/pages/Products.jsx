@@ -62,6 +62,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
+import { supabase } from '@/lib/supabaseClient';
 
 export default function Products() {
   const [products, setProducts] = useState([]);
@@ -125,7 +126,7 @@ export default function Products() {
   const [variantForm, setVariantForm] = useState({ product_id: "", sku: "", color: "", size: "", base_price: "", active: true });
   const [imageForm, setImageForm] = useState({ position: 0 });
 
-const fetchData = async () => {
+  const fetchData = async () => {
     setLoading(true);
     try {
       const [productsData, storesData, kpisData] = await Promise.all([
@@ -133,19 +134,19 @@ const fetchData = async () => {
         AdminService.listStores(),
         // Add a .catch() here so a 404 on KPIs doesn't crash the Products and Stores fetch
         AdminService.getInventoryKpis().catch(err => {
-            console.warn("KPIs endpoint failed, using default values", err);
-            return { 
-              total_variants_tracked: 0, 
-              total_global_stock: 0, 
-              stock_at_stores: 0, 
-              stock_in_warehouse: 0 
-            };
+          console.warn("KPIs endpoint failed, using default values", err);
+          return {
+            total_variants_tracked: 0,
+            total_global_stock: 0,
+            stock_at_stores: 0,
+            stock_in_warehouse: 0
+          };
         })
       ]);
-      
+
       const fetchedProducts = Array.isArray(productsData) ? productsData : [];
       setProducts(fetchedProducts);
-      
+
       const initialVariants = {};
       fetchedProducts.forEach(p => {
         if (p.variants && Array.isArray(p.variants)) {
@@ -195,99 +196,99 @@ const fetchData = async () => {
       };
 
       await AdminService.createProduct(cleanFormData);
-      toast.success("Product created"); 
-      resetProductForm(); 
-      setIsProductDialogOpen(false); 
+      toast.success("Product created");
+      resetProductForm();
+      setIsProductDialogOpen(false);
       fetchData();
-    } catch (error) { 
-        toast.error("Failed to create product"); 
-    } finally { 
-        setIsSubmitting(false); 
+    } catch (error) {
+      toast.error("Failed to create product");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleUpdateProduct = async (e) => {
-    e.preventDefault(); 
-    if (!editingProduct) return; 
+    e.preventDefault();
+    if (!editingProduct) return;
     setIsSubmitting(true);
     try {
       await AdminService.updateProduct(editingProduct.id, productForm);
-      toast.success("Product updated"); 
-      resetProductForm(); 
-      setEditingProduct(null); 
-      setIsProductDialogOpen(false); 
+      toast.success("Product updated");
+      resetProductForm();
+      setEditingProduct(null);
+      setIsProductDialogOpen(false);
       fetchData();
-    } catch (error) { 
-        toast.error("Failed to update product"); 
-    } finally { 
-        setIsSubmitting(false); 
+    } catch (error) {
+      toast.error("Failed to update product");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleDeleteProduct = async () => {
-    if (!deletingItem.id) return; 
+    if (!deletingItem.id) return;
     setIsSubmitting(true);
     try {
       await AdminService.deleteProduct(deletingItem.id);
-      toast.success("Product deleted"); 
-      setIsDeleteDialogOpen(false); 
-      setDeletingItem({ type: '', id: '', name: '' }); 
+      toast.success("Product deleted");
+      setIsDeleteDialogOpen(false);
+      setDeletingItem({ type: '', id: '', name: '' });
       fetchData();
-    } catch (error) { 
-        toast.error("Failed to delete product"); 
-    } finally { 
-        setIsSubmitting(false); 
+    } catch (error) {
+      toast.error("Failed to delete product");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleCreateVariant = async (e) => {
-    e.preventDefault(); 
+    e.preventDefault();
     setIsSubmitting(true);
     try {
       await AdminService.createVariant({ ...variantForm, base_price: parseFloat(variantForm.base_price) || 0 });
-      toast.success("Variant created"); 
-      resetVariantForm(); 
-      setIsVariantDialogOpen(false); 
+      toast.success("Variant created");
+      resetVariantForm();
+      setIsVariantDialogOpen(false);
       if (variantForm.product_id) fetchVariants(variantForm.product_id);
-    } catch (error) { 
-        toast.error("Failed to create variant"); 
-    } finally { 
-        setIsSubmitting(false); 
+    } catch (error) {
+      toast.error("Failed to create variant");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleUpdateVariant = async (e) => {
-    e.preventDefault(); 
-    if (!editingVariant) return; 
+    e.preventDefault();
+    if (!editingVariant) return;
     setIsSubmitting(true);
     try {
       await AdminService.updateVariant(editingVariant.id, { ...variantForm, base_price: parseFloat(variantForm.base_price) || 0 });
-      toast.success("Variant updated"); 
-      resetVariantForm(); 
-      setEditingVariant(null); 
-      setIsVariantDialogOpen(false); 
+      toast.success("Variant updated");
+      resetVariantForm();
+      setEditingVariant(null);
+      setIsVariantDialogOpen(false);
       if (variantForm.product_id) fetchVariants(variantForm.product_id);
-    } catch (error) { 
-        toast.error("Failed to update variant"); 
-    } finally { 
-        setIsSubmitting(false); 
+    } catch (error) {
+      toast.error("Failed to update variant");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleDeleteVariant = async () => {
-    if (!deletingItem.id) return; 
+    if (!deletingItem.id) return;
     setIsSubmitting(true);
     try {
       await AdminService.deleteVariant(deletingItem.id);
-      toast.success("Variant deleted"); 
-      setIsDeleteDialogOpen(false); 
+      toast.success("Variant deleted");
+      setIsDeleteDialogOpen(false);
       setDeletingItem({ type: '', id: '', name: '' });
       // Fetch variants for the parent product to update the list
       if (deletingItem.productId) fetchVariants(deletingItem.productId);
-    } catch (error) { 
-        toast.error("Failed to delete variant"); 
-    } finally { 
-        setIsSubmitting(false); 
+    } catch (error) {
+      toast.error("Failed to delete variant");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -360,48 +361,60 @@ const fetchData = async () => {
 
   // --- Image Upload ---
   const handleImageUpload = async (e) => {
-    e.preventDefault(); 
-    if (!currentVariant || !imageFile) return; 
-    setUploadingImage(true);
-    try {
-      const formData = new FormData(); formData.append('file', imageFile);
-      const res = await fetch(
-        `http://localhost:8000/admin/global/variants/${currentVariant.id}/images`,
-        {
-          method: 'POST',
-          body: formData,
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('admin_token') || ''}`,
-          },
-        }
-      );
+    e.preventDefault();
+    if (!currentVariant || !imageFile) return;
 
-      if (!res.ok) throw new Error("Upload failed");
-      const { image_url } = await res.json();
-      await AdminService.addImage(currentVariant.id, { image_url, position: parseInt(imageForm.position) || 0 });
-      toast.success("Image added"); 
-      resetImageForm(); 
-      setIsImageDialogOpen(false); 
-      if (currentVariant.product_id) fetchVariants(currentVariant.product_id);
-    } catch (error) { 
-        toast.error("Failed to add image"); 
-    } finally { 
-        setUploadingImage(false); 
+    setUploadingImage(true);
+
+    try {
+      const fileExt = imageFile.name.split('.').pop();
+      const fileName = `${currentVariant.id}-${Date.now()}.${fileExt}`;
+
+      // 1️⃣ Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from("product_image")
+        .upload(fileName, imageFile);
+
+      if (uploadError) throw uploadError;
+
+      // 2️⃣ Get public URL
+      const { data } = supabase.storage
+        .from("product_image")
+        .getPublicUrl(fileName);
+
+      const image_url = data.publicUrl;
+
+      // 3️⃣ Save URL to backend (this triggers embeddings)
+      await AdminService.addImage(currentVariant.id, {
+        image_url,
+      });
+
+      toast.success("Image uploaded & embeddings created");
+
+      resetImageForm();
+      setIsImageDialogOpen(false);
+      fetchVariants(currentVariant.product_id);
+
+    } catch (err) {
+      console.error(err);
+      toast.error("Upload failed");
+    } finally {
+      setUploadingImage(false);
     }
   };
 
   const handleFileChange = (e) => {
     const file = e.target.files[0]; if (!file) return;
     if (!file.type.startsWith('image/')) return toast.error('Images only');
-    setImageFile(file); 
-    const reader = new FileReader(); 
-    reader.onloadend = () => setImagePreview(reader.result); 
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => setImagePreview(reader.result);
     reader.readAsDataURL(file);
   };
 
   // --- Helpers ---
   const toggleProductExpansion = async (pid) => {
-    const isExpanded = expandedProducts[pid]; 
+    const isExpanded = expandedProducts[pid];
     setExpandedProducts(prev => ({ ...prev, [pid]: !isExpanded }));
     // Only fetch if we didn't receive eager-loaded variants from the main payload
     if (!isExpanded && !variants[pid]) await fetchVariants(pid);
@@ -410,7 +423,7 @@ const fetchData = async () => {
   const resetProductForm = () => setProductForm({ name: "", brand: "", category: "", gender: "", fabric_type: "", description: "", occasion: "", active: true });
   const resetVariantForm = () => setVariantForm({ product_id: "", sku: "", color: "", size: "", base_price: "", active: true });
   const resetImageForm = () => { setImageForm({ position: 0 }); setImageFile(null); setImagePreview(null); setCurrentVariant(null); };
-  
+
   const openEditProductDialog = (p) => {
     setEditingProduct(p);
     setProductForm({
@@ -426,10 +439,10 @@ const fetchData = async () => {
     setIsProductDialogOpen(true);
   };
 
-  const openEditVariantDialog = (v, pid) => { 
-      setEditingVariant(v); 
-      setVariantForm({ ...v, product_id: pid, active: v.active !== false }); 
-      setIsVariantDialogOpen(true); 
+  const openEditVariantDialog = (v, pid) => {
+    setEditingVariant(v);
+    setVariantForm({ ...v, product_id: pid, active: v.active !== false });
+    setIsVariantDialogOpen(true);
   };
   const openAddImageDialog = (v) => { setCurrentVariant(v); setIsImageDialogOpen(true); };
   const openDeleteDialog = (type, id, name, pid = null) => { setDeletingItem({ type, id, name, productId: pid }); setIsDeleteDialogOpen(true); };
@@ -469,7 +482,7 @@ const fetchData = async () => {
               const isExpanded = expandedProducts[product.id];
               // FIX: Fallback to eager-loaded product.variants if present
               const productVariants = variants[product.id] || product.variants || [];
-              
+
               return (
                 <Collapsible key={product.id} open={isExpanded} onOpenChange={() => toggleProductExpansion(product.id)}>
                   <div className="p-4 hover:bg-muted/30 transition-colors">
@@ -482,14 +495,14 @@ const fetchData = async () => {
                           <div className="p-2 mt-1 rounded-full bg-blue-100 dark:bg-blue-900/30"><Package className="h-4 w-4 text-blue-600" /></div>
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
-                                <h3 className="font-semibold text-lg">{product.name}</h3>
-                                <span className="text-muted-foreground">•</span>
-                                <span className="text-primary font-medium">{product.brand}</span>
-                                <Badge variant={product.active !== false ? "default" : "secondary"}>
-                                    {product.active !== false ? "Active" : "Inactive"}
-                                </Badge>
+                              <h3 className="font-semibold text-lg">{product.name}</h3>
+                              <span className="text-muted-foreground">•</span>
+                              <span className="text-primary font-medium">{product.brand}</span>
+                              <Badge variant={product.active !== false ? "default" : "secondary"}>
+                                {product.active !== false ? "Active" : "Inactive"}
+                              </Badge>
                             </div>
-                            
+
                             <div className="flex gap-2 mt-2 flex-wrap text-xs text-muted-foreground">
                               {product.category && <Badge variant="outline">{product.category}</Badge>}
                               {product.gender && <Badge variant="outline">{product.gender}</Badge>}
@@ -521,14 +534,14 @@ const fetchData = async () => {
                         {variantsLoading[product.id] ? <div className="h-24 flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div> : (
                           <Table>
                             <TableHeader>
-                                <TableRow className="bg-muted/50">
-                                    <TableHead>SKU</TableHead>
-                                    <TableHead>Status</TableHead>
-                                    <TableHead>Color</TableHead>
-                                    <TableHead>Size</TableHead>
-                                    <TableHead>Price</TableHead>
-                                    <TableHead className="text-right">Actions</TableHead>
-                                </TableRow>
+                              <TableRow className="bg-muted/50">
+                                <TableHead>SKU</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead>Color</TableHead>
+                                <TableHead>Size</TableHead>
+                                <TableHead>Price</TableHead>
+                                <TableHead className="text-right">Actions</TableHead>
+                              </TableRow>
                             </TableHeader>
                             <TableBody>
                               {productVariants.map(variant => (
@@ -536,7 +549,7 @@ const fetchData = async () => {
                                   <TableCell className="font-mono text-xs font-semibold">{variant.sku}</TableCell>
                                   <TableCell>
                                     <Badge variant={variant.active !== false ? "default" : "secondary"} className="text-[10px]">
-                                        {variant.active !== false ? "Active" : "Inactive"}
+                                      {variant.active !== false ? "Active" : "Inactive"}
                                     </Badge>
                                   </TableCell>
                                   <TableCell><div className="flex items-center gap-2">{variant.color && <div className="h-3 w-3 rounded-full border" style={{ backgroundColor: variant.color.toLowerCase() }} />}<span>{variant.color}</span></div></TableCell>
@@ -696,43 +709,43 @@ const fetchData = async () => {
       {/* PRODUCT DIALOG */}
       <Dialog open={isProductDialogOpen} onOpenChange={o => { if (!o) resetProductForm(); setIsProductDialogOpen(o); }}>
         <DialogContent className="sm:max-w-[650px]">
-            <DialogHeader><DialogTitle>{editingProduct ? 'Edit' : 'Create'} Product</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editingProduct ? 'Edit' : 'Create'} Product</DialogTitle></DialogHeader>
           <form onSubmit={editingProduct ? handleUpdateProduct : handleCreateProduct}>
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
-                    <Label htmlFor="name">Product Name *</Label>
-                    <Input id="name" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} required placeholder="e.g. Air Max 90" />
+                  <Label htmlFor="name">Product Name *</Label>
+                  <Input id="name" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} required placeholder="e.g. Air Max 90" />
                 </div>
                 <div className="grid gap-2">
-                    <Label>Brand</Label>
-                    <Input value={productForm.brand} onChange={e => setProductForm({ ...productForm, brand: e.target.value })} placeholder="e.g. Nike" required />
+                  <Label>Brand</Label>
+                  <Input value={productForm.brand} onChange={e => setProductForm({ ...productForm, brand: e.target.value })} placeholder="e.g. Nike" required />
                 </div>
                 <div className="grid gap-2">
-                    <Label>Category</Label>
-                    <Input value={productForm.category} onChange={e => setProductForm({ ...productForm, category: e.target.value })} placeholder="e.g. Shoes" />
+                  <Label>Category</Label>
+                  <Input value={productForm.category} onChange={e => setProductForm({ ...productForm, category: e.target.value })} placeholder="e.g. Shoes" />
                 </div>
                 <div className="grid gap-2">
-                    <Label>Gender</Label>
-                    <Select value={productForm.gender} onValueChange={v => setProductForm({ ...productForm, gender: v })}>
-                        <SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger>
-                        <SelectContent>{GENDER_OPTIONS.map(g => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}</SelectContent>
-                    </Select>
+                  <Label>Gender</Label>
+                  <Select value={productForm.gender} onValueChange={v => setProductForm({ ...productForm, gender: v })}>
+                    <SelectTrigger><SelectValue placeholder="Select gender" /></SelectTrigger>
+                    <SelectContent>{GENDER_OPTIONS.map(g => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}</SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                      <Label>Fabric Type / Material</Label>
-                      <Input value={productForm.fabric_type} onChange={e => setProductForm({ ...productForm, fabric_type: e.target.value })} placeholder="e.g. Cotton, Leather" />
-                  </div>
-                  <div className="grid gap-2">
-                      <Label>Occasion</Label>
-                      <Input value={productForm.occasion} onChange={e => setProductForm({ ...productForm, occasion: e.target.value })} placeholder="e.g. Casual, Formal" />
-                  </div>
+                <div className="grid gap-2">
+                  <Label>Fabric Type / Material</Label>
+                  <Input value={productForm.fabric_type} onChange={e => setProductForm({ ...productForm, fabric_type: e.target.value })} placeholder="e.g. Cotton, Leather" />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Occasion</Label>
+                  <Input value={productForm.occasion} onChange={e => setProductForm({ ...productForm, occasion: e.target.value })} placeholder="e.g. Casual, Formal" />
+                </div>
               </div>
               <div className="grid gap-2">
-                  <Label>Description</Label>
-                  <Textarea value={productForm.description} onChange={e => setProductForm({ ...productForm, description: e.target.value })} rows={3} placeholder="Enter a detailed description..." required />
+                <Label>Description</Label>
+                <Textarea value={productForm.description} onChange={e => setProductForm({ ...productForm, description: e.target.value })} rows={3} placeholder="Enter a detailed description..." required />
               </div>
               <div className="flex items-center space-x-2 mt-2">
                 <Switch id="active-status" checked={productForm.active} onCheckedChange={(c) => setProductForm({ ...productForm, active: c })} />
@@ -747,41 +760,41 @@ const fetchData = async () => {
       {/* VARIANT DIALOG */}
       <Dialog open={isVariantDialogOpen} onOpenChange={o => { if (!o) resetVariantForm(); setIsVariantDialogOpen(o); }}>
         <DialogContent>
-            <DialogHeader><DialogTitle>{editingVariant ? 'Edit' : 'Create'} Variant</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editingVariant ? 'Edit' : 'Create'} Variant</DialogTitle></DialogHeader>
           <form onSubmit={editingVariant ? handleUpdateVariant : handleCreateVariant}>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
-                  <Label>Parent Product</Label>
-                  <Select value={variantForm.product_id} onValueChange={v => setVariantForm({ ...variantForm, product_id: v })} disabled={!!editingVariant}>
-                      <SelectTrigger><SelectValue placeholder="Select product" /></SelectTrigger>
-                      <SelectContent>{products.map(p => <SelectItem key={p.id} value={p.id}>{p.brand} - {p.name}</SelectItem>)}</SelectContent>
+                <Label>Parent Product</Label>
+                <Select value={variantForm.product_id} onValueChange={v => setVariantForm({ ...variantForm, product_id: v })} disabled={!!editingVariant}>
+                  <SelectTrigger><SelectValue placeholder="Select product" /></SelectTrigger>
+                  <SelectContent>{products.map(p => <SelectItem key={p.id} value={p.id}>{p.brand} - {p.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label>SKU</Label>
+                  <Input value={variantForm.sku} onChange={e => setVariantForm({ ...variantForm, sku: e.target.value })} placeholder="e.g. NK-AM90-BLK-10" required />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Base Price (₹)</Label>
+                  <Input type="number" step="0.01" value={variantForm.base_price} onChange={e => setVariantForm({ ...variantForm, base_price: e.target.value })} placeholder="0.00" required />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label>Color</Label>
+                  <Select value={variantForm.color} onValueChange={v => setVariantForm({ ...variantForm, color: v })}>
+                    <SelectTrigger><SelectValue placeholder="Select color" /></SelectTrigger>
+                    <SelectContent>{COLORS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
                   </Select>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                      <Label>SKU</Label>
-                      <Input value={variantForm.sku} onChange={e => setVariantForm({ ...variantForm, sku: e.target.value })} placeholder="e.g. NK-AM90-BLK-10" required />
-                  </div>
-                  <div className="grid gap-2">
-                      <Label>Base Price (₹)</Label>
-                      <Input type="number" step="0.01" value={variantForm.base_price} onChange={e => setVariantForm({ ...variantForm, base_price: e.target.value })} placeholder="0.00" required />
-                  </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                      <Label>Color</Label>
-                      <Select value={variantForm.color} onValueChange={v => setVariantForm({ ...variantForm, color: v })}>
-                          <SelectTrigger><SelectValue placeholder="Select color" /></SelectTrigger>
-                          <SelectContent>{COLORS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-                      </Select>
-                  </div>
-                  <div className="grid gap-2">
-                      <Label>Size</Label>
-                      <Select value={variantForm.size} onValueChange={v => setVariantForm({ ...variantForm, size: v })}>
-                          <SelectTrigger><SelectValue placeholder="Select size" /></SelectTrigger>
-                          <SelectContent>{SIZES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-                      </Select>
-                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Size</Label>
+                  <Select value={variantForm.size} onValueChange={v => setVariantForm({ ...variantForm, size: v })}>
+                    <SelectTrigger><SelectValue placeholder="Select size" /></SelectTrigger>
+                    <SelectContent>{SIZES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="flex items-center space-x-2 mt-2">
                 <Switch id="variant-active-status" checked={variantForm.active} onCheckedChange={(c) => setVariantForm({ ...variantForm, active: c })} />
@@ -804,7 +817,7 @@ const fetchData = async () => {
 
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent>
-            <DialogHeader><DialogTitle>Confirm Delete</DialogTitle><DialogDescription>Are you sure you want to delete {deletingItem.name}? This action cannot be undone.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Confirm Delete</DialogTitle><DialogDescription>Are you sure you want to delete {deletingItem.name}? This action cannot be undone.</DialogDescription></DialogHeader>
           <DialogFooter><Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button><Button variant="destructive" onClick={deletingItem.type === 'product' ? handleDeleteProduct : handleDeleteVariant} disabled={isSubmitting}>Delete</Button></DialogFooter>
         </DialogContent>
       </Dialog>

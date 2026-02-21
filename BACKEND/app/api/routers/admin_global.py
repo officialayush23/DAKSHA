@@ -112,12 +112,12 @@ def delete_variant_api(
 @router.post("/variants/{variant_id}/images")
 def add_product_image_api(
     variant_id: UUID,
-    image_url: str,
+    payload: ProductImagePayload, # ✅ Now expects JSON body
     reason: str = Query(...),
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
-    return add_product_image(db, variant_id, image_url, admin,reason)
+    return add_product_image(db, variant_id, payload.image_url, admin, reason)
 
 # =========================================================
 # INVENTORY (GLOBAL + STORE)
