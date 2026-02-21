@@ -7,7 +7,7 @@ from sqlalchemy import (
     String, Boolean, ForeignKey, Numeric, Integer, Text, DateTime,
     ARRAY, UniqueConstraint, Index, func, PrimaryKeyConstraint
 )
-
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.dialects.postgresql import UUID, JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship, DeclarativeBase
 from geoalchemy2 import Geography
@@ -171,7 +171,7 @@ class UserIntent(Base):
 # ==========================================
 # 3. CATALOG
 # ==========================================
-from sqlalchemy.dialects.postgresql import TSVECTOR
+
 class Product(Base):
     __tablename__ = "products"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
