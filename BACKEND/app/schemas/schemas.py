@@ -261,7 +261,6 @@ class AgentHandoffCreate(BaseSchema):
     
     
 class AddressUpdate(BaseSchema):
-    name: Optional[str] = None
     phone: Optional[str] = None
     address_line: Optional[str] = None
     city: Optional[str] = None
@@ -269,7 +268,7 @@ class AddressUpdate(BaseSchema):
     pincode: Optional[str] = None
     type: Optional[str] = None
     is_default: Optional[bool] = None
-    location: Optional[LocationInput] = None
+
 
 class AddressLocationPatch(BaseSchema):
     lat: float
