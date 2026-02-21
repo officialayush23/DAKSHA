@@ -261,7 +261,6 @@ class AgentHandoffCreate(BaseSchema):
     
     
 class AddressUpdate(BaseSchema):
-    phone: Optional[str] = None
     address_line: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
