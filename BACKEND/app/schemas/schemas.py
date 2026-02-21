@@ -268,7 +268,10 @@ class AddressUpdate(BaseSchema):
     pincode: Optional[str] = None
     type: Optional[str] = None
     is_default: Optional[bool] = None
+<<<<<<< HEAD
 
+=======
+>>>>>>> ee45b8a4666d5745a9804b104b3ec5d028c55daf
 
 class AddressLocationPatch(BaseSchema):
     lat: float
