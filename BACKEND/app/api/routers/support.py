@@ -75,13 +75,13 @@ class StatusUpdateRequest(BaseModel):
 def create_return(
     request: ReturnRequest,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user=Depends(get_current_user)
 ):
     """Create a new return request"""
     try:
         result = support_service.request_return(
             db=db,
-            user_id=current_user["id"],
+            user_id=current_user.id,
             payload=request
         )
         return {"success": True, "data": result}
@@ -94,12 +94,12 @@ def get_my_returns(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user=Depends(get_current_user)
 ):
     """Get current user's returns"""
     returns = support_service.get_user_returns(
         db=db,
-        user_id=current_user["id"],
+        user_id=current_user.id,
         skip=skip,
         limit=limit
     )
@@ -110,14 +110,14 @@ def get_my_returns(
 def get_return(
     return_id: UUID,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user=Depends(get_current_user)
 ):
     """Get specific return by ID"""
     try:
         ret = support_service.get_return_by_id(
             db=db,
             return_id=return_id,
-            user_id=current_user["id"]
+            user_id=current_user.id
         )
         return {"success": True, "data": ret}
     except ValueError as e:
@@ -129,7 +129,7 @@ def cancel_return(
     return_id: UUID,
     request: CancelRequest = None,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user=Depends(get_current_user)
 ):
     """Cancel a return request"""
     try:
@@ -137,7 +137,7 @@ def cancel_return(
         result = support_service.cancel_return(
             db=db,
             return_id=return_id,
-            user_id=current_user["id"],
+            user_id=current_user.id,
             reason=reason
         )
         return {"success": True, "data": result}
@@ -155,7 +155,7 @@ def get_all_returns(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
-    admin: dict = Depends(get_current_admin)
+    admin=Depends(get_current_admin)
 ):
     """Get all returns (admin only)"""
     returns = support_service.get_all_returns(
@@ -173,7 +173,7 @@ def update_return_status(
     status: ReturnStatusEnum,
     reason: Optional[str] = None,
     db: Session = Depends(get_db),
-    admin: dict = Depends(get_current_admin)
+    admin=Depends(get_current_admin)
 ):
     """Update return status (admin only)"""
     try:
@@ -181,7 +181,7 @@ def update_return_status(
             db=db,
             return_id=return_id,
             status=status,
-            admin_id=admin["id"],
+            admin_id=admin.id,
             reason=reason
         )
         return {"success": True, "data": result}
@@ -197,22 +197,21 @@ def update_return_status(
 def create_complaint(
     request: ComplaintRequest,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user=Depends(get_current_user)
 ):
     """File a new complaint"""
     try:
-        # Convert to proper schema
         complaint_data = ComplaintCreate(
-            user_id=current_user["id"],
+            user_id=current_user.id,
             order_id=request.order_id,
             session_id=request.session_id,
             category=request.category,
             description=request.description
         )
-        
+
         result = support_service.file_complaint(
             db=db,
-            user_id=current_user["id"],
+            user_id=current_user.id,
             payload=complaint_data
         )
         return {"success": True, "data": result}
@@ -226,12 +225,12 @@ def get_my_complaints(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user=Depends(get_current_user)
 ):
     """Get current user's complaints"""
     complaints = support_service.get_user_complaints(
         db=db,
-        user_id=current_user["id"],
+        user_id=current_user.id,
         skip=skip,
         limit=limit,
         status=status
@@ -243,14 +242,14 @@ def get_my_complaints(
 def get_complaint(
     complaint_id: UUID,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user=Depends(get_current_user)
 ):
     """Get specific complaint by ID"""
     try:
         complaint = support_service.get_complaint_by_id(
             db=db,
             complaint_id=complaint_id,
-            user_id=current_user["id"]
+            user_id=current_user.id
         )
         return {"success": True, "data": complaint}
     except ValueError as e:
@@ -268,7 +267,7 @@ def get_all_complaints(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
-    admin: dict = Depends(get_current_admin)
+    admin=Depends(get_current_admin)
 ):
     """Get all complaints (admin only)"""
     complaints = support_service.get_all_complaints(
@@ -286,7 +285,7 @@ def update_complaint(
     complaint_id: UUID,
     request: ComplaintUpdateRequest,
     db: Session = Depends(get_db),
-    admin: dict = Depends(get_current_admin)
+    admin=Depends(get_current_admin)
 ):
     """Update complaint status (admin only)"""
     try:
@@ -294,7 +293,7 @@ def update_complaint(
             db=db,
             complaint_id=complaint_id,
             payload=request,
-            resolver_id=admin["id"],
+            resolver_id=admin.id,
             resolver_type="admin"
         )
         return {"success": True, "data": result}
@@ -307,14 +306,14 @@ def respond_to_complaint(
     complaint_id: UUID,
     message: str,
     db: Session = Depends(get_db),
-    admin: dict = Depends(get_current_admin)
+    admin=Depends(get_current_admin)
 ):
     """Add response to complaint (admin only)"""
     try:
         result = support_service.add_complaint_response(
             db=db,
             complaint_id=complaint_id,
-            responder_id=admin["id"],
+            responder_id=admin.id,
             responder_type="admin",
             message=message
         )
@@ -326,7 +325,7 @@ def respond_to_complaint(
 @router.get("/admin/complaints/stats", response_model=dict)
 def get_complaint_stats(
     db: Session = Depends(get_db),
-    admin: dict = Depends(get_current_admin)
+    admin=Depends(get_current_admin)
 ):
     """Get complaint statistics (admin only)"""
     stats = support_service.get_complaint_stats(db=db)
@@ -342,14 +341,14 @@ def request_cancellation(
     order_id: UUID,
     request: CancelRequest = None,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user=Depends(get_current_user)
 ):
     """Request order cancellation"""
     try:
         reason = request.reason if request else None
         result = support_service.request_order_cancellation(
             db=db,
-            user_id=current_user["id"],
+            user_id=current_user.id,
             order_id=order_id,
             reason=reason
         )
@@ -364,12 +363,12 @@ def get_my_cancellations(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user=Depends(get_current_user)
 ):
     """Get current user's cancellation requests"""
     requests = support_service.get_cancellation_requests(
         db=db,
-        user_id=current_user["id"],
+        user_id=current_user.id,
         status=status,
         skip=skip,
         limit=limit
@@ -387,7 +386,7 @@ def get_all_cancellations(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
-    admin: dict = Depends(get_current_admin)
+    admin=Depends(get_current_admin)
 ):
     """Get all cancellation requests (admin only)"""
     requests = support_service.get_cancellation_requests(
@@ -406,7 +405,7 @@ def update_cancellation(
     status: OrderChangeStatusEnum,
     reason: Optional[str] = None,
     db: Session = Depends(get_db),
-    admin: dict = Depends(get_current_admin)
+    admin=Depends(get_current_admin)
 ):
     """Approve or reject cancellation (admin only)"""
     try:
@@ -414,7 +413,7 @@ def update_cancellation(
             db=db,
             request_id=request_id,
             status=status,
-            admin_id=admin["id"],
+            admin_id=admin.id,
             decision_reason=reason
         )
         return {"success": True, "data": result}
@@ -430,13 +429,13 @@ def update_cancellation(
 def create_exchange(
     request: ExchangeRequest,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user=Depends(get_current_user)
 ):
     """Request an exchange"""
     try:
         result = support_service.request_exchange(
             db=db,
-            user_id=current_user["id"],
+            user_id=current_user.id,
             payload=request
         )
         return {"success": True, "data": result}
@@ -449,12 +448,12 @@ def get_my_exchanges(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
+    current_user=Depends(get_current_user)
 ):
     """Get current user's exchanges"""
     exchanges = support_service.get_user_exchanges(
         db=db,
-        user_id=current_user["id"],
+        user_id=current_user.id,
         skip=skip,
         limit=limit
     )
@@ -471,7 +470,7 @@ def get_all_exchanges(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
-    admin: dict = Depends(get_current_admin)
+    admin=Depends(get_current_admin)
 ):
     """Get all exchanges (admin only)"""
     exchanges = support_service.get_all_exchanges(
@@ -489,7 +488,7 @@ def update_exchange(
     status: ExchangeStatusEnum,
     reason: Optional[str] = None,
     db: Session = Depends(get_db),
-    admin: dict = Depends(get_current_admin)
+    admin=Depends(get_current_admin)
 ):
     """Update exchange status (admin only)"""
     try:
@@ -497,7 +496,7 @@ def update_exchange(
             db=db,
             exchange_id=exchange_id,
             status=status,
-            admin_id=admin["id"],
+            admin_id=admin.id,
             reason=reason
         )
         return {"success": True, "data": result}
