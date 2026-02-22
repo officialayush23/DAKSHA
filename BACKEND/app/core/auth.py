@@ -16,6 +16,7 @@ def get_or_create_user(db: Session, jwt_payload: dict) -> User:
     user = db.query(User).filter(User.id == supabase_user_id).first()
 
     if not user:
+
         user = User(
             id=supabase_user_id,
             email=email,
@@ -27,15 +28,20 @@ def get_or_create_user(db: Session, jwt_payload: dict) -> User:
         db.commit()
         db.refresh(user)
     else:
+        # Existing user: ONLY sync identity-critical fields (like email).
+        # DO NOT sync phone or name from the JWT, as it will overwrite
+        # the user's manual profile updates in the database.
         updated = False
-        if name and user.name != name:
-            user.name = name
+        
+        if email and user.email != email:
+            user.email = email
             updated = True
-        if phone != user.phone:
-            user.phone = phone
-            updated = True
+            
+        # The phone and name overwrite logic has been completely removed 
+        # from here so the database remains the source of truth.
+
         if updated:
             db.commit()
+            db.refresh(user)
 
     return user
-

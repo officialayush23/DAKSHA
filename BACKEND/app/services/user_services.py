@@ -163,8 +163,9 @@ def update_user_profile(db: Session, user_id: uuid.UUID, payload):
 
     # 2. Update the fields on the freshly fetched object
     for k, v in data.items():
-        if v not in ("", None):
-            setattr(db_user, k, v)
+        if v is not None:
+            # Map "" to None so the database stores a proper NULL
+            setattr(db_user, k, v if v != "" else None)
 
     if preferences_data is not None:
         pref = db.query(UserPreferences).filter_by(user_id=user_id).first()
@@ -180,7 +181,6 @@ def update_user_profile(db: Session, user_id: uuid.UUID, payload):
     db.refresh(db_user)
     
     return db_user
-
 LOCATION_TTL_MINUTES = 15  # auto-expire stale GPS
 
 

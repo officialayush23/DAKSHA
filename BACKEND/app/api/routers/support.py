@@ -105,45 +105,6 @@ def cancel_return(
 # ADMIN RETURN ENDPOINTS
 # ==========================================
 
-@router.get("/admin/returns/all", response_model=dict)
-def get_all_returns(
-    status: Optional[ReturnStatusEnum] = None,
-    skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db),
-    admin=Depends(get_current_admin)
-):
-    """Get all returns (admin only)"""
-    returns = support_service.get_all_returns(
-        db=db,
-        skip=skip,
-        limit=limit,
-        status=status
-    )
-    return {"success": True, "data": returns}
-
-
-@router.patch("/admin/returns/{return_id}/status", response_model=dict)
-def update_return_status(
-    return_id: UUID,
-    status: ReturnStatusEnum,
-    reason: Optional[str] = None,
-    db: Session = Depends(get_db),
-    admin=Depends(get_current_admin)
-):
-    """Update return status (admin only)"""
-    try:
-        result = support_service.update_return_status(
-            db=db,
-            return_id=return_id,
-            status=status,
-            admin_id=admin.id,
-            reason=reason
-        )
-        return {"success": True, "data": result}
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
 
 # ==========================================
 # COMPLAINT ENDPOINTS
@@ -216,76 +177,6 @@ def get_complaint(
 # ADMIN COMPLAINT ENDPOINTS
 # ==========================================
 
-@router.get("/admin/complaints/all", response_model=dict)
-def get_all_complaints(
-    status: Optional[ComplaintStatusEnum] = None,
-    category: Optional[str] = None,
-    skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db),
-    admin=Depends(get_current_admin)
-):
-    """Get all complaints (admin only)"""
-    complaints = support_service.get_all_complaints(
-        db=db,
-        skip=skip,
-        limit=limit,
-        status=status,
-        category=category
-    )
-    return {"success": True, "data": complaints}
-
-
-@router.patch("/admin/complaints/{complaint_id}", response_model=dict)
-def update_complaint(
-    complaint_id: UUID,
-    request: ComplaintUpdateRequest,
-    db: Session = Depends(get_db),
-    admin=Depends(get_current_admin)
-):
-    """Update complaint status (admin only)"""
-    try:
-        result = support_service.update_complaint_status(
-            db=db,
-            complaint_id=complaint_id,
-            payload=request,
-            resolver_id=admin.id,
-            resolver_type="admin"
-        )
-        return {"success": True, "data": result}
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-@router.post("/admin/complaints/{complaint_id}/respond", response_model=dict)
-def respond_to_complaint(
-    complaint_id: UUID,
-    message: str,
-    db: Session = Depends(get_db),
-    admin=Depends(get_current_admin)
-):
-    """Add response to complaint (admin only)"""
-    try:
-        result = support_service.add_complaint_response(
-            db=db,
-            complaint_id=complaint_id,
-            responder_id=admin.id,
-            responder_type="admin",
-            message=message
-        )
-        return {"success": True, "data": result}
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-@router.get("/admin/complaints/stats", response_model=dict)
-def get_complaint_stats(
-    db: Session = Depends(get_db),
-    admin=Depends(get_current_admin)
-):
-    """Get complaint statistics (admin only)"""
-    stats = support_service.get_complaint_stats(db=db)
-    return {"success": True, "data": stats}
 
 
 # ==========================================
@@ -419,42 +310,3 @@ def get_my_exchanges(
 # ==========================================
 # ADMIN EXCHANGE ENDPOINTS
 # ==========================================
-
-@router.get("/admin/exchanges/all", response_model=dict)
-def get_all_exchanges(
-    status: Optional[ExchangeStatusEnum] = None,
-    skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db),
-    admin=Depends(get_current_admin)
-):
-    """Get all exchanges (admin only)"""
-    exchanges = support_service.get_all_exchanges(
-        db=db,
-        skip=skip,
-        limit=limit,
-        status=status
-    )
-    return {"success": True, "data": exchanges}
-
-
-@router.patch("/admin/exchanges/{exchange_id}", response_model=dict)
-def update_exchange(
-    exchange_id: UUID,
-    status: ExchangeStatusEnum,
-    reason: Optional[str] = None,
-    db: Session = Depends(get_db),
-    admin=Depends(get_current_admin)
-):
-    """Update exchange status (admin only)"""
-    try:
-        result = support_service.update_exchange_status(
-            db=db,
-            exchange_id=exchange_id,
-            status=status,
-            admin_id=admin.id,
-            reason=reason
-        )
-        return {"success": True, "data": result}
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))

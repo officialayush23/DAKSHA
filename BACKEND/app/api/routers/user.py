@@ -41,6 +41,9 @@ from app.services.wishlist_service import (
     remove_from_wishlist,
     get_hydrated_wishlist,
 )
+
+from app.core.auth import get_or_create_user
+from app.models.models import User
 from app.services.event_service import emit_event
 from app.services.embedding_service import update_user_preference_summary
 from app.enums.db_enums import EventTypeEnum, EntityTypeEnum, ChannelEnum
@@ -252,20 +255,13 @@ def update_profile(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    updates = {
-        k: v
-        for k, v in payload.dict(exclude_unset=True).items()
-        if v not in ("", None)
-    }
-
-    for k, v in updates.items():
-        setattr(user, k, v)
-
-    db.commit()
-    db.refresh(user)
-
-    return user
-
+    # Delegate to the service function which correctly fetches an attached session object
+    updated_user = update_user_profile(db, user.id, payload)
+    
+    if not updated_user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    return updated_user
 
 @router.post("/register")
 def register_user(
@@ -273,15 +269,23 @@ def register_user(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    user.name = payload.name
-    if payload.phone:
-        user.phone = payload.phone
+    # Fetch the user inside this exact database session to prevent silent dropping
+    db_user = db.query(User).filter(User.id == user.id).first()
+    
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
 
-    pref = db.query(UserPreferences).filter_by(user_id=user.id).first()
+    db_user.name = payload.name
+    
+    # Check explicitly against None to allow clearing phone via empty string
+    if payload.phone is not None:
+        db_user.phone = payload.phone if payload.phone != "" else None
+
+    pref = db.query(UserPreferences).filter_by(user_id=db_user.id).first()
     if not pref:
         db.add(
             UserPreferences(
-                user_id=user.id,
+                user_id=db_user.id,
                 preferred_categories=[],
                 preferred_sizes=[],
             )

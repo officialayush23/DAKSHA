@@ -1,10 +1,11 @@
 # app/api/routers/admin_global.py
 
-from fastapi import APIRouter, Depends, Query
+
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from uuid import UUID
 from datetime import datetime
-
+from app.services.support_service import *
 from app.core.deps import get_db, get_current_admin
 from app.schemas.schemas import *
 from app.services.admin_global_service import *
@@ -398,3 +399,157 @@ def product_price_snapshots_api(
     admin=Depends(get_current_admin),
 ):
     return list_product_price_snapshots(db)
+
+
+@router.get("/complaints/all", response_model=dict)
+def get_all_complaints(
+    status: Optional[ComplaintStatusEnum] = None,
+    category: Optional[str] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin)
+):
+    """Get all complaints (admin only)"""
+    complaints = get_all_complaints(
+        db=db,
+        skip=skip,
+        limit=limit,
+        status=status,
+        category=category
+    )
+    return {"success": True, "data": complaints}
+
+
+@router.patch("/complaints/{complaint_id}", response_model=dict)
+def update_complaint(
+    complaint_id: UUID,
+    request: ComplaintUpdateRequest,
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin)
+):
+    """Update complaint status (admin only)"""
+    try:
+        result = update_complaint_status(
+            db=db,
+            complaint_id=complaint_id,
+            payload=request,
+            resolver_id=admin.id,
+            resolver_type="admin"
+        )
+        return {"success": True, "data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/complaints/{complaint_id}/respond", response_model=dict)
+def respond_to_complaint(
+    complaint_id: UUID,
+    message: str,
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin)
+):
+    """Add response to complaint (admin only)"""
+    try:
+        result = add_complaint_response(
+            db=db,
+            complaint_id=complaint_id,
+            responder_id=admin.id,
+            responder_type="admin",
+            message=message
+        )
+        return {"success": True, "data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/complaints/stats", response_model=dict)
+def get_complaint_stats(
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin)
+):
+    """Get complaint statistics (admin only)"""
+    stats = get_complaint_stats(db=db)
+    return {"success": True, "data": stats}
+
+
+
+@router.get("/exchanges/all", response_model=dict)
+def get_all_exchanges(
+    status: Optional[ExchangeStatusEnum] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin)
+):
+    """Get all exchanges (admin only)"""
+    exchanges = get_all_exchanges(
+        db=db,
+        skip=skip,
+        limit=limit,
+        status=status
+    )
+    return {"success": True, "data": exchanges}
+
+
+@router.patch("/exchanges/{exchange_id}", response_model=dict)
+def update_exchange(
+    exchange_id: UUID,
+    status: ExchangeStatusEnum,
+    reason: Optional[str] = None,
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin)
+):
+    """Update exchange status (admin only)"""
+    try:
+        result = update_exchange_status(
+            db=db,
+            exchange_id=exchange_id,
+            status=status,
+            admin_id=admin.id,
+            reason=reason
+        )
+        return {"success": True, "data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    
+    
+
+@router.get("/returns/all", response_model=dict)
+def get_all_returns(
+    status: Optional[ReturnStatusEnum] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin)
+):
+    """Get all returns (admin only)"""
+    returns = get_all_returns(
+        db=db,
+        skip=skip,
+        limit=limit,
+        status=status
+    )
+    return {"success": True, "data": returns}
+
+
+@router.patch("/returns/{return_id}/status", response_model=dict)
+def update_return_status(
+    return_id: UUID,
+    status: ReturnStatusEnum,
+    reason: Optional[str] = None,
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin)
+):
+    """Update return status (admin only)"""
+    try:
+        result = update_return_status(
+            db=db,
+            return_id=return_id,
+            status=status,
+            admin_id=admin.id,
+            reason=reason
+        )
+        return {"success": True, "data": result}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
