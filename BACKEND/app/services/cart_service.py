@@ -47,7 +47,6 @@ def get_or_create_cart(
 def get_hydrated_cart(db: Session, user_id: uuid.UUID) -> dict:
     cart = get_active_cart(db, user_id=user_id)
     
-    # If no cart exists, return an empty structure
     if not cart:
         return {
             "cart_id": None, 
@@ -57,44 +56,29 @@ def get_hydrated_cart(db: Session, user_id: uuid.UUID) -> dict:
         }
 
     items_data = []
-    grand_total = 0.0
     total_items = 0
 
     for item in cart.items:
         variant = item.variant
         product = variant.product
-        
-        # Grab the primary image (position 1) if it exists
-        image_url = None
-        if variant.images:
-            sorted_images = sorted(variant.images, key=lambda img: img.position)
-            image_url = sorted_images[0].image_url if sorted_images else None
-
-        price = float(variant.base_price or 0.0)
-        item_total = price * item.quantity
-
-        grand_total += item_total
         total_items += item.quantity
 
+        # We only return IDs and basic metadata. 
+        # Frontend will fetch the "Live Price" using product_id.
         items_data.append({
             "variant_id": str(variant.id),
             "product_id": str(product.id),
-            "name": product.name,
-            "brand": product.brand,
+            "quantity": item.quantity,
             "color": variant.color,
             "size": variant.size,
-            "quantity": item.quantity,
-            "base_price": price,
-            "item_total": item_total,
-            "image_url": image_url
         })
 
     return {
         "cart_id": str(cart.id),
         "updated_at": cart.updated_at,
         "total_items": total_items,
-        "grand_total": grand_total,
         "items": items_data
+        # grand_total is removed here because backend doesn't know the real price
     }
 
 def get_active_cart(

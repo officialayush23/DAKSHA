@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { UserService, LoyaltyService } from "../lib/api";
+import { UserService, LoyaltyService, apiRequest } from "../lib/api";
 
 import {
   Card,
@@ -42,7 +42,9 @@ import {
   Loader2,
   Trash2,
   User,
-  Phone
+  Phone,
+  Gift,
+  Tag
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -54,6 +56,7 @@ export default function ProfilePage() {
   const [preferenceSummary, setPreferenceSummary] = useState(null);
   const [addresses, setAddresses] = useState([]);
   const [cards, setCards] = useState([]);
+  const [offers, setOffers] = useState([]);
   const [points, setPoints] = useState(0);
   
   const [loading, setLoading] = useState(true);
@@ -65,7 +68,12 @@ export default function ProfilePage() {
   const [cardOpen, setCardOpen] = useState(false);
 
   // --- Forms ---
-  const [draft, setDraft] = useState({ name: "", phone: "", gender: "" });
+  const [draft, setDraft] = useState({ 
+    name: "", 
+    phone: "", 
+    gender: "",
+    preferences: { preferred_sizes: "", preferred_colors: "", preferred_categories: "" } 
+  });
   
   const [newAddress, setNewAddress] = useState({
     label: "Home",
@@ -77,38 +85,48 @@ export default function ProfilePage() {
     is_default: false
   });
 
+  // UPDATED: Mapped exactly to Pydantic Schema requirements
   const [newCard, setNewCard] = useState({
     card_name: "",
-    card_number: "",
-    card_expiry: "", // MM/YY
+    card_brand: "",
+    card_last4: "", 
+    token: "",
     is_default: false
   });
 
   // ================= LOAD DATA =================
   const loadData = async () => {
     try {
-      const [profRes, addrRes, cardRes, ptsRes] = await Promise.all([
+      // Parallel API fetching
+      const [profRes, addrRes, cardRes, ptsRes, offersRes] = await Promise.all([
         UserService.getProfile(),
         UserService.getAddresses(),
         UserService.getCards(),
-        LoyaltyService.getPoints(),
+        LoyaltyService.getSummary().catch(() => ({ data: { points: 0 }})),
+        UserService.getOffers().catch(() => ({ data: { offers: [] }})),
       ]);
 
-      // 1. Profile (Source of Truth is DB)
       const prof = profRes.data || profRes; 
       setProfile(prof);
+      
       setDraft({
         name: prof.name || "",
         phone: prof.phone || "",
         gender: prof.gender || "",
+        preferences: {
+          preferred_sizes: prof.preferences?.preferred_sizes?.join(", ") || "",
+          preferred_colors: prof.preferences?.preferred_colors?.join(", ") || "",
+          preferred_categories: prof.preferences?.preferred_categories?.join(", ") || ""
+        }
       });
 
-      // 2. Lists
       setAddresses(addrRes.data || addrRes || []);
       setCards(cardRes.data || cardRes || []);
-      setPoints(ptsRes.data?.points || ptsRes.points || 0);
+      setOffers(offersRes.data?.offers || offersRes?.offers || []);
+      
+      const fetchedPoints = ptsRes.data?.points || ptsRes?.points || ptsRes?.data?.total_points || 0;
+      setPoints(prof.points_balance !== undefined ? prof.points_balance : fetchedPoints);
 
-      // 3. Trigger Preference Recompute (Silent)
       UserService.recomputePreferences().catch(() => {});
 
     } catch (e) {
@@ -128,20 +146,26 @@ export default function ProfilePage() {
   const handleSaveProfile = async () => {
     setSaving(true);
     try {
-      // Filter out empty strings
-      const payload = {};
-      if (draft.name?.trim()) payload.name = draft.name.trim();
-      if (draft.phone?.trim()) payload.phone = draft.phone.trim();
-      if (draft.gender) payload.gender = draft.gender;
+      const parseToArray = (str) => str ? str.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+      const payload = {
+        name: draft.name?.trim() || undefined,
+        phone: draft.phone?.trim() || undefined,
+        gender: draft.gender || undefined,
+        preferences: {
+          preferred_sizes: parseToArray(draft.preferences.preferred_sizes),
+          preferred_colors: parseToArray(draft.preferences.preferred_colors),
+          preferred_categories: parseToArray(draft.preferences.preferred_categories)
+        }
+      };
 
       await UserService.updateProfile(payload);
       
-      // Reload to ensure UI matches DB
       const refreshed = await UserService.getProfile();
       setProfile(refreshed.data || refreshed);
       
       setEditOpen(false);
-      toast.success("Profile updated");
+      toast.success("Profile & Preferences updated");
     } catch (e) {
       toast.error("Failed to update profile");
     } finally {
@@ -150,62 +174,85 @@ export default function ProfilePage() {
   };
 
   const handleAddAddress = async () => {
-    // 1. Validation
     if (!newAddress.address_line1 || !newAddress.city || !newAddress.pincode || !newAddress.state) {
-      toast.error("Please fill all required fields (Line 1, City, State, Pincode)");
+      toast.error("Please fill all required fields");
       return;
     }
 
     setSaving(true);
     try {
-      // 2. Construct Payload (Fix 422 Error)
-      // We explicitly send null/empty string for optional fields to satisfy strict Pydantic schemas
       const payload = {
         label: newAddress.label || "Home",
         address_line1: newAddress.address_line1,
-        address_line2: newAddress.address_line2 || null, // Send null if empty
+        address_line2: newAddress.address_line2 || null,
         city: newAddress.city,
         state: newAddress.state,
         pincode: newAddress.pincode,
         country: "India",
-        location: null, // Explicit null for GeoJSON field
+        location: null,
         is_default: newAddress.is_default
       };
 
       await UserService.addAddress(payload);
       toast.success("Address added");
       
-      // Refresh
       const res = await UserService.getAddresses();
       setAddresses(res.data || res);
       
       setAddressOpen(false);
       setNewAddress({ label: "Home", address_line1: "", address_line2: "", city: "", state: "", pincode: "", is_default: false });
     } catch (e) {
-      console.error(e);
-      toast.error("Failed to add address. Check format.");
+      toast.error("Failed to add address.");
     } finally {
       setSaving(false);
     }
   };
 
+  const handleRemoveAddress = async (id) => {
+    try {
+      await apiRequest(`/user/addresses/${id}`, { method: 'DELETE' });
+      setAddresses(prev => prev.filter(a => a.id !== id));
+      toast.success("Address removed");
+    } catch (e) {
+      toast.error("Could not remove address");
+    }
+  };
+
   const handleAddCard = async () => {
-    if (!newCard.card_number || !newCard.card_expiry) {
-      toast.error("Card details incomplete");
+    // UPDATED Validation: Check exact fields
+    if (!newCard.card_name || !newCard.card_brand || !newCard.token) {
+      toast.error("Please fill all fields.");
       return;
     }
+    
+    if (newCard.card_last4.length !== 4) {
+      toast.error("Last 4 digits must be exactly 4 characters.");
+      return;
+    }
+
     setSaving(true);
     try {
-      await UserService.addCard(newCard);
-      toast.success("Card added securely");
+      // Direct pass-through of the exact fields required by schema
+      const payload = {
+        card_brand: newCard.card_brand,
+        card_last4: newCard.card_last4,
+        token: newCard.token,
+        card_name: newCard.card_name,
+        is_default: newCard.is_default
+      };
+
+      await UserService.addCard(payload);
+      toast.success("Card securely linked");
 
       const res = await UserService.getCards();
       setCards(res.data || res);
       
       setCardOpen(false);
-      setNewCard({ card_name: "", card_number: "", card_expiry: "", is_default: false });
+      // Reset form
+      setNewCard({ card_name: "", card_brand: "", card_last4: "", token: "", is_default: false });
     } catch (e) {
-      toast.error("Failed to add card");
+      toast.error("Failed to add card. Verify inputs match schema requirements.");
+      console.error(e);
     } finally {
       setSaving(false);
     }
@@ -271,38 +318,57 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* Edit Button */}
+        {/* Edit Profile Button & Dialog */}
         <Dialog open={editOpen} onOpenChange={setEditOpen}>
           <DialogTrigger asChild>
             <Button variant="outline" className="rounded-full px-6 border-zinc-200 hover:bg-zinc-50 hover:border-zinc-300 transition-all">
               <Pencil size={14} className="mr-2" /> Edit Profile
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
+          <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
               <DialogTitle className="font-serif text-2xl">Edit Profile</DialogTitle>
-              <DialogDescription>Update your personal information.</DialogDescription>
+              <DialogDescription>Update your personal information and style preferences.</DialogDescription>
             </DialogHeader>
-            <div className="grid gap-5 py-4">
+            <div className="grid gap-5 py-4 max-h-[60vh] overflow-y-auto px-1">
+              
               <div className="space-y-2">
                 <Label>Full Name</Label>
                 <Input value={draft.name} onChange={e => setDraft({...draft, name: e.target.value})} placeholder="Your Name" />
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Phone Number</Label>
+                  <Input value={draft.phone} onChange={e => setDraft({...draft, phone: e.target.value})} placeholder="+91..." />
+                </div>
+                <div className="space-y-2">
+                  <Label>Gender</Label>
+                  <Select value={draft.gender} onValueChange={(val) => setDraft({...draft, gender: val})}>
+                    <SelectTrigger><SelectValue placeholder="Select Gender" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Male">Male</SelectItem>
+                      <SelectItem value="Female">Female</SelectItem>
+                      <SelectItem value="Unisex">Unisex</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="border-t border-zinc-100 my-2" />
+
               <div className="space-y-2">
-                <Label>Phone Number</Label>
-                <Input value={draft.phone} onChange={e => setDraft({...draft, phone: e.target.value})} placeholder="+91..." />
+                <Label>Preferred Sizes <span className="text-xs text-zinc-400 font-normal">(comma separated)</span></Label>
+                <Input value={draft.preferences.preferred_sizes} onChange={e => setDraft({...draft, preferences: {...draft.preferences, preferred_sizes: e.target.value}})} placeholder="S, M, L, 9, 10" />
               </div>
               <div className="space-y-2">
-                <Label>Gender</Label>
-                <Select value={draft.gender} onValueChange={(val) => setDraft({...draft, gender: val})}>
-                  <SelectTrigger><SelectValue placeholder="Select Gender" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="male">Male</SelectItem>
-                    <SelectItem value="female">Female</SelectItem>
-                    <SelectItem value="unisex">Unisex</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label>Favorite Colors</Label>
+                <Input value={draft.preferences.preferred_colors} onChange={e => setDraft({...draft, preferences: {...draft.preferences, preferred_colors: e.target.value}})} placeholder="Black, Navy, White" />
               </div>
+              <div className="space-y-2">
+                <Label>Preferred Categories</Label>
+                <Input value={draft.preferences.preferred_categories} onChange={e => setDraft({...draft, preferences: {...draft.preferences, preferred_categories: e.target.value}})} placeholder="Sneakers, Jackets" />
+              </div>
+
             </div>
             <DialogFooter>
               <Button onClick={handleSaveProfile} disabled={saving} className="w-full h-11 rounded-lg bg-black text-white hover:bg-zinc-800">
@@ -314,8 +380,9 @@ export default function ProfilePage() {
       </div>
 
       <Tabs defaultValue="account" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 lg:w-[400px] mb-8 bg-zinc-100/50 p-1 rounded-full">
+        <TabsList className="grid w-full grid-cols-3 lg:w-[500px] mb-8 bg-zinc-100/50 p-1 rounded-full">
           <TabsTrigger value="account" className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm">Account</TabsTrigger>
+          <TabsTrigger value="rewards" className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm">Rewards</TabsTrigger>
           <TabsTrigger value="wallet" className="rounded-full data-[state=active]:bg-white data-[state=active]:shadow-sm">Wallet & Cards</TabsTrigger>
         </TabsList>
 
@@ -334,10 +401,32 @@ export default function ProfilePage() {
                 </CardTitle>
                 <CardDescription>Your AI-generated fashion profile</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
                 <p className="text-zinc-600 text-sm leading-relaxed italic relative z-10">
                   "{preferenceSummary?.summary_text || "We are currently analyzing your shopping patterns to curate a personalized boutique just for you."}"
                 </p>
+                <div className="relative z-10 space-y-3 pt-2">
+                  {profile?.preferences?.preferred_sizes?.length > 0 && (
+                    <div>
+                      <p className="text-xs uppercase font-bold tracking-wider text-zinc-400 mb-2">Sizes</p>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.preferences.preferred_sizes.map(s => (
+                          <Badge key={s} variant="outline" className="bg-white">{s}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {profile?.preferences?.preferred_colors?.length > 0 && (
+                    <div>
+                      <p className="text-xs uppercase font-bold tracking-wider text-zinc-400 mb-2">Colors</p>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.preferences.preferred_colors.map(c => (
+                          <Badge key={c} variant="outline" className="bg-white">{c}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
 
@@ -423,7 +512,9 @@ export default function ProfilePage() {
                           <span className="font-bold text-sm text-zinc-900">{addr.label}</span>
                           {addr.is_default && <Badge variant="secondary" className="text-[10px] h-5 px-1.5">Default</Badge>}
                         </div>
-                        <MapPin size={14} className="text-zinc-400 group-hover:text-black transition-colors" />
+                        <button onClick={() => handleRemoveAddress(addr.id)} className="text-zinc-400 hover:text-red-500 transition-colors p-1 rounded-md">
+                          <Trash2 size={16} />
+                        </button>
                       </div>
                       <p className="text-xs text-zinc-500 leading-relaxed">
                         {addr.address_line1} {addr.address_line2 && `, ${addr.address_line2}`}<br />
@@ -435,6 +526,48 @@ export default function ProfilePage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* --- TAB: REWARDS & OFFERS --- */}
+        <TabsContent value="rewards" className="animate-in slide-in-from-right-4 duration-500">
+          <Card className="border-zinc-200">
+            <CardHeader className="flex flex-row items-center justify-between border-b border-zinc-50 pb-4">
+              <div>
+                <CardTitle className="font-serif text-xl flex items-center gap-2">
+                  <Gift className="text-amber-600" size={20} /> Exclusive Offers
+                </CardTitle>
+                <CardDescription>Coupons and discounts curated for your Style DNA</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {offers.length === 0 ? (
+                  <div className="col-span-full py-12 text-center text-zinc-400 bg-zinc-50/50 rounded-xl border border-dashed border-zinc-200">
+                    <Tag className="mx-auto h-10 w-10 mb-3 opacity-30" />
+                    <p>No active offers right now. Keep shopping to unlock rewards!</p>
+                  </div>
+                ) : (
+                  offers.map((offer) => (
+                    <div key={offer.offer_id} className="flex bg-white rounded-2xl border border-zinc-200 overflow-hidden shadow-sm hover:shadow-md transition-all group">
+                      <div className="bg-gradient-to-br from-amber-500 to-amber-600 text-white p-5 flex flex-col justify-center items-center font-bold w-[120px] border-r border-dashed border-white/40">
+                        <span className="text-3xl">{offer.discount_value}{offer.discount_type === 'percentage' ? '%' : '₹'}</span>
+                        <span className="text-[10px] font-medium uppercase tracking-widest opacity-90 mt-1">OFF</span>
+                      </div>
+                      <div className="p-5 flex-1 flex flex-col justify-center">
+                        <h4 className="font-bold text-zinc-900 mb-1">{offer.offer_name}</h4>
+                        <p className="text-xs text-zinc-500 mb-3 leading-relaxed">{offer.condition_text}</p>
+                        <div className="mt-auto flex items-center justify-between">
+                          <span className="text-[10px] uppercase font-bold tracking-wider text-amber-600 bg-amber-50 px-2 py-1 rounded-md">
+                            Valid till {new Date(offer.expires_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* --- TAB: WALLET --- */}
@@ -454,24 +587,54 @@ export default function ProfilePage() {
                 <DialogContent>
                   <DialogHeader><DialogTitle>Add New Card</DialogTitle></DialogHeader>
                   <div className="grid gap-4 py-4">
+                    {/* Explicit Form Mapping for Card Schema */}
                     <div className="space-y-2">
                       <Label>Cardholder Name</Label>
-                      <Input value={newCard.card_name} onChange={e => setNewCard({...newCard, card_name: e.target.value})} placeholder="Name on card" />
+                      <Input value={newCard.card_name} onChange={e => setNewCard({...newCard, card_name: e.target.value})} placeholder="Full name on card" />
                     </div>
-                    <div className="space-y-2">
-                      <Label>Card Number</Label>
-                      <Input value={newCard.card_number} onChange={e => setNewCard({...newCard, card_number: e.target.value})} maxLength={19} placeholder="0000 0000 0000 0000" />
-                    </div>
+                    
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label>Expiry</Label>
-                        <Input value={newCard.card_expiry} onChange={e => setNewCard({...newCard, card_expiry: e.target.value})} placeholder="MM/YY" maxLength={5} />
+                        <Label>Card Brand</Label>
+                        <Select value={newCard.card_brand} onValueChange={(val) => setNewCard({...newCard, card_brand: val})}>
+                          <SelectTrigger><SelectValue placeholder="Select Brand" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="visa">Visa</SelectItem>
+                            <SelectItem value="mastercard">Mastercard</SelectItem>
+                            <SelectItem value="rupay">RuPay</SelectItem>
+                            <SelectItem value="amex">Amex</SelectItem>
+                            <SelectItem value="other">Other</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div className="space-y-2">
-                        <Label>CVV</Label>
-                        <Input type="password" maxLength={3} placeholder="***" disabled className="bg-zinc-50" />
+                        <Label>Last 4 Digits</Label>
+                        <Input 
+                          value={newCard.card_last4} 
+                          onChange={e => setNewCard({...newCard, card_last4: e.target.value.replace(/\D/g, '').slice(0, 4)})} 
+                          placeholder="e.g. 1234" 
+                          maxLength={4} 
+                        />
                       </div>
                     </div>
+
+                    <div className="space-y-2">
+                      <Label>Secure Token</Label>
+                      <Input value={newCard.token} onChange={e => setNewCard({...newCard, token: e.target.value})} placeholder="e.g. tok_test_123" />
+                      <p className="text-[10px] text-zinc-500">Provide the mock payment gateway token for testing.</p>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2">
+                      <input 
+                        type="checkbox" 
+                        id="is_default_card" 
+                        checked={newCard.is_default} 
+                        onChange={e => setNewCard({...newCard, is_default: e.target.checked})} 
+                        className="rounded border-zinc-300 accent-black w-4 h-4" 
+                      />
+                      <Label htmlFor="is_default_card" className="font-normal cursor-pointer">Set as default payment method</Label>
+                    </div>
+
                   </div>
                   <DialogFooter>
                     <Button onClick={handleAddCard} disabled={saving} className="w-full bg-black text-white">{saving ? "Saving..." : "Save Card"}</Button>
@@ -494,24 +657,22 @@ export default function ProfilePage() {
                       </div>
                       
                       <div className="flex justify-between items-start mb-6">
-                        <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-bold">Daksha Secure</p>
-                        <button onClick={() => handleRemoveCard(card.id)} className="text-zinc-600 hover:text-red-400 transition-colors bg-white/5 p-1.5 rounded-full backdrop-blur-sm">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-500 font-bold">
+                          {card.card_brand} Secure
+                        </p>
+                        <button onClick={() => handleRemoveCard(card.id)} className="text-zinc-600 hover:text-red-400 transition-colors bg-white/5 p-1.5 rounded-full backdrop-blur-sm relative z-10">
                           <Trash2 size={12} />
                         </button>
                       </div>
                       
-                      <p className="font-mono text-xl text-white mb-6 tracking-wider">
-                        •••• •••• •••• {card.card_number.slice(-4)}
+                      <p className="font-mono text-xl text-white mb-6 tracking-wider relative z-10">
+                        •••• •••• •••• {card.card_last4}
                       </p>
                       
-                      <div className="flex justify-between items-end text-xs font-medium">
+                      <div className="flex justify-between items-end text-xs font-medium relative z-10">
                         <div>
                           <p className="text-zinc-600 text-[9px] uppercase mb-0.5">Card Holder</p>
                           <span className="uppercase text-zinc-200">{card.card_name}</span>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-zinc-600 text-[9px] uppercase mb-0.5">Expires</p>
-                          <span className="text-zinc-200">{card.card_expiry}</span>
                         </div>
                       </div>
                     </div>
@@ -528,7 +689,7 @@ export default function ProfilePage() {
         <Button 
           variant="ghost" 
           onClick={signOut}
-          className="text-red-600 hover:text-red-700 hover:bg-red-50 gap-2 px-6"
+          className="text-red-600 hover:text-red-700 hover:bg-red-50 gap-2 px-6 rounded-full"
         >
           <LogOut size={16} /> Sign Out
         </Button>

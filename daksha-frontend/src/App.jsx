@@ -18,6 +18,7 @@ import ShopPage from './pages/ShopPage';
 import ProductDetail from './pages/ProductDetail';
 import ProfilePage from './pages/ProfilePage';
 import ChatInterface from './pages/ChatInterface';
+import WishlistPage from './pages/WishlistPage'
 
 // --- ADMIN PAGES ---
 import AdminAuthPage from './pages/AuthPage';
@@ -101,6 +102,7 @@ export default function App() {
         {/* Placeholders for now */}
         <Route path="orders" element={<OrdersPage/>} />
         <Route path="cart" element={<CartPage/>} />
+        <Route path="wishlist" element={<WishlistPage/>} />
         
         <Route path="*" element={<ErrorPage />} />
       </Route>
