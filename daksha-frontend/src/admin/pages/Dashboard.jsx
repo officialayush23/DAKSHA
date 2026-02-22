@@ -43,9 +43,14 @@ export default function Dashboard() {
   });
 
   // Fetch all dashboard data
+  // Fetch all dashboard data
   const fetchDashboardData = async () => {
     try {
       const dashboardStats = await AdminService.getDashboardStats();
+      
+      // Helper to safely extract arrays if the backend wraps them in { success: true, data: [...] }
+      const extractArray = (res) => Array.isArray(res) ? res : (res?.data || []);
+
       setStats({
         inventory: dashboardStats.inventory || {
           total_stock: 0,
@@ -53,9 +58,10 @@ export default function Dashboard() {
           total_variants: 0,
           low_stock_count: 0
         },
-        stores: dashboardStats.stores || [],
-        complaints: dashboardStats.complaints || [],
-        offers: dashboardStats.offers || []
+        // Safely extract the arrays
+        stores: extractArray(dashboardStats.stores),
+        complaints: extractArray(dashboardStats.complaints),
+        offers: extractArray(dashboardStats.offers)
       });
     } catch (error) {
       console.error("Failed to fetch dashboard data:", error);
