@@ -85,3 +85,47 @@ def trigger_training(
     """Consumes Events + Outcomes to train TwoTower Model"""
     background_tasks.add_task(train_collaborative_model, db)
     return {"status": "Training started"}
+
+
+
+@router.get("/similar/{variant_id}")
+def similar_variants(
+    variant_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Similar variants using hybrid recall.
+    Returns [] if nothing relevant.
+    """
+
+    # reuse hybrid recall WITHOUT intent
+    candidate_ids = generate_candidates(
+    db,
+    str(user.id),
+    None,
+    limit=100,
+    seed_variant_id=variant_id
+)
+
+    if not candidate_ids:
+        return []
+
+    ranked = rank_candidates(
+    db,
+    str(user.id),
+    candidate_ids,
+    intent_text=None,
+    limit=20
+)
+
+    final = apply_business_rules(ranked)[:10]
+
+    final = log_impressions(
+        db,
+        str(user.id),
+        final,
+        feed_type="similar"
+    )
+
+    return final

@@ -2,6 +2,7 @@
 from sqlalchemy.orm import Session
 from app.models.models import UserImageEmbedding
 from app.services.embedding_service import generate_image_embedding
+import uuid
 
 
 def create_user_image_embedding(
@@ -14,6 +15,7 @@ def create_user_image_embedding(
     vector = generate_image_embedding(image_url)
 
     emb = UserImageEmbedding(
+        id=uuid.uuid4(),
         user_id=user_id,
         session_id=session_id,
         image_url=image_url,

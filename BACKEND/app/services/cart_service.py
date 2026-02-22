@@ -2,6 +2,7 @@
 
 import uuid
 from typing import Optional
+from app.worker.tasks import refresh_user_preferences
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -150,6 +151,8 @@ def add_item_to_cart(
             db.add(item)
 
         cart.updated_at = func.now()
+        
+        
 
         # --- EVENT ---
         emit_event(
@@ -167,6 +170,8 @@ def add_item_to_cart(
             },
             source=source,  # <-- PASSING SOURCE TO EVENT
         )
+        
+        refresh_user_preferences.delay(str(user_id))
 
         db.commit()  # <-- COMMIT MOVED HERE
         db.refresh(cart)
