@@ -39,6 +39,11 @@ import CartPage from './pages/CartPage';
 import DiscountRules from './admin/pages/DiscountRules';
 import AgentRuns from './admin/pages/AgentRuns';
 
+// --- ADMIN USER CRM MODULE (NEW) ---
+import AdminUserLayout from './admin_user/AdminUserLayout';
+import AdminUserList from './admin_user/pages/AdminUserList';
+import AdminUserDetail from './admin_user/pages/AdminUserDetail';
+
 // --- PROTECTED ROUTE WRAPPERS ---
 
 // 1. Admin Guard (Checks Supabase Session)
@@ -132,9 +137,15 @@ export default function App() {
         <Route path="kiosks" element={<Kiosks />} />
         <Route path="discount-rules" element={<DiscountRules />} />
         <Route path="*" element={<Navigate to="dashboard" replace />} />
+
+            {/* --- ADDED: ADMIN USER CRM MODULE --- */}
+        <Route path="users" element={<AdminUserLayout />}>
+          <Route index element={<AdminUserList />} />
+          <Route path=":id" element={<AdminUserDetail />} />
+        </Route>
+        
+        
       </Route>
-
-
 
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />
