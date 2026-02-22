@@ -264,14 +264,7 @@ def update_profile(
     db.commit()
     db.refresh(user)
 
-    emit_event(
-        db=db,
-        event_type=EventTypeEnum.profile_updated,
-        channel=ChannelEnum.web,
-        user_id=user.id,
-        entity_type=EntityTypeEnum.user,
-        entity_id=user.id,
-    )
+
 
     return user
 
