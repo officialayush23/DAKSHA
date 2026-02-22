@@ -43,7 +43,7 @@ from app.services.wishlist_service import (
     remove_from_wishlist,
     get_hydrated_wishlist,
 )
-
+from app.models.models import UserIntent, AgentRun
 from app.core.auth import get_or_create_user
 from app.models.models import User
 from app.services.event_service import emit_event
@@ -51,19 +51,19 @@ from app.services.embedding_service import update_user_preference_summary
 from app.enums.db_enums import EventTypeEnum, EntityTypeEnum, ChannelEnum
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
-
+from app.schemas.schemas import SearchQuery
 router = APIRouter(prefix="/user", tags=["User"])
 
 # ======================================================
 # SEARCH (intent + signal only, NO product logic)
 # ======================================================
-
 @router.post("/search")
 def search_products(
-    payload,
+    payload: SearchQuery,
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+    # 1. Log the generic event
     emit_event(
         db=db,
         event_type=EventTypeEnum.search,
@@ -73,9 +73,20 @@ def search_products(
         metadata={"query": payload.query},
     )
 
+    # 2. Extract and Store the Explicit Intent
+    new_intent = UserIntent(
+        user_id=user.id,
+        intent_text=payload.query,
+        intent_category="search", # Can be classified further by an LLM later
+        confidence=1.0 # 100% confidence because it's a direct user query
+    )
+    db.add(new_intent)
+    db.commit()
+
+    # 3. Recompute implicit preferences in background
     update_user_preference_summary(db, user.id)
 
-    return {"status": "search_logged"}
+    return {"status": "search_logged", "intent_id": new_intent.id}
 
 # ======================================================
 # GENERIC EVENT CAPTURE (frontend/manual)

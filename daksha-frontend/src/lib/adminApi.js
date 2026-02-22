@@ -207,6 +207,8 @@ export const AdminService = {
   updateReturn: (id, status) =>
     apiClient(`/admin/global/returns/${id}`, 'PATCH', null, { status }),
 
+  listAgentRuns: () => apiClient('/admin/global/agent/runs', 'GET'),
+
   // ==========================================
   // 📉 DISCOUNT RULES (Automatic Sales)
   // ==========================================

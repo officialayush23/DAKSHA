@@ -18,6 +18,7 @@ from app.api.routers import (
     products,
     loyalty,
     support,
+    recommendation,
 )
 
 app = FastAPI(title="Agentic Commerce Platform")
@@ -55,6 +56,7 @@ app.include_router(user.router)
 app.include_router(kiosk.router)
 app.include_router(cart.router)
 app.include_router(orders.router)
+app.include_router(recommendation.router)
 app.include_router(session.router)
 app.include_router(support.router)
 app.include_router(support.router)

@@ -1,40 +1,50 @@
 # app/services/candidate_service.py
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from app.services.embedding_service import generate_text_embedding
 from app.services.ml_service import get_collaborative_candidates
 
-def generate_candidates(db: Session, user_id: str, intent_text: str = None, limit: int = 200):
+def generate_candidates(db: Session, user_id: str, intent_text: str = None, limit: int = 300):
+    """
+    Phase 1: RECALL. Fetches a wide net of variants from Semantic, ML, and Trending sources.
+    """
     candidates = set()
 
-    # 1. Collaborative Filtering (PyTorch Model) - Behavior
-    # "People who bought what you bought also bought X"
-    collab_ids = get_collaborative_candidates(user_id, k=limit)
-    candidates.update(collab_ids)
+    # --- 1. SEMANTIC RECALL ---
+    vec = generate_text_embedding(intent_text) if intent_text else None
+    if not vec and user_id:
+        pref = db.execute(
+            text("SELECT embedding FROM user_preference_summary WHERE user_id = :uid"), 
+            {"uid": user_id}
+        ).first()
+        vec = pref[0] if pref else None
+    
+    if vec:
+        rows = db.execute(text("""
+            SELECT product_variant_id 
+            FROM product_multimodal_embeddings
+            WHERE modality = 'text' 
+            ORDER BY embedding <=> :vec
+            LIMIT 150
+        """), {"vec": str(vec)}).fetchall()
+        candidates.update([str(r[0]) for r in rows])
 
-    # 2. Content-Based (Vector Search) - Semantic Preference
-    # "Items matching your long-term style"
-    # Note: We only select IDs here, no complex joining
-    query_content = text("""
+    # --- 2. ML COLLABORATIVE RECALL ---
+    if user_id:
+        try:
+            collab_ids = get_collaborative_candidates(user_id, k=100)
+            candidates.update([str(vid) for vid in collab_ids])
+        except Exception:
+            pass
+
+    # --- 3. TRENDING FALLBACK ---
+    rows = db.execute(text("""
         SELECT product_variant_id 
-        FROM user_preference_summary ups
-        JOIN product_embeddings pe ON 1=1
-        WHERE ups.user_id = :uid
-        ORDER BY pe.embedding <=> ups.embedding
-        LIMIT :lim
-    """)
-    rows = db.execute(query_content, {"uid": user_id, "lim": limit}).fetchall()
+        FROM trending_products
+        WHERE scope = 'global' 
+        ORDER BY rank_position ASC 
+        LIMIT 100
+    """)).fetchall()
     candidates.update([str(r[0]) for r in rows])
 
-    # 3. Trending (Cold Start Fallback)
-    # "What is popular right now"
-    query_trend = text("SELECT product_variant_id FROM category_trending ORDER BY rank_position LIMIT 50")
-    rows = db.execute(query_trend).fetchall()
-    candidates.update([str(r[0]) for r in rows])
-
-    # 4. Explicit Intent (If user is searching/chatting)
-    if intent_text:
-        # Vector search on the intent text
-        # (Assuming you have a function to get embedding, or use pgvector query directly if intent_vec passed)
-        pass 
-
-    return list(candidates)
+    return list(candidates)[:limit]

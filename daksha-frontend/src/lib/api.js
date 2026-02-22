@@ -30,6 +30,7 @@ export const AuthService = {
 export const ProductService = {
   // Smart Feed (Recommendation Engine)
   getFeed: (intent = null) => api.get('/recommendations/feed', { params: { intent } }),
+  getTrending: () => api.get('/recommendations/trending'),
   
   // Standard Catalog with filters
   listProducts: (filters) => api.get('/products', { params: filters }),
@@ -50,6 +51,7 @@ export const ProductService = {
 export const RecommendationService = {
   getSimilarVariants: (variantId) => api.get(`/recommendations/similar/${variantId}`),
   getBoughtTogether: (variantId) => api.get(`/recommendations/bought-together/${variantId}`),
+  
 };
 
 export const CartService = {

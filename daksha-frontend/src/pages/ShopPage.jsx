@@ -9,41 +9,35 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { 
-  Search, Loader2, Sparkles, Filter, 
+  Search, Loader2, Sparkles, Flame, 
   Heart, ShoppingBag, ArrowRight 
 } from "lucide-react";
 import { toast } from "sonner";
 
 const CATEGORIES = ["All", "Shoes", "Clothing", "Accessories", "Home", "Sports"];
 
-// Helper function to ensure we only show ONE variant per Product on the Shop page
 const getUniqueProducts = (items) => {
   if (!Array.isArray(items)) return [];
   const uniqueMap = new Map();
-  
   items.forEach(item => {
-    // Group by product_id so we don't show the same shirt 5 times for different sizes
     if (item && item.product_id && !uniqueMap.has(item.product_id)) {
       uniqueMap.set(item.product_id, item);
     }
   });
-  
   return Array.from(uniqueMap.values());
 };
 
 export default function ShopPage() {
-  // --- Data State ---
   const [recommended, setRecommended] = useState([]);
+  const [trending, setTrending] = useState([]);
   const [items, setItems] = useState([]);
   const [wishlistIds, setWishlistIds] = useState(new Set());
   const [sessionId, setSessionId] = useState(null);
   
-  // --- UI State ---
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
 
-  // ================= LOAD DATA =================
   useEffect(() => {
     bootstrap();
   }, []);
@@ -55,14 +49,15 @@ export default function ShopPage() {
       const activeSessionId = sessRes?.data?.session_id || sessRes?.session_id || null;
       setSessionId(activeSessionId);
 
-      const [feedRes, listRes, wlRes] = await Promise.all([
+      const [feedRes, trendRes, listRes, wlRes] = await Promise.all([
         ProductService.getFeed().catch(() => ({ data: [] })),
+        ProductService.getTrending().catch(() => ({ data: [] })),
         ProductService.listProducts({ limit: 100 }).catch(() => ({ data: [] })),
         UserService.getWishlist().catch(() => ({ data: { items: [] } }))
       ]);
 
-      // Apply the unique filter here
       setRecommended(getUniqueProducts(feedRes?.data || feedRes));
+      setTrending(getUniqueProducts(trendRes?.data || trendRes));
       setItems(getUniqueProducts(listRes?.data || listRes));
       
       const wlItems = wlRes?.data?.items || wlRes?.items || [];
@@ -76,7 +71,6 @@ export default function ShopPage() {
     }
   };
 
-  // ================= ACTIONS =================
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!searchTerm.trim()) {
@@ -86,11 +80,14 @@ export default function ShopPage() {
 
     setLoading(true);
     try {
+      // 1. Logs intent to user_intents
       await ProductService.search(searchTerm).catch(() => {});
+      // 2. Fetch specific feed for this intent
       const res = await ProductService.getFeed(searchTerm);
       
       setItems(getUniqueProducts(res?.data || res));
       setRecommended([]); 
+      setTrending([]); 
       setActiveCategory("All");
     } catch {
       toast.error("Search failed");
@@ -102,11 +99,9 @@ export default function ShopPage() {
   const handleToggleWishlist = async (e, variantId) => {
     e.preventDefault(); 
     e.stopPropagation();
-
     if (!variantId) return toast.error("This product is currently unavailable.");
 
     const isWishlisted = wishlistIds.has(variantId);
-    
     setWishlistIds(prev => {
       const next = new Set(prev);
       if (isWishlisted) next.delete(variantId);
@@ -136,7 +131,6 @@ export default function ShopPage() {
   const handleAddToCart = async (e, variantId) => {
     e.preventDefault();
     e.stopPropagation();
-
     if (!variantId) {
       toast.error("Select a specific size/color on the product page to add to bag.");
       return false;
@@ -149,7 +143,6 @@ export default function ShopPage() {
         activeSession = res?.data?.session_id || res?.session_id;
         setSessionId(activeSession);
       }
-
       await CartService.add(variantId, 1, activeSession);
       toast.success("Added to your bag! 🛍️");
       UserService.captureEvent('add_to_cart', 'product_variant', variantId).catch(() => {});
@@ -160,7 +153,6 @@ export default function ShopPage() {
     }
   };
 
-  // --- CRASH-PROOF FILTER LOGIC ---
   const visibleItems = activeCategory === "All"
     ? (items || [])
     : (items || []).filter(p => 
@@ -168,7 +160,6 @@ export default function ShopPage() {
         p.category.toLowerCase() === activeCategory.toLowerCase()
       );
 
-  // ================= RENDER =================
   if (loading) {
     return (
       <div className="space-y-12 animate-pulse w-full max-w-[1600px] mx-auto">
@@ -258,17 +249,33 @@ export default function ShopPage() {
               </div>
               <h2 className="text-3xl font-serif font-bold tracking-tight text-zinc-900">Top Picks For You</h2>
             </div>
-
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-x-8 gap-y-14">
-              {recommended.map((item, i) => (
-                <ProductCard 
-                  key={item.product_id} 
-                  item={item} 
-                  index={i}
-                  wishlistIds={wishlistIds}
-                  onWishlist={handleToggleWishlist}
-                  onAddToCart={handleAddToCart}
-                />
+              {recommended.slice(0, 5).map((item, i) => (
+                <ProductCard key={`rec-${item.product_id}`} item={item} index={i} wishlistIds={wishlistIds} onWishlist={handleToggleWishlist} onAddToCart={handleAddToCart} />
+              ))}
+            </div>
+          </motion.section>
+        )}
+      </AnimatePresence>
+
+      {/* --- TRENDING NOW SECTION --- */}
+      <AnimatePresence>
+        {trending.length > 0 && activeCategory === "All" && !searchTerm && (
+          <motion.section 
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, height: 0 }}
+            className="space-y-8"
+          >
+            <div className="flex items-center gap-4 border-b border-zinc-100 pb-6 px-2 mt-12">
+              <div className="bg-gradient-to-br from-red-100 to-rose-100 p-3 rounded-2xl text-red-600 shadow-inner">
+                <Flame size={24} />
+              </div>
+              <h2 className="text-3xl font-serif font-bold tracking-tight text-zinc-900">Trending Now</h2>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-x-8 gap-y-14">
+              {trending.slice(0, 5).map((item, i) => (
+                <ProductCard key={`trend-${item.product_id}`} item={item} index={i} wishlistIds={wishlistIds} onWishlist={handleToggleWishlist} onAddToCart={handleAddToCart} />
               ))}
             </div>
           </motion.section>
@@ -277,7 +284,7 @@ export default function ShopPage() {
 
       {/* --- MAIN CATALOG --- */}
       <section className="space-y-8">
-        <div className="flex items-center justify-between border-b border-zinc-100 pb-6 px-2">
+        <div className="flex items-center justify-between border-b border-zinc-100 pb-6 px-2 mt-12">
           <h2 className="text-3xl font-serif font-bold tracking-tight text-zinc-900">
             {searchTerm ? `Results for "${searchTerm}"` : activeCategory !== "All" ? `${activeCategory} Collection` : "All Products"}
           </h2>
@@ -300,7 +307,7 @@ export default function ShopPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-x-8 gap-y-14">
             {visibleItems.map((item, i) => (
               <ProductCard 
-                key={item.product_id || item.variant_id || i} 
+                key={`cat-${item.product_id || item.variant_id || i}`} 
                 item={item} 
                 index={i}
                 wishlistIds={wishlistIds}
@@ -311,20 +318,12 @@ export default function ShopPage() {
           </div>
         )}
       </section>
-
     </div>
   );
 }
 
-
-/* ========================================================= */
-/* PRODUCT CARD (CRASH-PROOF DATA EXTRACTION)                */
-/* ========================================================= */
-
 function ProductCard({ item, index, wishlistIds, onWishlist, onAddToCart }) {
   const [isAdding, setIsAdding] = useState(false);
-
-  // --- BULLETPROOF EXTRACTION LOGIC ---
   if (!item) return null;
 
   const variantId = item.variant_id || item.variants?.[0]?.variant_id || null;
@@ -334,7 +333,6 @@ function ProductCard({ item, index, wishlistIds, onWishlist, onAddToCart }) {
   const discountAmount = item.discount_percent || item.variants?.[0]?.discount_percent || 0;
   
   const displayImage = item.image_url || item.image || item.images?.[0] || item.variants?.[0]?.images?.[0] || item.variants?.[0]?.image_url || "https://placehold.co/600x800/F8F9FA/a1a1aa?text=No+Image";
-
   const isWishlisted = variantId ? wishlistIds.has(variantId) : false;
 
   const handleQuickAdd = async (e) => {
@@ -354,71 +352,35 @@ function ProductCard({ item, index, wishlistIds, onWishlist, onAddToCart }) {
     >
       <Link to={`/dash/product/${item.product_id || item.variant_id}`} className="block h-full flex flex-col">
         <Card className="border-none bg-transparent shadow-none h-full flex flex-col">
-          
-          {/* --- PREMIUM IMAGE CONTAINER --- */}
           <div className="relative aspect-[4/5] bg-[#F8F9FA] rounded-[2rem] overflow-hidden mb-6 flex items-center justify-center transition-all duration-700 group-hover:bg-[#F0F2F5] group-hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.1)]">
-            
             {hasDiscount && (
               <Badge className="absolute top-5 left-5 z-20 bg-gradient-to-r from-red-600 to-rose-500 text-white px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.2em] shadow-lg border-none">
                 {discountAmount}% OFF
               </Badge>
             )}
-
-            <img
-              src={displayImage}
-              alt={item.name || "Product"}
-              className="w-full h-full object-contain p-10 mix-blend-multiply group-hover:scale-105 transition-transform duration-[1.5s] ease-out"
-            />
-
-            {/* --- HOVER ACTIONS --- */}
-            <button 
-              onClick={(e) => onWishlist(e, variantId)}
-              className="absolute top-5 right-5 z-20 p-3.5 rounded-full bg-white/90 backdrop-blur-md shadow-[0_4px_20px_rgba(0,0,0,0.08)] border border-white text-zinc-400 hover:text-red-500 hover:scale-110 active:scale-95 transition-all duration-300"
-            >
-              <Heart 
-                size={20} 
-                className={`transition-colors ${isWishlisted ? "fill-red-500 text-red-500" : ""}`} 
-              />
+            <img src={displayImage} alt={item.name || "Product"} className="w-full h-full object-contain p-10 mix-blend-multiply group-hover:scale-105 transition-transform duration-[1.5s] ease-out" />
+            
+            <button onClick={(e) => onWishlist(e, variantId)} className="absolute top-5 right-5 z-20 p-3.5 rounded-full bg-white/90 backdrop-blur-md shadow-[0_4px_20px_rgba(0,0,0,0.08)] border border-white text-zinc-400 hover:text-red-500 hover:scale-110 active:scale-95 transition-all duration-300">
+              <Heart size={20} className={`transition-colors ${isWishlisted ? "fill-red-500 text-red-500" : ""}`} />
             </button>
 
             <div className="absolute bottom-5 left-5 right-5 translate-y-10 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-500 ease-out z-20">
-              <button 
-                onClick={handleQuickAdd}
-                disabled={isAdding || !variantId}
-                className="w-full py-4 bg-black/90 backdrop-blur-2xl text-white rounded-2xl font-semibold tracking-wide text-sm flex items-center justify-center gap-2 hover:bg-black shadow-[0_10px_30px_rgba(0,0,0,0.2)] active:scale-95 transition-all disabled:opacity-80"
-              >
+              <button onClick={handleQuickAdd} disabled={isAdding || !variantId} className="w-full py-4 bg-black/90 backdrop-blur-2xl text-white rounded-2xl font-semibold tracking-wide text-sm flex items-center justify-center gap-2 hover:bg-black shadow-[0_10px_30px_rgba(0,0,0,0.2)] active:scale-95 transition-all disabled:opacity-80">
                 {isAdding ? <Loader2 size={18} className="animate-spin" /> : <ShoppingBag size={18} />} 
                 {isAdding ? "Adding..." : "Quick Add"}
               </button>
             </div>
-            
           </div>
 
-          {/* --- CONTENT DETAILS --- */}
           <CardContent className="p-0 space-y-2.5 flex-1 px-1">
-            <div className="flex justify-between items-center">
-              <div className="text-[11px] uppercase tracking-[0.25em] text-zinc-400 font-bold">
-                {item.brand || item.category || "Daksha"}
-              </div>
-            </div>
-
-            <h3 className="font-medium text-xl text-zinc-900 leading-snug group-hover:text-zinc-600 transition-colors line-clamp-2 pr-4">
-              {item.name || "Untitled Product"}
-            </h3>
+            <div className="text-[11px] uppercase tracking-[0.25em] text-zinc-400 font-bold">{item.brand || item.category || "Daksha"}</div>
+            <h3 className="font-medium text-xl text-zinc-900 leading-snug group-hover:text-zinc-600 transition-colors line-clamp-2 pr-4">{item.name || "Untitled Product"}</h3>
           </CardContent>
 
-          {/* --- FOOTER / PRICING --- */}
           <CardFooter className="p-0 pt-4 flex items-baseline gap-2.5 mt-auto px-1">
-            <span className="font-serif text-2xl font-bold text-black tracking-tight">
-              ₹{price}
-            </span>
-            {hasDiscount && (
-              <span className="text-sm font-medium text-zinc-400 line-through">
-                ₹{originalPrice}
-              </span>
-            )}
+            <span className="font-serif text-2xl font-bold text-black tracking-tight">₹{price}</span>
+            {hasDiscount && <span className="text-sm font-medium text-zinc-400 line-through">₹{originalPrice}</span>}
           </CardFooter>
-          
         </Card>
       </Link>
     </motion.div>

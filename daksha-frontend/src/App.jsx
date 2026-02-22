@@ -37,6 +37,7 @@ import KioskRoutes from './kiosk/routes';
 import OrdersPage from './pages/OrdersPage';
 import CartPage from './pages/CartPage';
 import DiscountRules from './admin/pages/DiscountRules';
+import AgentRuns from './admin/pages/AgentRuns';
 
 // --- PROTECTED ROUTE WRAPPERS ---
 
@@ -124,6 +125,7 @@ export default function App() {
         <Route path="stores" element={<Stores />} />
         <Route path="orders" element={<Orders />} />
         <Route path="complaints" element={<Complaints />} />
+         <Route path="agent-runs" element={<AgentRuns />} />
         <Route path="offers" element={<Offers />} />
         <Route path="handoffs" element={<Handoffs />} />
         <Route path="returns" element={<Returns />} />
