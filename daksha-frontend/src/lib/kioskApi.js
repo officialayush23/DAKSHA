@@ -1,6 +1,6 @@
 import { supabase } from './supabaseClient'; 
 
-// --- Base API Client (Same as Admin) ---
+// --- Base API Client ---
 export const apiClient = async (endpoint, method = 'GET', data = null, params = {}) => {
   const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
   
@@ -18,10 +18,8 @@ export const apiClient = async (endpoint, method = 'GET', data = null, params = 
     },
   };
 
-  // Inject Supabase Token
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData?.session?.access_token;
-
   if (token) {
     options.headers.Authorization = `Bearer ${token}`;
   }
@@ -32,12 +30,10 @@ export const apiClient = async (endpoint, method = 'GET', data = null, params = 
 
   try {
     const response = await fetch(url.toString(), options);
-    
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.detail || `HTTP ${response.status}`);
     }
-
     return await response.json();
   } catch (error) {
     console.error(`API Error (${endpoint}):`, error);
@@ -47,76 +43,83 @@ export const apiClient = async (endpoint, method = 'GET', data = null, params = 
 
 // --- Kiosk Service ---
 export const KioskService = {
-  // ==========================================
-  // 🔐 SESSION & AUTH (QR CODE)
-  // ==========================================
-  
-  // 1. Generate QR for Login Screen
-  generateKioskQr: (kioskId) => 
-    apiClient(`/kiosk/session/qr/${kioskId}`, 'GET'),
 
-  // 2. Check if Session is Active (Polling)
-  // Used by Login Screen to see if user scanned the QR
-  checkSessionStatus: () => 
+  // ==========================================
+  // SESSION
+  // ==========================================
+
+  // Check if Session is Active
+  checkSessionStatus: () =>
     apiClient('/session/active', 'GET'),
 
-  // 3. Start New Anonymous Session
-  startSession: (channel = 'kiosk') => 
+  // Start New Session
+  startSession: (channel = 'kiosk') =>
     apiClient('/session/start', 'POST', null, { channel }),
 
+  // FIX: Phone login — replaces QR flow. POST /kiosk/login
+  login: (phone, kiosk_id) => {
+  console.log("Login payload:", { phone, kiosk_id });
+  return apiClient('/kiosk/login', 'POST', { phone, kiosk_id });
+},
+
+listStores: () =>
+  apiClient('/kiosk/stores', 'GET'),
+
+listKiosksForStore: (store_id) =>
+  apiClient(`/kiosk/stores/${store_id}/kiosks`, 'GET'),
   // ==========================================
-  // 🛍️ CATALOG & SHOPPING
+  // CATALOG & SHOPPING
   // ==========================================
-  
-  // 1. Browse Products (Endless Aisle)
-  listProducts: (limit = 50, category = null, search = null) => 
+
+  // Browse Products
+  listProducts: (limit = 50, category = null, search = null) =>
     apiClient('/products', 'GET', null, { limit, category, q: search }),
 
-  // 2. Product Detail
-  getProductDetail: (productId) => 
+  // Product Detail — variants are inside response.variants
+  getProductDetail: (productId) =>
     apiClient(`/products/${productId}`, 'GET'),
 
-  // 3. Check Global Inventory (For "Find Size" feature)
-  checkGlobalInventory: (productId) => 
-    apiClient(`/admin/inventory/global/${productId}`, 'GET'),
-
-  // 4. Recommendations
-  getSimilarProducts: (productId) => 
+  // Similar Products
+  getSimilarProducts: (productId) =>
     apiClient(`/products/${productId}/similar`, 'GET'),
 
   // ==========================================
-  // 🛒 CART & CHECKOUT
+  // CART & CHECKOUT
   // ==========================================
-  
-  // 1. Get Cart
-  getCart: () => 
-    apiClient('/user/cart', 'GET'),
 
-  // 2. Add Item to Cart
-  addToCart: (variantId, quantity = 1) => 
-    apiClient('/user/cart/items', 'POST', { product_variant_id: variantId, quantity }),
+  // FIX: /user/cart → /cart
+  getCart: () =>
+    apiClient('/cart', 'GET'),
 
-  // 3. Update Cart Item
-  updateCartItem: (variantId, quantity) => 
-    apiClient(`/user/cart/items/${variantId}`, 'PUT', { quantity }),
+  // FIX: /user/cart/items → /cart/items + session_id as query param
+  addToCart: (variantId, quantity = 1, session_id) =>
+    apiClient('/cart/items', 'POST', { product_variant_id: variantId, quantity }, { session_id }),
 
-  // 4. Remove Cart Item
-  removeCartItem: (variantId) => 
-    apiClient(`/user/cart/items/${variantId}`, 'DELETE'),
+  // FIX: /user/cart/items → /cart/items + session_id as query param
+  updateCartItem: (variantId, quantity, session_id) =>
+    apiClient(`/cart/items/${variantId}`, 'PUT', { quantity }, { session_id }),
 
-  // 5. Resume Mobile Checkout (Scan App QR at Kiosk)
-  resumeCheckout: (checkoutId) => 
-    apiClient(`/kiosk/checkout/${checkoutId}`, 'GET'),
+  // FIX: /user/cart/items → /cart/items + session_id as query param
+  removeCartItem: (variantId, session_id) =>
+    apiClient(`/cart/items/${variantId}`, 'DELETE', null, { session_id }),
 
-  // 6. Start Checkout Process
-  startCheckout: () => 
+  // FIX: was missing /resume suffix
+  resumeCheckout: (checkoutId) =>
+    apiClient(`/kiosk/checkout/${checkoutId}/resume`, 'GET'),
+
+  // Start Checkout
+  startCheckout: () =>
     apiClient('/checkout/start', 'POST'),
 
-  // ==========================================
-  // 💳 PAYMENT
-  // ==========================================
   
-  // 1. Process Payment (Terminal Integration)
-  processPayment: (checkoutId) => 
+
+  // ==========================================
+  // PAYMENT
+  // ==========================================
+
+  processPayment: (checkoutId) =>
     apiClient(`/payment/pay/${checkoutId}`, 'POST'),
 };
+
+
+

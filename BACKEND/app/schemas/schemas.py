@@ -88,6 +88,8 @@ class KioskLoginResponse(BaseSchema):
     store_id: UUID
     primary_channel: ChannelEnum
     active_channel: ChannelEnum
+    name: Optional[str] = None
+    phone: Optional[str] = None
 
 # --- INVENTORY ---
 class AssignStoreInventory(BaseSchema):

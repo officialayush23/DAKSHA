@@ -1,26 +1,34 @@
-// src/App.jsx
 import React, { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
 import { useAuth } from './context/AuthContext';
+import { useKiosk } from './kiosk/context/KioskSessionContext';
 
 // --- LAYOUTS ---
-import UserLayout from './layout/UserLayout'; // The new Dashboard Layout
+import UserLayout from './layout/UserLayout';
 import AdminLayout from './admin/AdminLayout';
+import KioskLayout from './kiosk/layout/KioskLayout';
 
 // --- PUBLIC PAGES ---
 import LandingPage from './pages/LandingPage';
 import AuthPage from './pages/AuthPage';
 import ErrorPage from './pages/ErrorPage';
 
-// --- DASHBOARD PAGES ---
+// --- SHARED USER + KIOSK PAGES ---
 import ShopPage from './pages/ShopPage';
 import ProductDetail from './pages/ProductDetail';
 import ProfilePage from './pages/ProfilePage';
 import ChatInterface from './pages/ChatInterface';
+import OrdersPage from './pages/OrdersPage';
+import CartPage from './pages/CartPage';
+import CheckoutPage from './pages/CheckoutPage';
+
+// --- KIOSK-ONLY PAGES ---
+import AttractScreen from './kiosk/pages/AttractScreen';
+import LoginScreen from './kiosk/pages/LoginScreen';
+import KioskSelectScreen from './kiosk/pages/KioskSelectScreen';
 
 // --- ADMIN PAGES ---
-import AdminAuthPage from './pages/AuthPage';
 import Dashboard from './admin/pages/Dashboard';
 import Products from './admin/pages/Products';
 import Stores from './admin/pages/Stores';
@@ -30,16 +38,14 @@ import Offers from './admin/pages/Offers';
 import Handoffs from './admin/pages/Handoffs';
 import Returns from './admin/pages/Returns';
 import Kiosks from './admin/pages/Kiosk';
-
-// --- KIOSK MODULE ---
-import KioskRoutes from './kiosk/routes';
-import OrdersPage from './pages/OrdersPage';
-import CartPage from './pages/CartPage';
 import DiscountRules from './admin/pages/DiscountRules';
 
-// --- PROTECTED ROUTE WRAPPERS ---
 
-// 1. Admin Guard (Checks Supabase Session)
+// ============================================================
+// ROUTE GUARDS
+// ============================================================
+
+// 1. Admin Guard (Supabase session)
 const AdminProtectedRoute = ({ children }) => {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -61,7 +67,7 @@ const AdminProtectedRoute = ({ children }) => {
   return children;
 };
 
-// 2. User Dashboard Guard (Uses AuthContext)
+// 2. User Dashboard Guard (AuthContext)
 const UserProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return <div className="h-screen flex items-center justify-center bg-[#FDFDFD]">Loading Daksha...</div>;
@@ -69,9 +75,22 @@ const UserProtectedRoute = ({ children }) => {
   return children;
 };
 
+// 3. Kiosk Guard — checks sessionActive from KioskSessionContext
+const KioskProtectedRoute = ({ children }) => {
+  const { sessionActive } = useKiosk();
+  if (!sessionActive) return <Navigate to="/kiosk/login" replace />;
+  return children;
+};
+
+
+// ============================================================
+// APP
+// ============================================================
+
 export default function App() {
   return (
     <Routes>
+
       {/* ============================== */}
       {/* 1. PUBLIC ROUTES               */}
       {/* ============================== */}
@@ -79,43 +98,80 @@ export default function App() {
       <Route path="/login" element={<AuthPage />} />
       <Route path="/register" element={<AuthPage isRegister />} />
 
+
       {/* ============================== */}
       {/* 2. USER DASHBOARD (Protected)  */}
       {/* ============================== */}
-      <Route path="/dash" element={<UserProtectedRoute><UserLayout /></UserProtectedRoute>}>
+      <Route
+        path="/dash"
+        element={
+          <UserProtectedRoute>
+            <UserLayout />
+          </UserProtectedRoute>
+        }
+      >
         <Route index element={<Navigate to="shop" replace />} />
-        
         <Route path="shop" element={<ShopPage />} />
         <Route path="product/:id" element={<ProductDetail />} />
         <Route path="profile" element={<ProfilePage />} />
-        
-        {/* Agent/Chat Page */}
+        <Route path="orders" element={<OrdersPage />} />
+        <Route path="cart" element={<CartPage />} />
+        <Route path="checkout" element={<CheckoutPage />} />
         <Route path="agent" element={
           <div className="h-full flex items-center justify-center">
-             <div className="w-full max-w-4xl h-full">
-               <ChatInterface />
-             </div>
+            <div className="w-full max-w-4xl h-full">
+              <ChatInterface />
+            </div>
           </div>
         } />
-        
-        {/* Placeholders for now */}
-        <Route path="orders" element={<OrdersPage/>} />
-        <Route path="cart" element={<CartPage/>} />
-        
         <Route path="*" element={<ErrorPage />} />
       </Route>
+
 
       {/* ============================== */}
       {/* 3. KIOSK MODULE                */}
       {/* ============================== */}
-      <Route path="/kiosk/*" element={<KioskRoutes />} />
+      <Route path="/kiosk">
+
+        {/* Public kiosk screens — no session required */}
+        <Route index element={<AttractScreen />} />
+        <Route path="select" element={<KioskSelectScreen />} />
+        <Route path="login" element={<LoginScreen />} />
+
+        {/* Protected kiosk screens — reuses user pages inside KioskLayout */}
+        <Route
+          element={
+            <KioskProtectedRoute>
+              <KioskLayout />
+            </KioskProtectedRoute>
+          }
+        >
+          <Route path="shop" element={<ShopPage />} />
+          <Route path="product/:id" element={<ProductDetail />} />
+          <Route path="cart" element={<CartPage />} />
+          <Route path="checkout" element={<CheckoutPage />} />
+          <Route path="orders" element={<OrdersPage />} />
+          <Route path="profile" element={<ProfilePage />} />
+          <Route path="chat" element={<ChatInterface />} />
+          <Route path="*" element={<ErrorPage />} />
+        </Route>
+
+        <Route path="*" element={<Navigate to="/kiosk" replace />} />
+      </Route>
+
 
       {/* ============================== */}
       {/* 4. ADMIN PANEL                 */}
       {/* ============================== */}
-      <Route path="/admin/login" element={<AdminAuthPage />} />
-      
-      <Route path="/admin" element={<AdminProtectedRoute><AdminLayout /></AdminProtectedRoute>}>
+      <Route path="/admin/login" element={<AuthPage />} />
+      <Route
+        path="/admin"
+        element={
+          <AdminProtectedRoute>
+            <AdminLayout />
+          </AdminProtectedRoute>
+        }
+      >
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="products" element={<Products />} />
@@ -131,9 +187,9 @@ export default function App() {
       </Route>
 
 
-
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />
+
     </Routes>
   );
 }

@@ -67,10 +67,12 @@ def login_via_kiosk(
     )
 
     return {
-        "user_id": user.id,
-        "session_id": session.id,
-        "kiosk_id": kiosk.id,
-        "store_id": kiosk.store_id,
-        "primary_channel": session.primary_channel,
-        "active_channel": session.active_channel,
-    }
+    "user_id": user.id,
+    "session_id": session.id,
+    "kiosk_id": kiosk.id,
+    "store_id": kiosk.store_id,
+    "primary_channel": session.primary_channel,
+    "active_channel": session.active_channel,
+    "name": user.name,
+    "phone": user.phone,
+}

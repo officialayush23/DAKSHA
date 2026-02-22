@@ -34,7 +34,6 @@ export const EVENT_TYPE = {
 
 // Kiosk specific configuration
 export const KIOSK_CONFIG = {
-  IDLE_TIMEOUT_MS: 60000, // 60 seconds
-  POLLING_INTERVAL_MS: 2000, // Check QR status every 2s
-  KIOSK_ID: 'KIOSK_01' // Hardcoded for this machine
+  IDLE_TIMEOUT_MS: 60000,
+  POLLING_INTERVAL_MS: 2000,
 };

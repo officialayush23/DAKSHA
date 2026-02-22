@@ -19,6 +19,22 @@ router = APIRouter(prefix="/kiosk", tags=["Kiosk"])
 #         db.query(Store)
 #         .filter(Store.active.is_(True))
 #         .all()
+
+# 1. LIST ALL ACTIVE STORES
+@router.get("/stores")
+def list_stores_for_kiosk(db: Session = Depends(get_db)):
+    stores = db.query(Store).filter(Store.active.is_(True)).all()
+    return [
+        {
+            "id": str(s.id),
+            "name": s.name,
+            "city": s.city,
+            "state": s.state,
+            "address": s.address,
+        }
+        for s in stores
+    ]
+
 #     )
 
 
