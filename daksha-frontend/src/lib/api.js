@@ -35,6 +35,9 @@ export const ProductService = {
   listProducts: (filters) => api.get('/products', { params: filters }),
   
   getDetail: (id) => api.get(`/products/${id}`),
+
+  // FIX: was missing
+  getSimilar: (id) => api.get(`/products/${id}/similar`),
   
   // Search (Logs intent & updates preferences)
   search: (query) => api.post('/user/search', { query, channel: 'web' }),
@@ -50,11 +53,20 @@ export const RecommendationService = {
 };
 
 export const CartService = {
-  get: () => api.get('/user/cart'),
+  // FIX: /user/cart → /cart
+  get: () => api.get('/cart'),
+
+  // FIX: /user/cart/items → /cart/items, session_id added
   add: (variant_id, quantity = 1, session_id) => 
-    api.post('/user/cart/items', { product_variant_id: variant_id, quantity }, { params: { session_id } }),
-  update: (variant_id, quantity) => api.put(`/user/cart/items/${variant_id}`, { quantity }),
-  remove: (variant_id) => api.delete(`/user/cart/items/${variant_id}`),
+    api.post('/cart/items', { product_variant_id: variant_id, quantity }, { params: { session_id } }),
+
+  // FIX: /user/cart/items → /cart/items, session_id added
+  update: (variant_id, quantity, session_id) =>
+    api.put(`/cart/items/${variant_id}`, { quantity }, { params: { session_id } }),
+
+  // FIX: /user/cart/items → /cart/items, session_id added
+  remove: (variant_id, session_id) =>
+    api.delete(`/cart/items/${variant_id}`, { params: { session_id } }),
 };
 
 export const CheckoutService = {
@@ -63,7 +75,9 @@ export const CheckoutService = {
   pay: (id, key) => api.post(`/payment/pay/${id}`, {}, { headers: { 'idempotency-key': key } }),
   getPickupOptions: (lat, lng, radius_km = 15) => 
     api.get('/checkout/pickup/stores', { params: { lat, lng, radius_km } }),
-  resumeKiosk: (checkout_id) => api.get(`/kiosk/checkout/${checkout_id}`),
+
+  // FIX: /resume suffix was missing
+  resumeKiosk: (checkout_id) => api.get(`/kiosk/checkout/${checkout_id}/resume`),
 };
 
 export const UserService = {
@@ -76,12 +90,9 @@ export const UserService = {
   addAddress: (data) => api.post('/user/addresses', data),
   updateAddress: (id, data) => api.put(`/user/addresses/${id}`, data),
   
-  // 🔥 Specific Location Patch API
-  updateAddressLocation: (addressId, lat, lng) => 
-    api.post("/user/ping", {
-    lng: lng,
-    lat: lat
-  }),
+  // FIX: was calling /user/ping instead of correct address location endpoint
+  updateAddressLocation: (addressId, lat, lng) =>
+    api.patch(`/user/addresses/${addressId}/location`, { lat, lng }),
   
   // Cards
   getCards: () => api.get('/user/cards'),
@@ -96,20 +107,57 @@ export const UserService = {
       data: metadata 
     }),
   
+  // FIX: getWishlist was missing
+  getWishlist: () => api.get('/user/wishlist'),
   addToWishlist: (variantId) => api.post('/user/wishlist', { product_variant_id: variantId }),
   removeFromWishlist: (variantId) => api.delete(`/user/wishlist/${variantId}`),
+
+  // FIX: these were missing
+  getOffers: () => api.get('/user/offers'),
+  getNotifications: (limit = 50) => api.get('/user/notifications', { params: { limit } }),
 };
 
 export const OrderService = {
   getAll: () => api.get('/user/orders'),
   getDetail: (id) => api.get(`/user/orders/${id}`),
+
+  // FIX: was missing
+  getFeedbackStatus: (id) => api.get(`/user/orders/${id}/feedback-status`),
+};
+
+export const SupportService = {
+  // Returns
   requestReturn: (payload) => api.post('/support/returns', payload),
-  requestExchange: (payload) => api.post('/support/exchanges', payload),
+  // FIX: these were missing
+  getMyReturns: (skip = 0, limit = 20) =>
+    api.get('/support/returns/my-returns', { params: { skip, limit } }),
+  getReturn: (returnId) => api.get(`/support/returns/${returnId}`),
+  cancelReturn: (returnId, reason = null) =>
+    api.patch(`/support/returns/${returnId}/cancel`, { reason }),
+
+  // Complaints
   fileComplaint: (payload) => api.post('/support/complaints', payload),
+  // FIX: these were missing
+  getMyComplaints: (status = null, skip = 0, limit = 20) =>
+    api.get('/support/complaints/my-complaints', { params: { status, skip, limit } }),
+  getComplaint: (complaintId) => api.get(`/support/complaints/${complaintId}`),
+
+  // Cancellations — FIX: these were missing
+  requestCancellation: (orderId, reason = null) =>
+    api.post(`/support/orders/${orderId}/cancel`, { reason }),
+  getMyCancellations: (status = null, skip = 0, limit = 20) =>
+    api.get('/support/cancellations/my-requests', { params: { status, skip, limit } }),
+
+  // Exchanges
+  requestExchange: (payload) => api.post('/support/exchanges', payload),
+  // FIX: was missing
+  getMyExchanges: (skip = 0, limit = 20) =>
+    api.get('/support/exchanges/my-exchanges', { params: { skip, limit } }),
 };
 
 export const LoyaltyService = {
-  getPoints: () => api.get('/loyalty/points'),
+  // FIX: /loyalty/points → /loyalty/summary
+  getSummary: () => api.get('/loyalty/summary'),
 };
 
 export const AgentService = {
