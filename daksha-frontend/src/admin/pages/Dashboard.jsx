@@ -84,6 +84,7 @@ export default function Dashboard() {
   // --- TRAIN MODEL HANDLER ---
   const handleTrainModel = async () => {
     setTraining(true);
+    
     try {
       // Use AdminService here since we added it above
       await AdminService.trainModel(); 

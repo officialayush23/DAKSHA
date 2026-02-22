@@ -1,3 +1,4 @@
+// src/lib/AuthContext.jsx
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { UserService } from "../lib/api";
@@ -10,34 +11,21 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-  const initSession = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    console.log("SUPABASE JWT:", session?.access_token);
-    setSession(session);
-    setUser(session?.user ?? null);
-    setLoading(false);
-  };
-  initSession();
-}, []);
-
-  useEffect(() => {
-    // 1. Check active session on load
     const initSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-      setUser(session?.user ?? null);
       
-      if(session?.user) {
-        // Optional: Fetch DB Profile if needed
-        // UserService.getProfile().catch(console.error); 
+      // Only log if it exists to prevent "undefined" spam in console
+      if (session?.access_token) {
+        console.log("access_token:", session.access_token);
       }
       
+      setSession(session);
+      setUser(session?.user ?? null);
       setLoading(false);
     };
 
     initSession();
 
-    // 2. Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setSession(session);
