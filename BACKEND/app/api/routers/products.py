@@ -99,7 +99,7 @@ def product_detail(
         .all()
     )
     session = get_active_session(
-        db, user.id, ChannelEnum.web
+        db, user_id = user.id, channel =ChannelEnum.web
     )
     
     emit_event(
