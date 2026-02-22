@@ -59,7 +59,6 @@ app.include_router(orders.router)
 app.include_router(recommendation.router)
 app.include_router(session.router)
 app.include_router(support.router)
-app.include_router(support.router)
 app.include_router(loyalty.router)
 app.include_router(products.router)
 

@@ -52,6 +52,7 @@ from app.enums.db_enums import EventTypeEnum, EntityTypeEnum, ChannelEnum
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
 from app.schemas.schemas import SearchQuery
+from app.services.session_service import start_session
 router = APIRouter(prefix="/user", tags=["User"])
 
 # ======================================================
@@ -62,28 +63,40 @@ def search_products(
     payload: SearchQuery,
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
+    
+    
 ):
-    # 1. Log the generic event
+    
+    session = get_active_session(db, user_id=user.id) or start_session(
+    db,
+    user_id=user.id,
+    channel=payload.channel,
+)
+    
+    
+    # 1️⃣ emit search event
     emit_event(
-        db=db,
-        event_type=EventTypeEnum.search,
-        channel=payload.channel,
-        user_id=user.id,
-        entity_type=EntityTypeEnum.product,
-        metadata={"query": payload.query},
-    )
+    db=db,
+    event_type=EventTypeEnum.search,
+    user_id=user.id,
+    session_id=session.id if session else None,
+    channel=session.active_channel if session else payload.channel,
+    metadata={"query": payload.query},
+)
 
-    # 2. Extract and Store the Explicit Intent
+    db.commit()
+
+    # 2️⃣ store explicit intent
     new_intent = UserIntent(
         user_id=user.id,
         intent_text=payload.query,
-        intent_category="search", # Can be classified further by an LLM later
-        confidence=1.0 # 100% confidence because it's a direct user query
+        intent_category="search",
+        confidence=1.0,
     )
     db.add(new_intent)
     db.commit()
 
-    # 3. Recompute implicit preferences in background
+    # 3️⃣ update semantic profile
     update_user_preference_summary(db, user.id)
 
     return {"status": "search_logged", "intent_id": new_intent.id}

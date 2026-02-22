@@ -409,7 +409,7 @@ class ProductDiscountRuleCreate(BaseModel):
     valid_to: Optional[datetime] = None
 
     class Config:
-        orm_mode = True
+        model_config = ConfigDict(from_attributes=True)
 class AgentInventoryView(BaseSchema):
     product_name: str
     variant_sku: str

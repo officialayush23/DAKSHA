@@ -753,7 +753,73 @@ def create_coupon(db: Session, payload, admin_id, reason: str):
     admin_audit_log(db, admin_id=admin_id, action="create_coupon", entity_type="coupon", entity_id=coupon.id, reason=reason)
     db.commit()
     return coupon
+from app.models.models import StoreInventory
 
+def get_store_inventory_variant_item(db, store_id, variant_id):
+    return (
+        db.query(StoreInventory)
+        .filter(
+            StoreInventory.store_id == store_id,
+            StoreInventory.product_variant_id == variant_id,
+        )
+        .first()
+    )
+    
+    
+from app.models.models import GlobalInventory, StoreInventory, ProductVariant
+
+
+def get_inventory_overview_service(db, variant_id, store_id=None):
+    variant = db.get(ProductVariant, variant_id)
+    if not variant:
+        return None
+
+    # --- GLOBAL ---
+    global_inv = db.get(GlobalInventory, variant_id)
+
+    global_data = {
+        "total_stock": global_inv.total_stock if global_inv else 0,
+        "reserved_stock": global_inv.reserved_stock if global_inv else 0,
+        "assigned_stock": global_inv.assigned_stock if global_inv else 0,
+    }
+
+    global_available = (
+        global_data["total_stock"]
+        - global_data["reserved_stock"]
+        - global_data["assigned_stock"]
+    )
+
+    # --- STORE ---
+    store_data = None
+
+    if store_id:
+        store_inv = (
+            db.query(StoreInventory)
+            .filter(
+                StoreInventory.store_id == store_id,
+                StoreInventory.product_variant_id == variant_id,
+            )
+            .first()
+        )
+
+        store_data = {
+            "in_stock": store_inv.in_stock if store_inv else 0,
+            "reserved_for_pickup": store_inv.reserved_for_pickup if store_inv else 0,
+        }
+
+        store_data["available"] = (
+            store_data["in_stock"] - store_data["reserved_for_pickup"]
+        )
+
+    return {
+        "variant_id": variant_id,
+        "global": {
+            **global_data,
+            "available": global_available,
+        },
+        "store": store_data,
+    }
+    
 def create_product_discount_rule(db: Session, payload, admin_id: uuid.UUID, reason: str):
     rule = ProductDiscountRule(**payload.dict())
     db.add(rule)

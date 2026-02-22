@@ -640,3 +640,39 @@ def delete_discount_rule_api(
     admin_audit_log(db, admin_id=admin.id, action="delete_discount_rule", entity_type="discount_rule", entity_id=rule_id, reason=reason)
     db.commit()
     return {"status": "deleted"}
+
+
+@router.get("/inventory/store/{store_id}/variant/{variant_id}")
+def get_store_inventory_variant(
+    store_id: UUID,
+    variant_id: UUID,
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin),
+):
+    item = get_store_inventory_variant_item(db, store_id, variant_id)
+
+    if not item:
+        raise HTTPException(status_code=404, detail="Inventory not found")
+
+    return item
+
+
+@router.get("/inventory/{variant_id}")
+def get_inventory_overview(
+    variant_id: UUID,
+    store_id: UUID | None = None,
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin),
+):
+    """
+    Returns global + store inventory snapshot.
+
+    If store_id provided → include store inventory.
+    """
+
+    data = get_inventory_overview_service(db, variant_id, store_id)
+
+    if not data:
+        raise HTTPException(status_code=404, detail="Variant not found")
+
+    return data
