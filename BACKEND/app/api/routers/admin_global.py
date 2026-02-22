@@ -401,7 +401,7 @@ def product_price_snapshots_api(
     return list_product_price_snapshots(db)
 
 
-@router.get("/complaints/all", response_model=dict)
+@router.get("/complaints", response_model=dict)
 def get_all_complaints_api(
     status: Optional[ComplaintStatusEnum] = None,
     category: Optional[str] = None,
@@ -474,7 +474,7 @@ def get_complaint_stats_api(
 
 
 
-@router.get("/exchanges/all", response_model=dict)
+@router.get("/exchanges", response_model=dict)
 def get_all_exchanges_api(
     status: Optional[ExchangeStatusEnum] = None,
     skip: int = Query(0, ge=0),
@@ -515,7 +515,7 @@ def update_exchange_api(
     
     
 
-@router.get("/returns/all", response_model=dict)
+@router.get("/returns", response_model=dict)
 def get_all_returns_api(
     status: Optional[ReturnStatusEnum] = None,
     skip: int = Query(0, ge=0),
@@ -553,3 +553,76 @@ def update_return_status_api(
         return {"success": True, "data": result}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/coupons/{coupon_id}")
+def delete_coupon_api(
+    coupon_id: UUID,
+    reason: str = Query(...),
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin),
+):
+    coupon = db.get(Coupon, coupon_id)
+    if not coupon:
+        raise HTTPException(status_code=404, detail="Coupon not found")
+        
+    db.delete(coupon)
+    admin_audit_log(db, admin_id=admin.id, action="delete_coupon", entity_type="coupon", entity_id=coupon_id, reason=reason)
+    db.commit()
+    return {"status": "deleted"}
+
+@router.put("/coupons/{coupon_id}")
+def update_coupon_api(
+    coupon_id: UUID,
+    payload: CouponCreate, # Reusing the create schema for simplicity
+    reason: str = Query(...),
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin),
+):
+    coupon = db.get(Coupon, coupon_id)
+    if not coupon:
+        raise HTTPException(status_code=404, detail="Coupon not found")
+        
+    for k, v in payload.dict(exclude_unset=True).items():
+        setattr(coupon, k, v)
+        
+    admin_audit_log(db, admin_id=admin.id, action="update_coupon", entity_type="coupon", entity_id=coupon_id, reason=reason)
+    db.commit()
+    db.refresh(coupon)
+    return coupon
+
+@router.put("/discount-rules/{rule_id}")
+def update_discount_rule_api(
+    rule_id: UUID,
+    payload: ProductDiscountRuleCreate,
+    reason: str = Query(...),
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin),
+):
+    rule = db.get(ProductDiscountRule, rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Discount Rule not found")
+        
+    for k, v in payload.dict(exclude_unset=True).items():
+        setattr(rule, k, v)
+        
+    admin_audit_log(db, admin_id=admin.id, action="update_discount_rule", entity_type="discount_rule", entity_id=rule_id, reason=reason)
+    db.commit()
+    db.refresh(rule)
+    return rule
+
+@router.delete("/discount-rules/{rule_id}")
+def delete_discount_rule_api(
+    rule_id: UUID,
+    reason: str = Query(...),
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin),
+):
+    rule = db.get(ProductDiscountRule, rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Discount Rule not found")
+        
+    db.delete(rule)
+    admin_audit_log(db, admin_id=admin.id, action="delete_discount_rule", entity_type="discount_rule", entity_id=rule_id, reason=reason)
+    db.commit()
+    return {"status": "deleted"}

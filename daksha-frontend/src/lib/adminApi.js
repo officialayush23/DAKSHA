@@ -165,17 +165,18 @@ export const AdminService = {
   // 🏷️ OFFERS
   // ==========================================
   listOffers: () =>
-    apiClient('/admin/global/offers', 'GET'),
+    apiClient('/admin/global/coupons', 'GET'),
 
   createOffer: (data) =>
-    apiClient('/admin/global/offers', 'POST', data),
+    apiClient('/admin/global/coupons?reason=admin_create_coupon', 'POST', data),
 
+  // Note: Your backend doesn't currently have PUT/DELETE for coupons in admin_global.py,
+  // but if you add them later, they should look like this:
   updateOffer: (id, data) =>
-    apiClient(`/admin/global/offers/${id}`, 'PUT', data),
+    apiClient(`/admin/global/coupons/${id}?reason=admin_update_coupon_${id}`, 'PUT', data),
 
   deleteOffer: (id) =>
-    apiClient(`/admin/global/offers/${id}`, 'DELETE'),
-
+    apiClient(`/admin/global/coupons/${id}?reason=admin_delete_coupon_${id}`, 'DELETE'),
   // ==========================================
   // 🤝 SUPPORT & COMPLAINTS
   // ==========================================
@@ -199,6 +200,21 @@ export const AdminService = {
     apiClient(`/admin/global/returns/${id}`, 'PATCH', null, { status }),
 
   // ==========================================
+  // 📉 DISCOUNT RULES (Automatic Sales)
+  // ==========================================
+  listDiscountRules: () =>
+    apiClient('/admin/global/discount-rules', 'GET'),
+
+  createDiscountRule: (data) =>
+    apiClient('/admin/global/discount-rules?reason=admin_create_rule', 'POST', data),
+
+  updateDiscountRule: (id, data) =>
+    apiClient(`/admin/global/discount-rules/${id}?reason=admin_update_rule`, 'PUT', data),
+
+  deleteDiscountRule: (id) =>
+    apiClient(`/admin/global/discount-rules/${id}?reason=admin_delete_rule`, 'DELETE'),
+
+  // ==========================================
   // 📊 DASHBOARD STATS
   // ==========================================
   getDashboardStats: async () => {
@@ -206,7 +222,7 @@ export const AdminService = {
       apiClient('/admin/global/inventory/kpis', 'GET'),
       apiClient('/admin/global/stores', 'GET'),
       apiClient('/admin/global/complaints', 'GET'),
-      apiClient('/admin/global/offers', 'GET'),
+      apiClient('/admin/global/coupons', 'GET'),
     ]);
 
   

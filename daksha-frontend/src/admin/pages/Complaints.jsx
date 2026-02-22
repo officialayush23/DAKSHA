@@ -114,7 +114,8 @@ export default function Complaints() {
   const fetchComplaints = async () => {
     try {
       setLoading(true);
-      const res = await AdminService.getComplaints(); // Updated to match your API
+      // ✅ Changed getComplaints() to listComplaints()
+      const res = await AdminService.listComplaints(); 
       setComplaints(Array.isArray(res) ? res : res.data || []);
     } catch (error) {
       console.error("Failed to load complaints:", error);
