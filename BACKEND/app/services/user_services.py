@@ -5,7 +5,7 @@ from sqlalchemy import func
 from geoalchemy2 import WKTElement
 from datetime import datetime, timedelta
 from app.models.models import UserLocation , LoyaltyLedger
-from app.models.models import UserAddress, UserWishlist, UserCard, User , UserPreferences
+from app.models.models import UserAddress, UserWishlist, UserCard, User , UserPreferences , UserPersonalizedOffer, OutboundMessage
 from app.services.event_service import emit_event
 from app.enums.db_enums import EventTypeEnum, EntityTypeEnum
 
@@ -223,3 +223,62 @@ def upsert_user_location(
 
     db.commit()
     return loc
+
+# ========== OFFERS & REWARDS ==========
+
+def get_user_offers(db: Session, user_id: uuid.UUID) -> list[dict]:
+    """
+    Fetches all active, unredeemed, and unexpired personalized offers.
+    Ordered by the ones expiring soonest.
+    """
+    offers = (
+        db.query(UserPersonalizedOffer)
+        .filter(
+            UserPersonalizedOffer.user_id == user_id,
+            UserPersonalizedOffer.is_redeemed == False,
+            UserPersonalizedOffer.expires_at > func.now()  # Only unexpired
+        )
+        .order_by(UserPersonalizedOffer.expires_at.asc())  # Expiring soonest first
+        .all()
+    )
+    
+    return [
+        {
+            "offer_id": str(o.id),
+            "offer_name": o.offer_name,
+            "discount_type": o.discount_type,
+            "discount_value": float(o.discount_value),
+            "condition_text": o.condition_text,
+            "expires_at": o.expires_at,
+            "created_at": o.created_at
+        }
+        for o in offers
+    ]
+
+
+# ========== NOTIFICATIONS ==========
+
+def get_user_notifications(db: Session, user_id: uuid.UUID, limit: int = 50) -> list[dict]:
+    """
+    Fetches recent outbound messages/alerts sent to the user.
+    Ordered by newest first.
+    """
+    messages = (
+        db.query(OutboundMessage)
+        .filter(OutboundMessage.user_id == user_id)
+        .order_by(OutboundMessage.sent_at.desc())
+        .limit(limit)
+        .all()
+    )
+    
+    return [
+        {
+            "message_id": str(m.id),
+            "channel": m.channel,
+            "message_type": m.message_type,
+            "content": m.content,
+            "status": m.status,
+            "sent_at": m.sent_at
+        }
+        for m in messages
+    ]

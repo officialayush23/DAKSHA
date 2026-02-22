@@ -34,6 +34,8 @@ from app.services.user_services import (
     add_card,
     get_cards,
     delete_card,
+    get_user_offers, 
+    get_user_notifications
 )
 
 from app.services.wishlist_service import (
@@ -395,3 +397,43 @@ def update_location(
     )
 
     return {"status": "updated"}
+
+# ======================================================
+# REWARDS & OFFERS
+# ======================================================
+
+@router.get("/offers")
+def my_offers(
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Fetches active, unexpired, and unredeemed personalized offers for the user.
+    """
+    offers = get_user_offers(db, user.id)
+    
+    return {
+        "total_offers": len(offers),
+        "offers": offers
+    }
+
+
+# ======================================================
+# NOTIFICATIONS & MESSAGES
+# ======================================================
+
+@router.get("/notifications")
+def my_notifications(
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Fetches recent outbound messages/alerts sent to the user.
+    """
+    notifications = get_user_notifications(db, user.id, limit=limit)
+    
+    return {
+        "total_notifications": len(notifications),
+        "notifications": notifications
+    }
