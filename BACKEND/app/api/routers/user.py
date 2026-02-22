@@ -264,8 +264,6 @@ def update_profile(
     db.commit()
     db.refresh(user)
 
-
-
     return user
 
 
