@@ -15,29 +15,31 @@ export const KioskProvider = ({ children }) => {
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionId, setSessionId] = useState(null);
 
-  // FIX: read kioskId from localStorage on init so it survives navigation
   const [kioskId, _setKioskId] = useState(() => localStorage.getItem('kiosk_id') || null);
-
   const [user, _setUser] = useState(null);
   const [cartCount, setCartCount] = useState(0);
   const [lastActivity, setLastActivity] = useState(Date.now());
 
-  // FIX: wrap setKioskId to also persist to localStorage
   const setKioskId = useCallback((id) => {
     localStorage.setItem('kiosk_id', id);
     _setKioskId(id);
   }, []);
+
+  // ✅ FIX: Check if we're actually on a kiosk route
+  const isKioskRoute = location.pathname.startsWith('/kiosk');
 
   const endSession = useCallback((reason = "") => {
     setSessionActive(false);
     setSessionId(null);
     _setUser(null);
     setCartCount(0);
-    // FIX: clear kioskId from localStorage on session end
     localStorage.removeItem('kiosk_id');
     _setKioskId(null);
     if (reason) toast.info(reason);
-    navigate('/kiosk');
+    // ✅ FIX: Only navigate to /kiosk if we're actually on a kiosk route
+    if (window.location.pathname.startsWith('/kiosk')) {
+      navigate('/kiosk');
+    }
   }, [navigate]);
 
   const startSession = useCallback(async () => {
@@ -55,7 +57,6 @@ export const KioskProvider = ({ children }) => {
     }
   }, [navigate]);
 
-  // FIX: setUser also flips sessionActive to true
   const setUser = useCallback((userData) => {
     _setUser(userData);
     setSessionActive(true);
@@ -85,7 +86,10 @@ export const KioskProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
+    // ✅ FIX: Only run idle timer when on a /kiosk route, and skip the attract screen
+    if (!isKioskRoute) return;
     if (location.pathname === '/kiosk' || location.pathname === '/kiosk/') return;
+
     const timeoutMs = KIOSK_CONFIG?.IDLE_TIMEOUT_MS || 60000;
     const checkInactivity = () => {
       if (Date.now() - lastActivity > timeoutMs) {
@@ -96,7 +100,7 @@ export const KioskProvider = ({ children }) => {
     return () => {
       if (idleTimerRef.current) clearInterval(idleTimerRef.current);
     };
-  }, [lastActivity, location.pathname, endSession]);
+  }, [lastActivity, location.pathname, isKioskRoute, endSession]);
 
   const value = useMemo(() => ({
     kioskId,
