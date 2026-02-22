@@ -91,13 +91,14 @@ export default function Offers() {
     fetchOffers();
   }, []);
 
-  const prepareFormData = (data) => {
+const prepareFormData = (data) => {
     return {
       code: data.code.trim().toUpperCase(),
       description: data.description?.trim() || null,
       coupon_type: data.coupon_type,
       value: parseFloat(data.value) || 0,
-      scope: data.scope,
+      // Change how scope is handled to ensure exact string matching
+      scope: data.scope === 'global' ? 'global_' : data.scope, // ✅ Maps to Python Enum Key
       scope_value: data.scope_value?.trim() || null,
       min_order_value: parseFloat(data.min_order_value) || null,
       max_discount: parseFloat(data.max_discount) || null,

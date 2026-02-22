@@ -127,8 +127,16 @@ export const AdminService = {
   // ==========================================
   // 🚚 ORDERS & PICKUPS
   // ==========================================
+  // ✅ Added listPickups here
+  listPickups: () =>
+    apiClient('/admin/global/pickups', 'GET'),
+
   updatePickup: (id, data) =>
-    apiClient(`/admin/global/pickups/${id}`, 'PUT', data),
+    apiClient(`/admin/global/pickups/${id}?reason=admin_update`, 'PATCH', data),
+
+  getOrder: (id) =>
+    apiClient(`/admin/global/orders/${id}`, 'GET'),
+ 
 
   updateDelivery: (id, data) =>
     apiClient(`/admin/global/orders/${id}/status`, 'PUT', data),
@@ -140,13 +148,13 @@ export const AdminService = {
   // 🚚 DELIVERY ORDERS (NEW)
   // ==========================================
   getDeliveryOrders: (status = null) =>
-    apiClient('/admin/global/delivery/orders', 'GET', null, { status }),
+    apiClient('/admin/global/orders', 'GET', null, { status }),
 
   getDeliveryOrderDetail: (orderId) =>
-    apiClient(`/admin/global/delivery/orders/${orderId}`, 'GET'),
+    apiClient(`/admin/global/orders/${orderId}`, 'GET'),
 
   updateDeliveryOrderStatus: (orderId, data) =>
-    apiClient(`/admin/global/delivery/orders/${orderId}/status`, 'POST', data),
+    apiClient(`/admin/global/orders/${orderId}/status?reason=admin_update_order_status`, 'POST', data),
 
   // ==========================================
   // 💬 CHAT HANDOFFS (NEW)

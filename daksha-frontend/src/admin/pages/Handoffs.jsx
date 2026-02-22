@@ -78,37 +78,34 @@ export default function Handoffs() {
   }, [activeTab]);
 
   // 1. Fetch Logistics (Physical Handoffs)
+  // 1. Fetch Logistics (Physical Handoffs)
   const fetchLogistics = async () => {
     try {
-      // Strategy: Aggregate Pickups from Stores
-      // (This ensures we get actual logistics data, not chat logs)
-      const stores = await AdminService.listStores();
+      // ✅ Fetch stores and ALL pickups in parallel
+      const [storesRes, pickupsRes] = await Promise.all([
+        AdminService.listStores(),
+        AdminService.listPickups() 
+      ]);
       
-      if (!Array.isArray(stores)) {
-        setLogisticsData([]);
-        return;
-      }
+      const stores = Array.isArray(storesRes) ? storesRes : (storesRes.data || []);
+      const pickups = Array.isArray(pickupsRes) ? pickupsRes : (pickupsRes.data || []);
 
-      const allPickups = [];
-      // Limit to first 5 stores to prevent overwhelming API calls in this demo
-      for (const store of stores.slice(0, 5)) {
-        try {
-          const pickups = await AdminService.listStorePickups(store.id);
-          if (Array.isArray(pickups)) {
-            allPickups.push(...pickups.map(p => ({
-              ...p,
-              // Normalize ID: Ensure we have a valid ID string
-              id: p.id || p.pickup_id || `temp-${Math.random()}`, 
-              type: 'pickup', // Tag as pickup
-              store_name: store.name,
-              store_city: store.city
-            })));
-          }
-        } catch (err) {
-          console.error(`Error fetching pickups for store ${store.id}`);
-        }
+      if (pickups.length > 0) {
+        // Map store details onto the pickups locally
+        const enrichedPickups = pickups.map(p => {
+          const store = stores.find(s => s.id === p.store_id);
+          return {
+            ...p,
+            id: p.id || p.pickup_id || `temp-${Math.random()}`, 
+            type: 'pickup',
+            store_name: store ? store.name : 'Unknown Store',
+            store_city: store ? store.city : 'Unknown Location'
+          };
+        });
+        setLogisticsData(enrichedPickups);
+      } else {
+        setLogisticsData([]);
       }
-      setLogisticsData(allPickups);
 
     } catch (error) {
       console.error("Logistics fetch error:", error);
@@ -116,7 +113,6 @@ export default function Handoffs() {
       setLogisticsData([]);
     }
   };
-
   // 2. Fetch Support (Chat Handoffs)
   const fetchChats = async () => {
     try {

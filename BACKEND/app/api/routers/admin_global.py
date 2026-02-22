@@ -316,7 +316,7 @@ def create_discount_rule_api(
     reason: str = Query(...),
     admin=Depends(get_current_admin),
 ):
-    return create_product_discount_rule(db, payload, admin,reason)
+    return create_product_discount_rule(db, payload, admin.id ,reason)
 
 @router.get("/discount-rules")
 def list_discount_rules_api(
