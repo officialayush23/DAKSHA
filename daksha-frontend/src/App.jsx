@@ -27,6 +27,7 @@ import CheckoutPage from './pages/CheckoutPage';
 import AttractScreen from './kiosk/pages/AttractScreen';
 import LoginScreen from './kiosk/pages/LoginScreen';
 import KioskSelectScreen from './kiosk/pages/KioskSelectScreen';
+import WishlistPage from './pages/WishlistPage'
 
 // --- ADMIN PAGES ---
 import Dashboard from './admin/pages/Dashboard';
@@ -39,6 +40,12 @@ import Handoffs from './admin/pages/Handoffs';
 import Returns from './admin/pages/Returns';
 import Kiosks from './admin/pages/Kiosk';
 import DiscountRules from './admin/pages/DiscountRules';
+import AgentRuns from './admin/pages/AgentRuns';
+
+// --- ADMIN USER CRM MODULE (NEW) ---
+import AdminUserLayout from './admin_user/AdminUserLayout';
+import AdminUserList from './admin_user/pages/AdminUserList';
+import AdminUserDetail from './admin_user/pages/AdminUserDetail';
 
 
 // ============================================================
@@ -124,6 +131,12 @@ export default function App() {
             </div>
           </div>
         } />
+        
+        {/* Placeholders for now */}
+        <Route path="orders" element={<OrdersPage/>} />
+        <Route path="cart" element={<CartPage/>} />
+        <Route path="wishlist" element={<WishlistPage/>} />
+        
         <Route path="*" element={<ErrorPage />} />
       </Route>
 
@@ -178,12 +191,21 @@ export default function App() {
         <Route path="stores" element={<Stores />} />
         <Route path="orders" element={<Orders />} />
         <Route path="complaints" element={<Complaints />} />
+         <Route path="agent-runs" element={<AgentRuns />} />
         <Route path="offers" element={<Offers />} />
         <Route path="handoffs" element={<Handoffs />} />
         <Route path="returns" element={<Returns />} />
         <Route path="kiosks" element={<Kiosks />} />
         <Route path="discount-rules" element={<DiscountRules />} />
         <Route path="*" element={<Navigate to="dashboard" replace />} />
+
+            {/* --- ADDED: ADMIN USER CRM MODULE --- */}
+        <Route path="users" element={<AdminUserLayout />}>
+          <Route index element={<AdminUserList />} />
+          <Route path=":id" element={<AdminUserDetail />} />
+        </Route>
+        
+        
       </Route>
 
 

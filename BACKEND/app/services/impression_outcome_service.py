@@ -1,25 +1,34 @@
 # app/services/impression_outcome_service.py
-import uuid
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert
 from app.models.models import RecommendationOutcome
+from datetime import datetime
 
 def log_recommendation_outcome(
     db: Session,
-    impression_id,
+    impression_id: str,
     outcome_type: str,
     reward_value: float = 0.0,
 ):
     """
-    Logs user action taken on a recommendation.
-    outcome_type: click | add_to_cart | purchase | wishlist
+    Phase 5: FEEDBACK. Uses PostgreSQL UPSERT. If a user clicks an item, then buys it, 
+    we upgrade the reward value for the same impression.
     """
-
-    db.add(
-        RecommendationOutcome(
-            id=uuid.uuid4(),
-            impression_id=impression_id,
-            outcome_type=outcome_type,
-            reward_value=reward_value,
-        )
+    stmt = insert(RecommendationOutcome).values(
+        impression_id=impression_id,
+        outcome_type=outcome_type,
+        reward=reward_value,
+        occurred_at=datetime.utcnow()
     )
+    
+    stmt = stmt.on_conflict_do_update(
+        index_elements=['impression_id'],
+        set_={
+            'outcome_type': outcome_type, 
+            'reward': reward_value, 
+            'occurred_at': datetime.utcnow()
+        }
+    )
+    
+    db.execute(stmt)
     db.commit()

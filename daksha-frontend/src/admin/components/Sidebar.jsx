@@ -9,7 +9,9 @@ import {
   Users, 
   AlertCircle, 
   Tag, 
-  LogOut,Monitor
+  LogOut,Monitor,
+  LucideLandmark,
+  ShieldCheck
 } from 'lucide-react';
 import { Button } from "../../components/ui/button";
 import { cn } from "@/lib/utils";
@@ -69,6 +71,8 @@ export default function Sidebar({ className, onLinkClick }) {
           <SidebarItem to="/admin/returns" icon={Users} label="Returns" onClick={onLinkClick} />
           <SidebarItem to="/admin/kiosks" icon={Monitor} label="Kiosks" onClick={onLinkClick} />
           <SidebarItem to="/admin/discount-rules" icon={Tag} label="Discount Rules" onClick={onLinkClick} />
+          <SidebarItem to="/admin/agent-runs" icon={LucideLandmark} label="Agent Runs" onClick={onLinkClick} />
+          <SidebarItem to="/admin/users" icon={ShieldCheck} label="Admin Users" onClick={onLinkClick}/>
         </nav>
       </div>
 

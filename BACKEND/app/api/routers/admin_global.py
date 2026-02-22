@@ -316,7 +316,7 @@ def create_discount_rule_api(
     reason: str = Query(...),
     admin=Depends(get_current_admin),
 ):
-    return create_product_discount_rule(db, payload, admin,reason)
+    return create_product_discount_rule(db, payload, admin.id ,reason)
 
 @router.get("/discount-rules")
 def list_discount_rules_api(
@@ -348,11 +348,25 @@ def list_ai_handoffs_api(
     return list_ai_handoffs(db)
 
 @router.get("/agent/runs")
+
+# def list_agent_runs_api(
+#     db: Session = Depends(get_db),
+#     admin=Depends(get_current_admin),
+# ):
+#     return list_agent_runs(db)
+
+
+@router.get("/agent/runs")
 def list_agent_runs_api(
+    user_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
-    return list_agent_runs(db)
+    query = db.query(AgentRun)
+    if user_id:
+        query = query.filter(AgentRun.user_id == user_id)
+    return query.order_by(desc(AgentRun.started_at)).all()
+
 
 @router.get("/agent/decisions")
 def list_decision_records_api(

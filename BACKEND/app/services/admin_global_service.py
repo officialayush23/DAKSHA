@@ -754,11 +754,13 @@ def create_coupon(db: Session, payload, admin_id, reason: str):
     db.commit()
     return coupon
 
-def create_product_discount_rule(db: Session, payload, admin_id, reason: str):
+def create_product_discount_rule(db: Session, payload, admin_id: uuid.UUID, reason: str):
     rule = ProductDiscountRule(**payload.dict())
     db.add(rule)
+    db.flush() # Ensure the rule gets an ID before logging
     admin_audit_log(db, admin_id=admin_id, action="create_discount_rule", entity_type="discount_rule", entity_id=rule.id, reason=reason)
     db.commit()
+    db.refresh(rule) # Refresh to return the full object
     return rule
 
 
