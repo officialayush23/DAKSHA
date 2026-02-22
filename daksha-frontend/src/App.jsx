@@ -5,8 +5,9 @@ import { supabase } from '@/lib/supabaseClient';
 import { useAuth } from './context/AuthContext';
 
 // --- LAYOUTS ---
-import UserLayout from './layout/UserLayout'; // The new Dashboard Layout
+import UserLayout from './layout/UserLayout'; 
 import AdminLayout from './admin/AdminLayout';
+import AdminUserLayout from './admin_user/AdminUserLayout'; //
 
 // --- PUBLIC PAGES ---
 import LandingPage from './pages/LandingPage';
@@ -31,16 +32,18 @@ import Offers from './admin/pages/Offers';
 import Handoffs from './admin/pages/Handoffs';
 import Returns from './admin/pages/Returns';
 import Kiosks from './admin/pages/Kiosk';
+import DiscountRules from './admin/pages/DiscountRules';
+
+// --- ADMIN USER MODULE COMPONENTS ---
+import UserProfile from './admin_user/components/UserProfile'; //
 
 // --- KIOSK MODULE ---
 import KioskRoutes from './kiosk/routes';
 import OrdersPage from './pages/OrdersPage';
 import CartPage from './pages/CartPage';
-import DiscountRules from './admin/pages/DiscountRules';
 
 // --- PROTECTED ROUTE WRAPPERS ---
 
-// 1. Admin Guard (Checks Supabase Session)
 const AdminProtectedRoute = ({ children }) => {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -62,7 +65,6 @@ const AdminProtectedRoute = ({ children }) => {
   return children;
 };
 
-// 2. User Dashboard Guard (Uses AuthContext)
 const UserProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return <div className="h-screen flex items-center justify-center bg-[#FDFDFD]">Loading Daksha...</div>;
@@ -90,7 +92,6 @@ export default function App() {
         <Route path="product/:id" element={<ProductDetail />} />
         <Route path="profile" element={<ProfilePage />} />
         
-        {/* Agent/Chat Page */}
         <Route path="agent" element={
           <div className="h-full flex items-center justify-center">
              <div className="w-full max-w-4xl h-full">
@@ -99,7 +100,6 @@ export default function App() {
           </div>
         } />
         
-        {/* Placeholders for now */}
         <Route path="orders" element={<OrdersPage/>} />
         <Route path="cart" element={<CartPage/>} />
         <Route path="wishlist" element={<WishlistPage/>} />
@@ -113,7 +113,7 @@ export default function App() {
       <Route path="/kiosk/*" element={<KioskRoutes />} />
 
       {/* ============================== */}
-      {/* 4. ADMIN PANEL                 */}
+      {/* 4. ADMIN PANEL (Protected)     */}
       {/* ============================== */}
       <Route path="/admin/login" element={<AdminAuthPage />} />
       
@@ -121,6 +121,17 @@ export default function App() {
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="products" element={<Products />} />
+        
+        {/* --- INTEGRATED USER MANAGEMENT --- */}
+        <Route path="users" element={<AdminUserLayout />}>
+          <Route index element={
+            <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-50">
+              <p>Select a user from the list to view profile</p>
+            </div>
+          } />
+          <Route path=":userId" element={<UserProfile />} />
+        </Route>
+
         <Route path="stores" element={<Stores />} />
         <Route path="orders" element={<Orders />} />
         <Route path="complaints" element={<Complaints />} />
@@ -131,8 +142,6 @@ export default function App() {
         <Route path="discount-rules" element={<DiscountRules />} />
         <Route path="*" element={<Navigate to="dashboard" replace />} />
       </Route>
-
-
 
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />
