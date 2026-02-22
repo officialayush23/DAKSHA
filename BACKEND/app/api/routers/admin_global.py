@@ -402,7 +402,7 @@ def product_price_snapshots_api(
 
 
 @router.get("/complaints/all", response_model=dict)
-def get_all_complaints(
+def get_all_complaints_api(
     status: Optional[ComplaintStatusEnum] = None,
     category: Optional[str] = None,
     skip: int = Query(0, ge=0),
@@ -422,7 +422,7 @@ def get_all_complaints(
 
 
 @router.patch("/complaints/{complaint_id}", response_model=dict)
-def update_complaint(
+def update_complaint_api(
     complaint_id: UUID,
     request: ComplaintUpdateRequest,
     db: Session = Depends(get_db),
@@ -443,7 +443,7 @@ def update_complaint(
 
 
 @router.post("/complaints/{complaint_id}/respond", response_model=dict)
-def respond_to_complaint(
+def respond_to_complaint_api(
     complaint_id: UUID,
     message: str,
     db: Session = Depends(get_db),
@@ -464,7 +464,7 @@ def respond_to_complaint(
 
 
 @router.get("/complaints/stats", response_model=dict)
-def get_complaint_stats(
+def get_complaint_stats_api(
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin)
 ):
@@ -475,7 +475,7 @@ def get_complaint_stats(
 
 
 @router.get("/exchanges/all", response_model=dict)
-def get_all_exchanges(
+def get_all_exchanges_api(
     status: Optional[ExchangeStatusEnum] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
@@ -493,7 +493,7 @@ def get_all_exchanges(
 
 
 @router.patch("/exchanges/{exchange_id}", response_model=dict)
-def update_exchange(
+def update_exchange_api(
     exchange_id: UUID,
     status: ExchangeStatusEnum,
     reason: Optional[str] = None,
@@ -516,7 +516,7 @@ def update_exchange(
     
 
 @router.get("/returns/all", response_model=dict)
-def get_all_returns(
+def get_all_returns_api(
     status: Optional[ReturnStatusEnum] = None,
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
@@ -534,7 +534,7 @@ def get_all_returns(
 
 
 @router.patch("/returns/{return_id}/status", response_model=dict)
-def update_return_status(
+def update_return_status_api(
     return_id: UUID,
     status: ReturnStatusEnum,
     reason: Optional[str] = None,
