@@ -9,7 +9,10 @@ import {
   Users, 
   AlertCircle, 
   Tag, 
-  LogOut,Monitor
+  LogOut,
+  Monitor,
+  UserCheck, // New unique icon for Handoffs
+  RotateCcw   // New unique icon for Returns
 } from 'lucide-react';
 import { Button } from "../../components/ui/button";
 import { cn } from "@/lib/utils";
@@ -60,13 +63,22 @@ export default function Sidebar({ className, onLinkClick }) {
       <div className="flex-1 overflow-auto py-2">
         <nav className="grid items-start px-2 text-sm font-medium lg:px-4">
           <SidebarItem to="/admin/dashboard" icon={LayoutDashboard} label="Dashboard" onClick={onLinkClick} />
+          
+          {/* ============================== */}
+          {/* USER MANAGEMENT INTEGRATION    */}
+          {/* ============================== */}
+          <SidebarItem to="/admin/users" icon={Users} label="Users" onClick={onLinkClick} />
+          
           <SidebarItem to="/admin/products" icon={Package} label="Products" onClick={onLinkClick} />
           <SidebarItem to="/admin/stores" icon={Store} label="Stores" onClick={onLinkClick} />
           <SidebarItem to="/admin/orders" icon={ShoppingCart} label="Orders" onClick={onLinkClick} />
           <SidebarItem to="/admin/offers" icon={Tag} label="Offers" onClick={onLinkClick} />
           <SidebarItem to="/admin/complaints" icon={AlertCircle} label="Complaints" onClick={onLinkClick} />
-          <SidebarItem to="/admin/handoffs" icon={Users} label="Agent Handoffs" onClick={onLinkClick} />
-          <SidebarItem to="/admin/returns" icon={Users} label="Returns" onClick={onLinkClick} />
+          
+          {/* Updated icons to avoid duplication with the new 'Users' link */}
+          <SidebarItem to="/admin/handoffs" icon={UserCheck} label="Agent Handoffs" onClick={onLinkClick} />
+          <SidebarItem to="/admin/returns" icon={RotateCcw} label="Returns" onClick={onLinkClick} />
+          
           <SidebarItem to="/admin/kiosks" icon={Monitor} label="Kiosks" onClick={onLinkClick} />
           <SidebarItem to="/admin/discount-rules" icon={Tag} label="Discount Rules" onClick={onLinkClick} />
         </nav>
