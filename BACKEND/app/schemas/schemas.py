@@ -36,7 +36,7 @@ class UserRegisterPayload(BaseSchema):
     name: str
     phone: Optional[str] = None
     email: Optional[EmailStr] = None
-
+    
 # --- PRODUCT ---
 class ProductCreate(BaseSchema):
     brand: str

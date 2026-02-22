@@ -28,7 +28,9 @@ from app.services.user_services import (
     add_address,
     update_address,
     get_user_addresses,
-    get_user_profile,
+    # get_user_profile,
+    update_user_profile,
+    get_hydrated_user_profile,
     add_card,
     get_cards,
     delete_card,
@@ -218,13 +220,31 @@ def update_address_location(
 # PROFILE
 # ======================================================
 
+# @router.get("/profile")
+# def my_profile(
+#     db: Session = Depends(get_db),
+#     user=Depends(get_current_user),
+# ):
+#     return get_user_profile(db, user.id)
+
+# ======================================================
+# PROFILE
+# ======================================================
+
 @router.get("/profile")
 def my_profile(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    return get_user_profile(db, user.id)
-
+    """
+    Returns the complete, hydrated user profile including preferences and loyalty balance.
+    """
+    profile_data = get_hydrated_user_profile(db, user.id)
+    
+    if not profile_data:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    return profile_data
 
 @router.put("/profile")
 def update_profile(
@@ -250,6 +270,7 @@ def update_profile(
         channel=ChannelEnum.web,
         user_id=user.id,
         entity_type=EntityTypeEnum.user,
+        entity_id=user.id,
     )
 
     return user
@@ -352,15 +373,6 @@ def create_review(
     )
     db.add(review)
     db.commit()
-
-    emit_event(
-        db=db,
-        event_type=EventTypeEnum.review_created,
-        channel=ChannelEnum.web,
-        user_id=user.id,
-        entity_type=EntityTypeEnum.product,
-        entity_id=payload.product_id,
-    )
 
     return {"status": "review_added"}
 
