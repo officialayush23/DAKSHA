@@ -73,6 +73,7 @@ export default function Sidebar({ className, onLinkClick }) {
           <SidebarItem to="/admin/discount-rules" icon={Tag} label="Discount Rules" onClick={onLinkClick} />
           <SidebarItem to="/admin/agent-runs" icon={LucideLandmark} label="Agent Runs" onClick={onLinkClick} />
           <SidebarItem to="/admin/users" icon={ShieldCheck} label="Admin Users" onClick={onLinkClick}/>
+          <SidebarItem to="/admin/payment-manage" icon={Tag} label="Payment Management" onClick={onLinkClick} />
         </nav>
       </div>
 

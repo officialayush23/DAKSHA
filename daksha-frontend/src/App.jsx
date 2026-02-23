@@ -41,6 +41,7 @@ import Returns from './admin/pages/Returns';
 import Kiosks from './admin/pages/Kiosk';
 import DiscountRules from './admin/pages/DiscountRules';
 import AgentRuns from './admin/pages/AgentRuns';
+import Paymentmanage from './admin/pages/Paymentmanage';
 
 // --- ADMIN USER CRM MODULE ---
 import AdminUserLayout from './admin_user/AdminUserLayout';
@@ -192,6 +193,7 @@ export default function App() {
         <Route path="returns" element={<Returns />} />
         <Route path="kiosks" element={<Kiosks />} />
         <Route path="discount-rules" element={<DiscountRules />} />
+        <Route path="payment-manage" element={<Paymentmanage />} />
 
         {/* ADMIN USER CRM MODULE */}
         <Route path="users" element={<AdminUserLayout />}>

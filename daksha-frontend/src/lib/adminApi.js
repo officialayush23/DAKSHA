@@ -225,6 +225,15 @@ export const AdminService = {
     apiClient(`/admin/global/discount-rules/${id}?reason=admin_delete_rule`, 'DELETE'),
 
   // ==========================================
+  // 💳 PAYMENT GATEWAY SETTINGS
+  // ==========================================
+  getPaymentGatewayConfig: () => 
+    apiClient('/admin/global/payment-gateway', 'GET'),
+    
+  setPaymentGatewayConfig: (force_status) => 
+    apiClient('/admin/global/payment-gateway', 'POST', null, { force_status }),
+
+  // ==========================================
   // 📊 DASHBOARD STATS
   // ==========================================
   getDashboardStats: async () => {
@@ -234,8 +243,6 @@ export const AdminService = {
       apiClient('/admin/global/complaints', 'GET'),
       apiClient('/admin/global/coupons', 'GET'),
     ]);
-
-  
 
 
     return {
