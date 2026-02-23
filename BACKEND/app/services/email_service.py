@@ -1,4 +1,5 @@
 # app/services/email_service.py
+# app/services/email_service.py
 
 import os
 import smtplib
@@ -8,11 +9,7 @@ from email.mime.multipart import MIMEMultipart
 from sqlalchemy.orm import Session
 
 from app.models.models import OutboundMessage, User, UserEngagementEvent
-from app.enums.db_enums import (
-    DeliveryChannelEnum,
-    EngagementStateEnum,
-    EntityTypeEnum,
-)
+from app.enums.db_enums import DeliveryChannelEnum, EngagementStateEnum, EntityTypeEnum
 
 logger = logging.getLogger(__name__)
 
@@ -22,12 +19,11 @@ try:
 except ImportError:
     RESEND_AVAILABLE = False
 
-
-# ----------------------------
-# Low-level senders
-# ----------------------------
-
 def _send_smtp(to_email: str, subject: str, html_content: str) -> bool:
+    # 🛡️ SAFETY CHECK: Ensure email exists
+    if not to_email:
+        return False
+        
     try:
         smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
         smtp_port = int(os.getenv("SMTP_PORT", "587"))
@@ -51,9 +47,8 @@ def _send_smtp(to_email: str, subject: str, html_content: str) -> bool:
         logger.error(f"SMTP send failed: {e}")
         return False
 
-
 def _send_resend(to_email: str, subject: str, html_content: str) -> bool:
-    if not RESEND_AVAILABLE or not os.getenv("RESEND_API_KEY"):
+    if not RESEND_AVAILABLE or not os.getenv("RESEND_API_KEY") or not to_email:
         return False
 
     try:
@@ -69,11 +64,6 @@ def _send_resend(to_email: str, subject: str, html_content: str) -> bool:
         logger.warning(f"Resend failed: {e}")
         return False
 
-
-# ----------------------------
-# Canonical sender
-# ----------------------------
-
 def send_email_and_log(
     db: Session,
     *,
@@ -82,18 +72,15 @@ def send_email_and_log(
     subject: str,
     html_content: str,
     message_type: str,
-    source: str = "system",  # system | agent_action
+    source: str = "system", 
 ):
-    """
-    Canonical Email Notification Sender.
-    Fully observable. Fully auditable.
-    """
-
     user = db.get(User, user_id)
+    
+    # 🛡️ SAFETY CHECK: Abort entirely if the user has no email address.
     if not user or not user.email:
+        logger.info(f"Skipping email for user {user_id}: No email address on file.")
         return None
 
-    # 1. Engagement intent (NOT sent yet)
     engagement = UserEngagementEvent(
         user_id=user_id,
         session_id=session_id,
@@ -110,15 +97,11 @@ def send_email_and_log(
     db.add(engagement)
     db.flush()
 
-    # 2. Send
     sent = _send_resend(user.email, subject, html_content)
     if not sent:
         sent = _send_smtp(user.email, subject, html_content)
 
-    # 3. Finalize states
-    engagement.state = (
-        EngagementStateEnum.sent if sent else EngagementStateEnum.failed
-    )
+    engagement.state = EngagementStateEnum.sent if sent else EngagementStateEnum.failed
 
     outbound = OutboundMessage(
         user_id=user_id,

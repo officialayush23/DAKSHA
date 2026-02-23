@@ -91,22 +91,20 @@ def apply_coupon_route(checkout_id: UUID, payload: ApplyCouponPayload, db: Sessi
 
 # 7️⃣ FINALIZE (PAY)
 @router.post("/{checkout_id}/finalize")
-def finalize_checkout_route(checkout_id: UUID, payload: FinalizeCheckoutRequest, db: Session = Depends(get_db)):
+async def finalize_checkout_route(checkout_id: UUID, payload: FinalizeCheckoutRequest, db: Session = Depends(get_db)):
     try:
-        # ⬇️ FIXED: Ensure scheduled_time is parsed into a timezone-aware datetime object if provided
         parsed_time = None
         if payload.scheduled_time:
-            # Parse the ISO string. Replace 'Z' with '+00:00' so fromisoformat handles the UTC timezone natively.
             parsed_time = datetime.fromisoformat(payload.scheduled_time.replace('Z', '+00:00'))
-            # If the resulting datetime is naive (no timezone attached by the frontend string), force it to UTC.
             if parsed_time.tzinfo is None:
                 parsed_time = parsed_time.replace(tzinfo=timezone.utc)
 
-        result = finalize_checkout(
+        # 👇 FIXED: Added await here
+        result = await finalize_checkout(
             db=db,
             checkout_id=checkout_id,
             delivery_address_id=payload.delivery_address_id,
-            scheduled_time=parsed_time, # Pass the safe datetime object
+            scheduled_time=parsed_time, 
             redeem_loyalty_points=payload.redeem_loyalty_points,
         )
         if result.get("status") == "payment_failed":

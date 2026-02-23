@@ -120,7 +120,7 @@ def create_checkout_after_fulfillment(
     return checkout
 
 
-def finalize_checkout(
+async def finalize_checkout(
     db: Session,
     *,
     checkout_id: UUID,
@@ -300,14 +300,9 @@ def finalize_checkout(
         message_type="order_update",
     )
 
-    asyncio.create_task(
-        send_telegram_and_log(
-            db,
-            user_id=checkout.user_id,
-            session_id=checkout.session_id,
-            text=f"Order confirmed 🎉\nOrder ID: {order.id}",
-            message_type="order_update",
-        )
+    await send_telegram_and_log(
+        db, user_id=checkout.user_id, session_id=checkout.session_id,
+        text=f"Order confirmed 🎉\nOrder ID: {order.id}", message_type="order_update"
     )
 
     return {"status": "success", "order_id": order.id}
