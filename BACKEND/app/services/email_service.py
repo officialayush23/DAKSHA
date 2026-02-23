@@ -20,6 +20,8 @@ except ImportError:
     RESEND_AVAILABLE = False
 
 def _send_smtp(to_email: str, subject: str, html_content: str) -> bool:
+    
+    
     # 🛡️ SAFETY CHECK: Ensure email exists
     if not to_email:
         return False

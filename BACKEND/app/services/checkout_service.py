@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 # 👇 FIXED: Imported OrderStatusHistory
-from app.models.models import CheckoutSession, Order, OrderItem, CartItem, UserAddress, OrderStatusHistory
+from app.models.models import CheckoutSession, Order, OrderItem, CartItem, UserAddress, OrderStatusHistory,User
 from app.enums.db_enums import (
     CheckoutStateEnum,
     OrderStatusEnum,
@@ -287,6 +287,8 @@ async def finalize_checkout(
 
     checkout.state = CheckoutStateEnum.ORDER_CONFIRMED
     checkout.inventory_locked = False
+    
+    
 
     db.commit()
 
