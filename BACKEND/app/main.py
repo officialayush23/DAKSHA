@@ -16,6 +16,9 @@ from app.api.routers import (
     session,
     support,
     products,
+    checkout,
+    coupons,
+    stores,
     loyalty,
     support,
     recommendation,
@@ -60,5 +63,8 @@ app.include_router(recommendation.router)
 app.include_router(session.router)
 app.include_router(support.router)
 app.include_router(loyalty.router)
+app.include_router(checkout.router)
+app.include_router(coupons.router)  
+app.include_router(stores.router)
 app.include_router(products.router)
 

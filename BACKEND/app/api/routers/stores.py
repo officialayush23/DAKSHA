@@ -15,9 +15,9 @@ router = APIRouter(prefix="/stores", tags=["Stores"])
 @router.post("/nearest")
 def nearest(data: StoreLookupRequest,
             db: Session = Depends(get_db)):
-    return get_nearest_stores_with_cart(
-        db,
-        data.cart_id,
-        data.lat,
-        data.lng,
-    )
+   return get_nearest_stores_with_cart(
+    db,
+    data.cart_id,
+    data.latitude,
+    data.longitude,
+)

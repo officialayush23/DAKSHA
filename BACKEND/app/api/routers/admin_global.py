@@ -676,3 +676,33 @@ def get_inventory_overview(
         raise HTTPException(status_code=404, detail="Variant not found")
 
     return data
+
+
+
+from app.services.payment_gateway_config_service import (
+    get_gateway_config,
+    update_gateway_config,
+)
+
+@router.get("/payment-gateway")
+def get_payment_gateway_config_api(
+    db: Session = Depends(get_db),
+    admin = Depends(get_current_admin),
+):
+    cfg = get_gateway_config(db)
+    return {
+        "force_status": cfg.force_status,
+        "updated_at": cfg.updated_at,
+    }
+
+@router.post("/payment-gateway")
+def set_payment_gateway_config_api(
+    force_status: Optional[str] = Query(None, description="Set to 'fail' to simulate failed payments, or None to clear"),
+    db: Session = Depends(get_db),
+    admin = Depends(get_current_admin),
+):
+    cfg = update_gateway_config(db, force_status=force_status)
+    return {
+        "force_status": cfg.force_status,
+        "updated_at": cfg.updated_at,
+    }

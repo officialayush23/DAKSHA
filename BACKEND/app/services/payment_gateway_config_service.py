@@ -2,22 +2,20 @@
 from sqlalchemy.orm import Session
 from app.models.models import PaymentGatewayConfig
 
-SINGLETON_ID = 1
+from sqlalchemy.orm import Session
+from app.models.models import PaymentGatewayConfig
 
 
 def get_gateway_config(db: Session) -> PaymentGatewayConfig:
-    """
-    The ONLY read entry point.
-    """
-    cfg = db.get(PaymentGatewayConfig, SINGLETON_ID)
+    config = db.get(PaymentGatewayConfig, 1)
 
-    if not cfg:
-        cfg = PaymentGatewayConfig(id=SINGLETON_ID)
-        db.add(cfg)
+    if not config:
+        config = PaymentGatewayConfig(id=1, force_status=None)
+        db.add(config)
         db.commit()
-        db.refresh(cfg)
+        db.refresh(config)
 
-    return cfg
+    return config
 
 
 def update_gateway_config(

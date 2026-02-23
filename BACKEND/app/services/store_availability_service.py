@@ -12,11 +12,15 @@ def get_nearest_stores_with_cart(
     limit: int = 5,
 ):
     """
-    Returns stores that have ALL cart items available.
+    Returns nearest stores with ALL cart items available.
+    Uses PostGIS index-friendly search.
     """
 
     query = text("""
-    WITH cart_variants AS (
+    WITH user_point AS (
+        SELECT ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography AS pt
+    ),
+    cart_variants AS (
         SELECT product_variant_id, quantity
         FROM cart_items
         WHERE cart_id = :cart_id
@@ -30,13 +34,15 @@ def get_nearest_stores_with_cart(
         GROUP BY si.store_id
         HAVING COUNT(*) = (SELECT COUNT(*) FROM cart_variants)
     )
-    SELECT s.id, s.name, s.address,
-           ST_Distance(
-               s.location,
-               ST_SetSRID(ST_MakePoint(:lng, :lat),4326)
-           ) as distance
+    SELECT
+        s.id,
+        s.name,
+        s.address,
+        ST_Distance(s.location, up.pt) AS distance
     FROM stores s
     JOIN valid_stores vs ON vs.store_id = s.id
+    CROSS JOIN user_point up
+    WHERE ST_DWithin(s.location, up.pt, 20000) -- 20km search radius
     ORDER BY distance
     LIMIT :limit
     """)

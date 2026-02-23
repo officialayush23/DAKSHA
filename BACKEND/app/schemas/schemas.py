@@ -1,7 +1,6 @@
 # app/schemas/schemas.py
-from dataclasses import Field
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from uuid import UUID
 from typing import Optional, List, Dict, Any
 from datetime import datetime
