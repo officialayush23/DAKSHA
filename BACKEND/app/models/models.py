@@ -84,6 +84,9 @@ class UserPreferences(Base):
     updated_by: Mapped[Optional[str]]
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     user: Mapped["User"] = relationship(back_populates="preferences")
+    last_preference_refresh: Mapped[Optional[datetime]] = mapped_column(
+    DateTime(timezone=True)
+)
 
 class UserBehaviorAggregate(Base):
     __tablename__ = "user_behavior_aggregates"
@@ -824,6 +827,7 @@ class UserPreferenceSummary(Base):
     summary_text: Mapped[Optional[str]] = mapped_column(Text)
     embedding: Mapped[List[float]] = mapped_column(Vector(768))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    user: Mapped["User"] = relationship()
 class ModelTrainingRun(Base):
     __tablename__ = "model_training_runs"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

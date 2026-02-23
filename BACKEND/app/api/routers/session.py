@@ -1,6 +1,11 @@
 # app/api/routers/session.py
+
+from datetime import datetime, timedelta
+
+from app.worker.tasks import refresh_user_preferences
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+
 from app.core.deps import get_db, get_current_user
 from app.enums.db_enums import ChannelEnum
 from app.services.session_service import (
@@ -15,7 +20,11 @@ def start(channel: ChannelEnum, db: Session = Depends(get_db), user=Depends(get_
     db,
     user_id=user.id,
     channel=channel
+    
+    
 )
+    
+    
     return {
         "session_id": session.id,
         "primary_channel": session.primary_channel,

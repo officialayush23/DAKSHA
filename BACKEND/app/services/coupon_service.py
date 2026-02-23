@@ -45,7 +45,7 @@ def get_eligible_coupons(
     eligible = []
 
     for r in rows:
-        if r.scope == "global":
+        if r.scope == "all":
             eligible.append(r)
         elif r.scope == "category" and r.scope_value in category_set:
             eligible.append(r)

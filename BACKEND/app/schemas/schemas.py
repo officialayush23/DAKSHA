@@ -6,7 +6,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from decimal import Decimal
 from app.enums.db_enums import (
-    EntityTypeEnum, OrderStatusEnum, ChannelEnum, CheckoutStateEnum,
+    CouponStatusEnum, EntityTypeEnum, OrderStatusEnum, ChannelEnum, CheckoutStateEnum,
     FulfillmentTypeEnum, ComplaintStatusEnum,
     CouponTypeEnum, CouponScopeEnum, OrderChangeTypeEnum,
     DeliveryChannelEnum, EngagementStateEnum
@@ -108,13 +108,19 @@ class InventoryCheckResponse(BaseSchema):
 # --- COUPONS ---
 class CouponCreate(BaseSchema):
     code: str
+    description: Optional[str] = None
     coupon_type: CouponTypeEnum
     value: float
     scope: CouponScopeEnum
     scope_value: Optional[str] = None
     min_order_value: Optional[float] = None
     max_discount: Optional[float] = None
+    usage_limit: Optional[int] = None
+    per_user_limit: Optional[int] = None
+    valid_from: Optional[datetime] = None
     valid_to: Optional[datetime] = None
+    status: Optional[CouponStatusEnum] = CouponStatusEnum.active
+
 
 class CouponApplyRequest(BaseSchema):
     code: str

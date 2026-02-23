@@ -32,18 +32,13 @@ import { Badge } from "@/components/ui/badge";
 import { 
   Plus, 
   Trash2, 
-  Calendar, 
   Loader2, 
-  Tag, 
   Edit2,
   Copy,
-  Search,
-  RefreshCw,
   Percent,
   DollarSign
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
@@ -63,7 +58,7 @@ export default function Offers() {
     description: "",
     coupon_type: "percentage",
     value: 0,
-    scope: "global",
+    scope: "all",
     scope_value: "",
     min_order_value: 0,
     max_discount: 0,
@@ -78,7 +73,6 @@ export default function Offers() {
       setLoading(true);
       const res = await AdminService.listOffers();
       setOffers(Array.isArray(res) ? res : []);
-      toast.success("Coupons loaded successfully");
     } catch (error) {
       console.error("Failed to load offers:", error);
       toast.error("Failed to load coupons");
@@ -91,19 +85,18 @@ export default function Offers() {
     fetchOffers();
   }, []);
 
-const prepareFormData = (data) => {
+  const prepareFormData = (data) => {
     return {
       code: data.code.trim().toUpperCase(),
       description: data.description?.trim() || null,
       coupon_type: data.coupon_type,
       value: parseFloat(data.value) || 0,
-      // Change how scope is handled to ensure exact string matching
-      scope: data.scope === 'global' ? 'global_' : data.scope, // ✅ Maps to Python Enum Key
+      scope: data.scope, // ✅ Simply pass the value directly
       scope_value: data.scope_value?.trim() || null,
       min_order_value: parseFloat(data.min_order_value) || null,
       max_discount: parseFloat(data.max_discount) || null,
       valid_to: data.valid_to ? new Date(data.valid_to).toISOString() : null,
-      // Status mapping isn't strictly in CouponCreate, but good for local state if added later
+      status: data.status 
     };
   };
 
@@ -142,7 +135,7 @@ const prepareFormData = (data) => {
       toast.success("Coupon deleted successfully");
     } catch (error) {
       console.error("Failed to delete offer:", error);
-      toast.error("Failed to delete coupon (Check if backend DELETE route exists)");
+      toast.error("Failed to delete coupon");
     }
   };
 
@@ -287,7 +280,7 @@ const prepareFormData = (data) => {
                     <Select value={formData.scope} onValueChange={(val) => handleChange("scope", val)}>
                       <SelectTrigger><SelectValue placeholder="Select scope" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="global">Global (All Products)</SelectItem>
+                        <SelectItem value="all">Global (All Products)</SelectItem>
                         <SelectItem value="category">Specific Category</SelectItem>
                         <SelectItem value="product">Specific Product</SelectItem>
                       </SelectContent>
@@ -295,13 +288,13 @@ const prepareFormData = (data) => {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="scope_value">Scope Target (Category Name / Product ID)</Label>
+                    <Label htmlFor="scope_value">Scope Target (Category / Product ID)</Label>
                     <Input 
                       id="scope_value"
                       placeholder="e.g. Shoes" 
                       value={formData.scope_value} 
                       onChange={(e) => handleChange("scope_value", e.target.value)} 
-                      disabled={formData.scope === 'global'}
+                      disabled={formData.scope === 'all'}
                     />
                   </div>
                 </div>

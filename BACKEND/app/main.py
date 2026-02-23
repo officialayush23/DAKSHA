@@ -19,6 +19,7 @@ from app.api.routers import (
     checkout,
     coupons,
     stores,
+    user_preferences,
     loyalty,
     support,
     recommendation,
@@ -55,6 +56,7 @@ app.add_middleware(
 # ---------- ROUTERS ----------
 app.include_router(admin_global.router)
 app.include_router(admin_user.router)
+app.include_router(user_preferences.router)
 app.include_router(user.router)
 app.include_router(kiosk.router)
 app.include_router(cart.router)

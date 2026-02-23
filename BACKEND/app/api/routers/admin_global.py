@@ -296,7 +296,7 @@ def create_coupon_api(
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
-    return create_coupon(db, payload, admin,reason)
+    return create_coupon(db, payload, admin.id ,reason)
 
 @router.get("/coupons")
 def list_coupons_api(

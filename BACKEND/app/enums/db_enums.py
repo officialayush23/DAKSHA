@@ -101,7 +101,7 @@ class ShipmentStatusEnum(str, Enum):
     cancelled = "cancelled"
 
 class TrendingScopeEnum(str, Enum):
-    global_ = "global"   # underscore to avoid keyword clash
+    all = "all"   # underscore to avoid keyword clash
     category = "category"
     brand = "brand"
 
@@ -157,7 +157,7 @@ class CouponStatusEnum(str, Enum):
     disabled = "disabled"
 
 class CouponScopeEnum(str, Enum):
-    global_ = "global"
+    all = "all"
     category = "category"
     product = "product"
 
