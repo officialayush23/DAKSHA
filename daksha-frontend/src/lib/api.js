@@ -72,13 +72,24 @@ export const CartService = {
 };
 
 export const CheckoutService = {
-  start: () => api.post('/checkout/start'),
+  // 1. Start Checkout flows
+  startDelivery: (data) => api.post('/checkout/delivery', data),
+  startPickup: (data) => api.post('/checkout/pickup', data),
+  
+  // 2. Location / Stores for Pickup
+  getPickupStores: (cart_id, lat, lng) => 
+    api.get('/checkout/pickup/stores', { params: { cart_id, lat, lng } }),
+
+  // 3. Coupons
+  getCoupons: (checkout_id) => api.get(`/checkout/${checkout_id}/coupons`),
+  applyCoupon: (checkout_id, data) => api.post(`/checkout/${checkout_id}/apply-coupon`, data),
+
+  // 4. Finalize Checkout
+  finalizeOrder: (checkout_id, data) => api.post(`/checkout/${checkout_id}/finalize`, data),
+
+  // Legacy/Other routes kept for safety
   getStatus: (id) => api.get(`/checkout/${id}`),
   pay: (id, key) => api.post(`/payment/pay/${id}`, {}, { headers: { 'idempotency-key': key } }),
-  getPickupOptions: (lat, lng, radius_km = 15) => 
-    api.get('/checkout/pickup/stores', { params: { lat, lng, radius_km } }),
-
-  // FIX: /resume suffix was missing
   resumeKiosk: (checkout_id) => api.get(`/kiosk/checkout/${checkout_id}/resume`),
 };
 

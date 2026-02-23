@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { CartService, SessionService, CheckoutService, ProductService } from "../lib/api";
+import { CartService, SessionService, ProductService } from "../lib/api";
 import { motion, AnimatePresence } from "framer-motion";
 
 import { Button } from "@/components/ui/button";
@@ -47,15 +47,12 @@ export default function CartPage() {
 
       // 2. ENRICHMENT: Fetch live product details to get dynamic discounts
       if (cartData.items && cartData.items.length > 0) {
-        // Get unique product IDs to avoid redundant API calls
         const uniqueProductIds = [...new Set(cartData.items.map(i => i.product_id).filter(Boolean))];
         
-        // Fetch product details in parallel
         const productResponses = await Promise.all(
           uniqueProductIds.map(id => ProductService.getDetail(id).catch(() => null))
         );
         
-        // Create a fast lookup map for variant details
         const variantLookup = {};
         productResponses.forEach(prod => {
           const p = prod?.data || prod;
@@ -70,7 +67,6 @@ export default function CartPage() {
           });
         });
 
-        // 3. Merge live data back into cart items
         let enrichedSubtotal = 0;
         cartData.items = cartData.items.map(item => {
           const liveData = variantLookup[item.variant_id] || {};
@@ -146,17 +142,13 @@ export default function CartPage() {
     }
   };
 
-  const handleCheckout = async () => {
+  // 👇 FIXED: This now simply routes the user to your Checkout Page!
+  const handleCheckout = () => {
     setIsCheckingOut(true);
-    try {
-      const res = await CheckoutService.start();
-      const checkoutId = res?.data?.checkout_id || res?.checkout_id || "new";
-      navigate(`/dash/checkout/${checkoutId}`);
-    } catch (e) {
-      const errorMsg = getErrorMessage(e, "Failed to initiate checkout. Please try again.");
-      toast.error(errorMsg);
-      setIsCheckingOut(false);
-    }
+    // Add a tiny artificial delay so the button animation plays
+    setTimeout(() => {
+      navigate('/dash/checkout'); 
+    }, 400);
   };
 
   // ================= RENDER HELPERS =================
@@ -219,7 +211,6 @@ export default function CartPage() {
         <div className="lg:col-span-7 xl:col-span-8 space-y-6">
           <AnimatePresence>
             {items.map((item) => {
-              // Extract Enriched Live Data
               const price = item.live_final_price || item.base_price || 0;
               const originalPrice = item.live_base_price || item.base_price || price;
               const itemTotal = item.live_item_total || (price * item.quantity);
@@ -362,14 +353,14 @@ export default function CartPage() {
               </div>
             </div>
 
-            <Button 
-              onClick={handleCheckout} 
-              disabled={isCheckingOut || items.length === 0}
-              className="w-full h-16 rounded-full bg-zinc-900 hover:bg-black text-white text-lg font-bold tracking-wide shadow-[0_10px_40px_rgba(0,0,0,0.15)] transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
-            >
-              {isCheckingOut ? <Loader2 className="animate-spin mr-3" /> : null}
-              {isCheckingOut ? "Processing..." : "Proceed to Checkout"}
-            </Button>
+        <Button
+          onClick={handleCheckout}
+          disabled={isCheckingOut || items.length === 0}
+          className="w-full h-16 rounded-full bg-zinc-900 hover:bg-black text-white text-lg font-bold tracking-wide shadow-[0_10px_40px_rgba(0,0,0,0.15)] transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
+        >
+          {isCheckingOut && <Loader2 className="animate-spin mr-3" />}
+          {isCheckingOut ? "Processing..." : "Proceed to Checkout"}
+        </Button>
 
             {/* Trust Badges */}
             <div className="mt-8 space-y-5">

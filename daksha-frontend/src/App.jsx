@@ -126,6 +126,7 @@ export default function App() {
         <Route path="cart" element={<CartPage />} />
         <Route path="checkout" element={<CheckoutPage />} />
         <Route path="wishlist" element={<WishlistPage />} />
+        <Route path="checkout" element={<CheckoutPage />} />
         <Route path="agent" element={
           <div className="h-full flex items-center justify-center">
             <div className="w-full max-w-4xl h-full">
