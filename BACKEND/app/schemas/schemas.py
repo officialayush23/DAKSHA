@@ -449,3 +449,26 @@ class StoreLookupRequest(BaseModel):
     longitude: float = Field(..., ge=-180, le=180)
 
     limit: int = Field(default=5, ge=1, le=20)
+    
+    
+class DeliveryCheckoutRequest(BaseModel):
+    user_id: UUID
+    session_id: UUID
+    cart_id: UUID
+
+class PickupCheckoutRequest(BaseModel):
+    user_id: UUID
+    session_id: UUID
+    cart_id: UUID
+    store_id: UUID
+
+class FinalizeCheckoutRequest(BaseModel):
+    fulfillment_type: FulfillmentTypeEnum
+    store_id: Optional[UUID] = None
+    delivery_address_id: Optional[UUID] = None
+    scheduled_time: Optional[str] = None  # Use ISO format for parsing
+    redeem_loyalty_points: int = 0
+
+class ApplyCouponPayload(BaseModel):
+    coupon_code: Optional[str] = None
+    offer_id: Optional[UUID] = None

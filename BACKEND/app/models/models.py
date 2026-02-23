@@ -463,6 +463,33 @@ class PaymentGatewayConfig(Base):
     force_status: Mapped[Optional[str]]
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+
+class InventoryReservation(Base):
+    __tablename__ = "inventory_reservations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+
+    checkout_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("checkout_sessions.id", ondelete="CASCADE")
+    )
+
+    product_variant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("product_variants.id")
+    )
+
+    source_type: Mapped[str]  # 'warehouse' | 'store'
+    store_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("stores.id"),
+        nullable=True
+    )
+
+    quantity: Mapped[int]
+
+    expires_at: Mapped[datetime]
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
 # ==========================================
 # 6. LOGISTICS
 # ==========================================
