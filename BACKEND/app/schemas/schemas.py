@@ -469,8 +469,7 @@ class PickupCheckoutRequest(BaseModel):
     store_id: UUID
 
 class FinalizeCheckoutRequest(BaseModel):
-    fulfillment_type: FulfillmentTypeEnum
-    store_id: Optional[UUID] = None
+    # ⬇️ REMOVED fulfillment_type and store_id
     delivery_address_id: Optional[UUID] = None
     scheduled_time: Optional[str] = None  # Use ISO format for parsing
     redeem_loyalty_points: int = 0

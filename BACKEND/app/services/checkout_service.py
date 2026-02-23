@@ -1,4 +1,5 @@
 # app/service/checkout_service.py
+# app/services/checkout_service.py
 import asyncio
 from datetime import datetime, timedelta
 from uuid import UUID
@@ -27,6 +28,8 @@ from app.services.fulfillment_service import create_shipment, create_pickup
 from app.services.email_service import send_email_and_log
 from app.services.telegram_notification_service import send_telegram_and_log
 from app.services.event_service import emit_event
+
+
 def create_checkout_after_fulfillment(
     db: Session,
     *,
@@ -95,7 +98,7 @@ def create_checkout_after_fulfillment(
         entity_type=EntityTypeEnum.checkout,
         entity_id=checkout.id,
         metadata={
-            "cart_value": subtotal,
+            "cart_value": float(subtotal),  # ⬅️ FIXED: Cast Decimal to float for JSONB serialization
             "item_count": len(items),
             "fulfillment": fulfillment_type.value,
         },

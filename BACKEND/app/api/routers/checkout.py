@@ -1,4 +1,5 @@
 # app/api/routers/checkout.py
+# app/api/routers/checkout.py
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from uuid import UUID
@@ -78,11 +79,10 @@ def apply_coupon_route(checkout_id: UUID, payload: ApplyCouponPayload, db: Sessi
 @router.post("/{checkout_id}/finalize")
 def finalize_checkout_route(checkout_id: UUID, payload: FinalizeCheckoutRequest, db: Session = Depends(get_db)):
     try:
+        # ⬇️ FIXED: Removed fulfillment_type and store_id
         result = finalize_checkout(
             db=db,
             checkout_id=checkout_id,
-            fulfillment_type=payload.fulfillment_type,
-            store_id=payload.store_id,
             delivery_address_id=payload.delivery_address_id,
             scheduled_time=payload.scheduled_time,
             redeem_loyalty_points=payload.redeem_loyalty_points,
