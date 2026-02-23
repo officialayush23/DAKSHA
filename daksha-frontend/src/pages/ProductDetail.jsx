@@ -43,6 +43,11 @@ export default function ProductDetail() {
   const [reviewRating, setReviewRating] = useState(5);
   const [submittingReview, setSubmittingReview] = useState(false);
 
+  // ADD THIS RIGHT HERE
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [id]);
+
   // ================= FETCH DATA =================
   useEffect(() => {
     const fetchProductData = async () => {
