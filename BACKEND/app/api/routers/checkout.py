@@ -88,7 +88,7 @@ def finalize_checkout_route(checkout_id: UUID, payload: FinalizeCheckoutRequest,
             redeem_loyalty_points=payload.redeem_loyalty_points,
         )
         if result.get("status") == "payment_failed":
-            raise HTTPException(402, "Payment Failed")
+            raise HTTPException(402, result.get("reason", "Payment Failed"))
             
         return result
     except Exception as e:

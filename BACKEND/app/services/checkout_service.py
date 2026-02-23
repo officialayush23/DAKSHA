@@ -9,7 +9,9 @@ from datetime import datetime, timedelta
 from app.models.models import CheckoutSession, Order, OrderItem, CartItem
 from app.enums.db_enums import CheckoutStateEnum, OrderStatusEnum, ChannelEnum, FulfillmentTypeEnum
 
-from app.services.inventory_reservation_service import reserve_inventory_delivery, reserve_inventory_pickup, release_reservations, finalize_reservations
+from app.services.inventory_reservation_service import (
+    reserve_inventory_delivery, reserve_inventory_pickup, release_reservations, finalize_reservations
+)
 from app.services.payment_service import process_payment
 from app.services.coupon_service import finalize_coupon_redemption
 from app.services.loyalty_service import credit_points_for_order, debit_points
@@ -29,9 +31,10 @@ def create_checkout_after_fulfillment(
 ):
     items = db.query(CartItem).filter(CartItem.cart_id == cart_id).all()
     if not items:
-        raise ValueError("Cart empty")
+        raise ValueError("Cart is empty.")
 
     subtotal = sum(i.quantity * i.variant.base_price for i in items)
+    expires_at = datetime.utcnow() + timedelta(minutes=12)
 
     checkout = CheckoutSession(
         user_id=user_id,
@@ -39,20 +42,21 @@ def create_checkout_after_fulfillment(
         cart_id=cart_id,
         state=CheckoutStateEnum.STOCK_RESERVED,
         locked_price=subtotal,
-        reserved_until=datetime.utcnow() + timedelta(minutes=12),
+        reserved_until=expires_at,
         inventory_locked=True,
+        fulfillment_type=fulfillment_type,
+        store_id=store_id,
         last_active_channel=channel,
     )
     db.add(checkout)
     db.flush()  
 
-    # Reserve correctly based on the path
     if fulfillment_type == FulfillmentTypeEnum.delivery:
-        reserve_inventory_delivery(db, checkout.id, cart_id)
+        reserve_inventory_delivery(db, checkout.id, cart_id, expires_at)
     else:
         if not store_id:
             raise ValueError("Store required for pickup")
-        reserve_inventory_pickup(db, checkout.id, cart_id, store_id)
+        reserve_inventory_pickup(db, checkout.id, cart_id, store_id, expires_at)
 
     db.commit()
     db.refresh(checkout)
@@ -67,7 +71,7 @@ def finalize_checkout(
     delivery_address_id=None,
     scheduled_time=None,
     redeem_loyalty_points: int = 0,
-    agent_run_id=None,
+    agent_run_id: UUID | None = None,
 ):
     checkout = db.get(CheckoutSession, checkout_id)
     if not checkout:
@@ -80,18 +84,19 @@ def finalize_checkout(
     final_amount = float(checkout.locked_price) - float(checkout.discount_amount)
 
     # 1. PROCESS PAYMENT
-    success, payment = process_payment(db, checkout_id=checkout.id, amount=final_amount, method="card", agent_run_id=agent_run_id)
+    success, payment = process_payment(
+        db, checkout_id=checkout.id, amount=final_amount, method="card", agent_run_id=agent_run_id
+    )
 
     if not success:
         checkout.state = CheckoutStateEnum.PAYMENT_FAILED
         checkout.last_error = payment.failure_reason
         if checkout.payment_attempts >= 5:
-            # Drop the locks completely
             release_reservations(db, checkout.id)
             checkout.inventory_locked = False
             checkout.state = CheckoutStateEnum.CANCELLED
         db.commit()
-        return {"status": "payment_failed"}
+        return {"status": "payment_failed", "reason": payment.failure_reason}
 
     # 2. CREATE ORDER
     order = Order(
@@ -114,10 +119,9 @@ def finalize_checkout(
             order_id=order.id, product_variant_id=item.product_variant_id,
             quantity=item.quantity, price_at_purchase=item.variant.base_price,
         ))
-        
     db.query(CartItem).filter(CartItem.cart_id == checkout.cart_id).delete()
 
-    # 4. FINALIZE INVENTORY (Deletes ledger rows!)
+    # 4. FINALIZE INVENTORY LEDGER
     finalize_reservations(db, checkout.id)
 
     # 5. COUPONS & LOYALTY
@@ -126,20 +130,19 @@ def finalize_checkout(
         debit_points(db=db, user_id=checkout.user_id, points=redeem_loyalty_points, reason="Checkout redemption", channel=checkout.last_active_channel)
     credit_points_for_order(db=db, user_id=checkout.user_id, order_id=order.id, order_total=final_amount, channel=checkout.last_active_channel)
 
-    # 6. FULFILLMENT SCHEDULING
-    if fulfillment_type == FulfillmentTypeEnum.delivery:
+    # 6. LOGISTICS
+    if checkout.fulfillment_type == FulfillmentTypeEnum.delivery:
         create_shipment(db, order.id)
-    elif fulfillment_type == FulfillmentTypeEnum.pickup:
-        if not store_id or not scheduled_time:
+    elif checkout.fulfillment_type == FulfillmentTypeEnum.pickup:
+        if not checkout.store_id or not scheduled_time:
             raise ValueError("Pickup requires store and scheduled time")
-        create_pickup(db, order.id, store_id, scheduled_time)
+        create_pickup(db, order.id, checkout.store_id, scheduled_time)
 
-    # 7. COMMIT SUCCESS
     checkout.state = CheckoutStateEnum.ORDER_CONFIRMED
     checkout.inventory_locked = False
     db.commit()
 
-    # 8. NOTIFICATIONS
+    # 7. NOTIFICATIONS
     send_email_and_log(db, user_id=checkout.user_id, session_id=checkout.session_id, subject="Order Confirmed", html_content=f"Order {order.id} confirmed. Total ₹{final_amount}", message_type="order_update")
     asyncio.create_task(send_telegram_and_log(db, user_id=checkout.user_id, session_id=checkout.session_id, text=f"Order confirmed 🎉\nOrder ID: {order.id}", message_type="order_update"))
 

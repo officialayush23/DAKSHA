@@ -3,16 +3,17 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from uuid import UUID
+from datetime import datetime
 
-def reserve_inventory_delivery(db: Session, checkout_id: UUID, cart_id: UUID):
+def reserve_inventory_delivery(db: Session, checkout_id: UUID, cart_id: UUID, expires_at: datetime):
     """Reserves warehouse stock for delivery."""
     db.execute(text("""
         INSERT INTO inventory_reservations
-        (checkout_id, product_variant_id, quantity, source)
-        SELECT :checkout_id, ci.product_variant_id, ci.quantity, 'warehouse'
+        (checkout_id, product_variant_id, quantity, source_type, expires_at)
+        SELECT :checkout_id, ci.product_variant_id, ci.quantity, 'warehouse', :expires_at
         FROM cart_items ci
         WHERE ci.cart_id = :cart_id
-    """), {"checkout_id": checkout_id, "cart_id": cart_id})
+    """), {"checkout_id": checkout_id, "cart_id": cart_id, "expires_at": expires_at})
 
     db.execute(text("""
         UPDATE global_inventory gi
@@ -24,15 +25,16 @@ def reserve_inventory_delivery(db: Session, checkout_id: UUID, cart_id: UUID):
           AND gi.reserved_stock >= ci.quantity
     """), {"cart_id": cart_id})
 
-def reserve_inventory_pickup(db: Session, checkout_id: UUID, cart_id: UUID, store_id: UUID):
+
+def reserve_inventory_pickup(db: Session, checkout_id: UUID, cart_id: UUID, store_id: UUID, expires_at: datetime):
     """Reserves store stock for pickup."""
     db.execute(text("""
         INSERT INTO inventory_reservations
-        (checkout_id, product_variant_id, store_id, quantity, source)
-        SELECT :checkout_id, ci.product_variant_id, :store_id, ci.quantity, 'store'
+        (checkout_id, product_variant_id, store_id, quantity, source_type, expires_at)
+        SELECT :checkout_id, ci.product_variant_id, :store_id, ci.quantity, 'store', :expires_at
         FROM cart_items ci
         WHERE ci.cart_id = :cart_id
-    """), {"checkout_id": checkout_id, "cart_id": cart_id, "store_id": store_id})
+    """), {"checkout_id": checkout_id, "cart_id": cart_id, "store_id": store_id, "expires_at": expires_at})
 
     db.execute(text("""
         UPDATE store_inventory si
@@ -52,6 +54,7 @@ def reserve_inventory_pickup(db: Session, checkout_id: UUID, cart_id: UUID, stor
           AND gi.product_variant_id = ci.product_variant_id
     """), {"cart_id": cart_id})
 
+
 def release_reservations(db: Session, checkout_id: UUID):
     """Restores stock for failed/expired reservations."""
     rows = db.execute(text("""
@@ -59,7 +62,7 @@ def release_reservations(db: Session, checkout_id: UUID):
     """), {"cid": checkout_id}).fetchall()
 
     for r in rows:
-        if r.source == "warehouse":
+        if r.source_type == "warehouse":
             db.execute(text("""
                 UPDATE global_inventory
                 SET reserved_stock = reserved_stock + :qty,
@@ -82,6 +85,7 @@ def release_reservations(db: Session, checkout_id: UUID):
 
     db.execute(text("DELETE FROM inventory_reservations WHERE checkout_id = :cid"), {"cid": checkout_id})
 
+
 def finalize_reservations(db: Session, checkout_id: UUID):
     """
     Called strictly AFTER successful payment.
@@ -92,7 +96,7 @@ def finalize_reservations(db: Session, checkout_id: UUID):
     """), {"cid": checkout_id}).fetchall()
 
     for r in rows:
-        if r.source == "store":
+        if r.source_type == "store":
             # Stock formally leaves the store ecosystem
             db.execute(text("""
                 UPDATE store_inventory
@@ -102,8 +106,14 @@ def finalize_reservations(db: Session, checkout_id: UUID):
 
     # Erase ledger
     db.execute(text("DELETE FROM inventory_reservations WHERE checkout_id = :cid"), {"cid": checkout_id})
-    
+
+
 def release_inventory(db: Session, cart_id: UUID):
-    row = db.execute(text("SELECT id FROM checkout_sessions WHERE cart_id = :cid AND inventory_locked = TRUE LIMIT 1"), {"cid": cart_id}).fetchone()
+    """Backward compatibility wrapper for tasks/cart clears."""
+    row = db.execute(text("""
+        SELECT id FROM checkout_sessions 
+        WHERE cart_id = :cid AND inventory_locked = TRUE LIMIT 1
+    """), {"cid": cart_id}).fetchone()
+    
     if row:
         release_reservations(db, row.id)

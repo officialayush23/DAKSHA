@@ -407,39 +407,45 @@ class OrderChangeRequest(Base):
 
 class CheckoutSession(Base):
     __tablename__ = "checkout_sessions"
+    
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sessions.id"))
     cart_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("carts.id"))
     state: Mapped[db_enums.CheckoutStateEnum]
+    
+    # 👇 NEW: Added to track fulfillment choice through the checkout state machine
+    fulfillment_type: Mapped[Optional[db_enums.FulfillmentTypeEnum]]
+    store_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("stores.id"))
+    
     locked_price: Mapped[Optional[float]] = mapped_column(Numeric)
     reserved_until: Mapped[Optional[datetime]]
     inventory_locked: Mapped[bool] = mapped_column(default=False)
     payment_attempts: Mapped[int] = mapped_column(default=0)
     last_error: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     last_active_channel: Mapped[Optional[db_enums.ChannelEnum]]
     recovery_state: Mapped[Optional[str]]
     abandoned_at: Mapped[Optional[datetime]]
+    
     applied_coupon_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("coupons.id"),
         nullable=True,
     )
-
     applied_personal_offer_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("user_personalized_offers.id"),
         nullable=True,
     )
-
     discount_amount: Mapped[float] = mapped_column(
         Numeric,
         default=0,
     )
     
+    # Relationships
     session: Mapped["UserSession"] = relationship(back_populates="checkouts")
     user: Mapped["User"] = relationship()
     cart: Mapped["Cart"] = relationship()
-
 class Payment(Base):
     __tablename__ = "payments"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
