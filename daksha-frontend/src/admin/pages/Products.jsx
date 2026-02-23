@@ -124,7 +124,8 @@ export default function Products() {
 
   const [productForm, setProductForm] = useState({ name: "", brand: "", category: "", gender: "", fabric_type: "", description: "", occasion: "", active: true });
   const [variantForm, setVariantForm] = useState({ product_id: "", sku: "", color: "", size: "", base_price: "", active: true });
-  const [imageForm, setImageForm] = useState({ position: 0 });
+  // FIX 1: Added file: null to imageForm initial state
+  const [imageForm, setImageForm] = useState({ file: null, position: 0 });
 
   const fetchData = async () => {
     setLoading(true);
@@ -360,20 +361,22 @@ export default function Products() {
   };
 
   // --- Image Upload ---
+  // FIX 2: now reads from imageForm.file (set by convertToPng) instead of old imageFile state
   const handleImageUpload = async (e) => {
     e.preventDefault();
-    if (!currentVariant || !imageFile) return;
+    if (!currentVariant || !imageForm.file) return;
 
     setUploadingImage(true);
 
     try {
-      const fileExt = imageFile.name.split('.').pop();
+      const file = imageForm.file;
+      const fileExt = file.name.split('.').pop();
       const fileName = `${currentVariant.id}-${Date.now()}.${fileExt}`;
 
       // 1️⃣ Upload to Supabase Storage
       const { error: uploadError } = await supabase.storage
         .from("product_image")
-        .upload(fileName, imageFile);
+        .upload(fileName, file);
 
       if (uploadError) throw uploadError;
 
@@ -422,7 +425,8 @@ export default function Products() {
 
   const resetProductForm = () => setProductForm({ name: "", brand: "", category: "", gender: "", fabric_type: "", description: "", occasion: "", active: true });
   const resetVariantForm = () => setVariantForm({ product_id: "", sku: "", color: "", size: "", base_price: "", active: true });
-  const resetImageForm = () => { setImageForm({ position: 0 }); setImageFile(null); setImagePreview(null); setCurrentVariant(null); };
+  // FIX 3: resetImageForm now resets imageForm.file instead of old imageFile/imagePreview states
+  const resetImageForm = () => { setImageForm({ file: null, position: 0 }); setImageFile(null); setImagePreview(null); setCurrentVariant(null); };
 
   const openEditProductDialog = (p) => {
     setEditingProduct(p);
@@ -438,7 +442,42 @@ export default function Products() {
     });
     setIsProductDialogOpen(true);
   };
+  
+  const convertToPng = (file) => {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
 
+      // FIX: Resize if image is too large (max 1200px wide)
+      const MAX_WIDTH = 1200;
+      let width = img.width;
+      let height = img.height;
+      if (width > MAX_WIDTH) {
+        height = Math.round((height * MAX_WIDTH) / width);
+        width = MAX_WIDTH;
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, width, height);
+
+      canvas.toBlob(
+        (blob) => {
+          const pngName = file.name.replace(/\.[^.]+$/, "") + ".png";
+          const pngFile = new File([blob], pngName, { type: "image/png" });
+          setImageForm(prev => ({ ...prev, file: pngFile }));
+        },
+        "image/png"
+      );
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+};
   const openEditVariantDialog = (v, pid) => {
     setEditingVariant(v);
     setVariantForm({ ...v, product_id: pid, active: v.active !== false });
@@ -807,13 +846,78 @@ export default function Products() {
       </Dialog>
 
       <Dialog open={isImageDialogOpen} onOpenChange={setIsImageDialogOpen}>
-        <DialogContent><DialogHeader><DialogTitle>Add Image</DialogTitle></DialogHeader>
-          <form onSubmit={handleImageUpload}>
-            <div className="grid gap-4 py-4"><Input type="file" onChange={handleFileChange} accept="image/*" /><Input type="number" placeholder="Position (e.g., 0)" value={imageForm.position} onChange={e => setImageForm({ position: e.target.value })} /></div>
-            <DialogFooter><Button type="submit" disabled={uploadingImage}>Upload Image</Button></DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+  <DialogContent>
+    <DialogHeader><DialogTitle>Add Image</DialogTitle></DialogHeader>
+    <form onSubmit={handleImageUpload}>
+      <div className="grid gap-4 py-4">
+
+        {/* Drag & Drop Zone */}
+        <div
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            const file = e.dataTransfer.files[0];
+            if (file && file.type.startsWith("image/")) {
+              convertToPng(file);
+            }
+          }}
+          onClick={() => document.getElementById("image-file-input").click()}
+          className={`
+            border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
+            hover:border-primary hover:bg-primary/5
+            ${imageForm.file ? "border-green-500 bg-green-50" : "border-muted-foreground/30"}
+          `}
+        >
+          {imageForm.file ? (
+            <div className="flex flex-col items-center gap-2">
+              <img
+                src={URL.createObjectURL(imageForm.file)}
+                alt="Preview"
+                className="h-24 w-24 object-cover rounded-md"
+              />
+              <p className="text-sm text-muted-foreground">{imageForm.file.name}</p>
+              <p className="text-xs text-green-600 font-medium">✓ Converted & ready to upload</p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <p className="text-sm font-medium">Drag & drop an image here</p>
+              <p className="text-xs opacity-60">Supports JPG, WebP, AVIF — saved as PNG</p>
+            </div>
+          )}
+        </div>
+
+        {/* Hidden file input */}
+        <input
+          id="image-file-input"
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files[0];
+            if (file) convertToPng(file);
+          }}
+        />
+
+        {/* Position input */}
+        <Input
+          type="number"
+          placeholder="Position (e.g., 0)"
+          value={imageForm.position}
+          onChange={e => setImageForm(prev => ({ ...prev, position: e.target.value }))}
+        />
+      </div>
+
+      <DialogFooter>
+        <Button type="submit" disabled={uploadingImage || !imageForm.file}>
+          {uploadingImage ? "Uploading..." : "Upload Image"}
+        </Button>
+      </DialogFooter>
+    </form>
+  </DialogContent>
+</Dialog>
 
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent>
