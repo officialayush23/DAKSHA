@@ -477,3 +477,17 @@ class FinalizeCheckoutRequest(BaseModel):
 class ApplyCouponPayload(BaseModel):
     coupon_code: Optional[str] = None
     offer_id: Optional[UUID] = None
+    
+    
+# app/schemas/schemas.py
+
+class AddressResponse(BaseSchema):
+    id: UUID
+    label: Optional[str] = None
+    address_line1: str
+    address_line2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    country: str
+    is_default: bool

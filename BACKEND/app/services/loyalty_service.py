@@ -146,16 +146,7 @@ def credit_points_for_order(
 
     _update_cache(user_id, new_balance)
 
-    emit_event(
-        db=db,
-        event_type=EventTypeEnum.loyalty_credit,
-        channel=channel,
-        user_id=user_id,
-        entity_type=EntityTypeEnum.order,
-        entity_id=order_id,
-        quantity=final_points,
-        metadata={"tier": user.loyalty_tier},
-    )
+
 
     return final_points
 
@@ -186,15 +177,6 @@ def debit_points(
 
     _update_cache(user_id, new_balance)
 
-    emit_event(
-        db=db,
-        event_type=EventTypeEnum.loyalty_redeem,
-        channel=channel,
-        user_id=user_id,
-        entity_type=EntityTypeEnum.loyalty,
-        entity_id=ledger.id,
-        quantity=points,
-        metadata={"reason": reason},
-    )
+    
 
     return new_balance
