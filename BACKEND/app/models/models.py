@@ -418,6 +418,23 @@ class CheckoutSession(Base):
     payment_attempts: Mapped[int] = mapped_column(default=0)
     last_error: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_active_channel: Mapped[Optional[db_enums.ChannelEnum]]
+    recovery_state: Mapped[Optional[str]]
+    abandoned_at: Mapped[Optional[datetime]]
+    applied_coupon_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("coupons.id"),
+        nullable=True,
+    )
+
+    applied_personal_offer_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("user_personalized_offers.id"),
+        nullable=True,
+    )
+
+    discount_amount: Mapped[float] = mapped_column(
+        Numeric,
+        default=0,
+    )
     
     session: Mapped["UserSession"] = relationship(back_populates="checkouts")
     user: Mapped["User"] = relationship()
@@ -852,6 +869,10 @@ class UserPersonalizedOffer(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     agent_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("agent_runs.id"))
+    checkout_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    ForeignKey("checkout_sessions.id"),
+    index=True
+)
     
     offer_name: Mapped[Optional[str]]
     discount_type: Mapped[db_enums.CouponTypeEnum]
@@ -986,6 +1007,7 @@ class UserPersonalizedOfferEmbedding(Base):
         ForeignKey("user_personalized_offers.id", ondelete="CASCADE"),
         primary_key=True
     )
+    
     embedding: Mapped[List[float]] = mapped_column(Vector(768))
     model: Mapped[str] = mapped_column(default="nomic-embed-text-v1.5")
     created_at: Mapped[datetime] = mapped_column(

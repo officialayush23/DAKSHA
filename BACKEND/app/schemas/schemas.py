@@ -1,4 +1,6 @@
 # app/schemas/schemas.py
+from dataclasses import Field
+
 from pydantic import BaseModel, ConfigDict, EmailStr
 from uuid import UUID
 from typing import Optional, List, Dict, Any
@@ -425,3 +427,26 @@ class SessionContext(BaseSchema):
     last_product_viewed: Optional[UUID] = None
     funnel_stage: Optional[str] = None
     confidence: Optional[float] = None
+    
+    
+class ApplyCouponRequest(BaseModel):
+    checkout_id: str
+    coupon_code: str | None = None
+    personal_offer_id: str | None = None
+    cart_total: float
+    
+    
+class StoreAvailability(BaseModel):
+    store_id: UUID
+    name: str
+    address: str
+    distance_meters: float
+    
+    
+class StoreLookupRequest(BaseModel):
+    cart_id: UUID
+
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+
+    limit: int = Field(default=5, ge=1, le=20)
