@@ -86,7 +86,7 @@ def generate_candidates(
         rows = db.execute(text("""
             SELECT product_variant_id
             FROM trending_products
-            WHERE scope = 'global'
+            WHERE scope = 'all'
             ORDER BY rank_position ASC
             LIMIT 100
         """)).fetchall()

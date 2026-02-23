@@ -1,5 +1,4 @@
 # app/services/email_service.py
-# app/services/email_service.py
 
 import os
 import smtplib
@@ -7,6 +6,9 @@ import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from sqlalchemy.orm import Session
+
+# 👇 NEW: Import your centralized settings to reliably read the .env file
+from app.core.config import settings
 
 from app.models.models import OutboundMessage, User, UserEngagementEvent
 from app.enums.db_enums import DeliveryChannelEnum, EngagementStateEnum, EntityTypeEnum
@@ -20,18 +22,22 @@ except ImportError:
     RESEND_AVAILABLE = False
 
 def _send_smtp(to_email: str, subject: str, html_content: str) -> bool:
-    
-    
-    # 🛡️ SAFETY CHECK: Ensure email exists
+    # 🛡️ SAFETY CHECK: Ensure recipient email exists
     if not to_email:
         return False
         
     try:
-        smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-        smtp_port = int(os.getenv("SMTP_PORT", "587"))
-        smtp_user = os.getenv("SMTP_USERNAME")
-        smtp_pass = os.getenv("SMTP_PASSWORD")
-        from_email = os.getenv("SMTP_FROM_EMAIL", smtp_user)
+        # 👇 FIXED: Use the Pydantic settings object instead of os.getenv()
+        smtp_host = settings.SMTP_HOST
+        smtp_port = settings.SMTP_PORT
+        smtp_user = settings.SMTP_USERNAME
+        smtp_pass = settings.SMTP_PASSWORD
+        from_email = settings.SMTP_FROM_EMAIL
+
+        # 🛡️ NEW SAFETY CHECK: Catch missing credentials gracefully
+        if not smtp_user or not smtp_pass:
+            logger.error("SMTP Configuration missing. Please check SMTP_USERNAME and SMTP_PASSWORD in your .env")
+            return False
 
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
@@ -41,7 +47,10 @@ def _send_smtp(to_email: str, subject: str, html_content: str) -> bool:
 
         server = smtplib.SMTP(smtp_host, smtp_port)
         server.starttls()
-        server.login(smtp_user, smtp_pass)
+        
+        # Will no longer crash with 'NoneType has no attribute encode'
+        server.login(smtp_user, smtp_pass) 
+        
         server.sendmail(from_email, [to_email], msg.as_string())
         server.quit()
         return True
@@ -99,6 +108,7 @@ def send_email_and_log(
     db.add(engagement)
     db.flush()
 
+    # Try Resend first, fallback to standard SMTP (Gmail)
     sent = _send_resend(user.email, subject, html_content)
     if not sent:
         sent = _send_smtp(user.email, subject, html_content)

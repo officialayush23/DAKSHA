@@ -20,7 +20,7 @@ def get_trending_feed(db: Session, user_id: str = None, limit: int = 20):
         JOIN product_variants pv ON tp.product_variant_id = pv.id
         JOIN products p ON pv.product_id = p.id
         LEFT JOIN product_images pi ON pi.product_variant_id = pv.id AND pi.position = 1
-        WHERE tp.scope = 'global'
+        WHERE tp.scope = 'all'
         ORDER BY tp.rank_position ASC
         LIMIT :limit
     """)

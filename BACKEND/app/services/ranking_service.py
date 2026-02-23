@@ -59,7 +59,7 @@ def rank_candidates(
             SELECT 1.0 / rank_position
             FROM trending_products
             WHERE product_variant_id = pv.id
-              AND scope='global'
+              AND scope='all'
             LIMIT 1
         ), 0) AS trend_score
 

@@ -1,83 +1,5 @@
 # app/services/recommendation_service.py
-# from sqlalchemy.orm import Session
-# from sqlalchemy import text, func, desc
-# from app.services.embedding_service import generate_text_embedding
-# from app.services.impression_service import log_impressions
-# from app.models.models import ProductVariant, Product, UserPreferenceSummary
-# from app.services.pricing_service import resolve_variant_price
 
-# def get_hybrid_recommendations(
-#     db: Session, 
-#     user_id: str, 
-#     intent_text: str = None, 
-#     session_id: str = None,
-#     limit: int = 20
-# ):
-#     candidates = []
-    
-#     # 1. Vector Search
-#     query_vec = None
-#     if intent_text:
-#         query_vec = generate_text_embedding(intent_text)
-#     else:
-#         # Use User History from the table we just added to models.py
-#         user_pref = db.query(UserPreferenceSummary).filter_by(user_id=user_id).first()
-#         if user_pref and user_pref.embedding:
-#             query_vec = user_pref.embedding
-
-#     if query_vec:
-#         vector_str = str(query_vec)
-#         semantic_query = text(f"""
-#             SELECT pv.id, 1 - (pe.embedding <=> '{vector_str}') as score, 'semantic' as reason
-#             FROM product_variants pv
-#             JOIN product_multimodal_embeddings pe ON pv.id = pe.product_variant_id
-#             WHERE pe.modality = 'text'
-#             ORDER BY pe.embedding <=> '{vector_str}'
-#             LIMIT :limit
-#         """)
-#         rows = db.execute(semantic_query, {"limit": limit}).fetchall()
-#         candidates.extend([dict(row._mapping) for row in rows])
-
-#     # 2. Trending Fallback
-#     if len(candidates) < limit:
-#         # Corrected Table Name: trending_products
-#         trending_query = text("""
-#             SELECT product_variant_id as id, trending_score as score, 'trending' as reason
-#             FROM trending_products
-#             WHERE scope = 'global'
-#             ORDER BY rank_position ASC
-#             LIMIT :limit
-#         """)
-#         rows = db.execute(trending_query, {"limit": limit - len(candidates)}).fetchall()
-#         candidates.extend([dict(row._mapping) for row in rows])
-
-#     # 3. Hydrate
-#     final_results = []
-#     seen = set()
-#     for c in candidates:
-#         if c['id'] in seen: continue
-#         seen.add(c['id'])
-        
-#         variant = db.query(ProductVariant).get(c['id'])
-#         if not variant: continue
-        
-#         price = resolve_variant_price(db, variant)
-
-#         final_results.append({
-#             "variant_id": variant.id,
-#             "product_id": variant.product_id,
-#             "name": variant.product.name,
-#             "brand": variant.product.brand,
-#             "category": variant.product.category,
-#             "base_price": price["base_price"],
-#             "final_price": price["final_price"],
-#             "offer_name": price["offer_name"],
-#             "score": float(c.get("score", 0.0)),
-#             "reason": c["reason"],
-#         })
-
-    
-#     return final_results[:limit]
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.services.embedding_service import generate_text_embedding
@@ -139,7 +61,7 @@ def get_hybrid_recommendations(
     trending_query = text("""
         SELECT product_variant_id, trending_score
         FROM trending_products
-        WHERE scope = 'global'
+        WHERE scope = 'all'
         ORDER BY rank_position ASC
         LIMIT 50
     """)
