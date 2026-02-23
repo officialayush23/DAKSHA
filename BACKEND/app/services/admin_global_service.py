@@ -42,7 +42,9 @@ from app.services.product_embedding_service import (
     upsert_variant_image_embeddings, # Wrapper wrapper
 )
 from app.services.coupon_embedding_service import upsert_coupon_embedding
-
+from app.services.email_service import send_email_and_log
+from app.services.telegram_notification_service import send_telegram_and_log
+import asyncio
 
 # =========================================================
 # ADMIN AUDIT + AGENT LOGGING (MANDATORY)
@@ -509,23 +511,58 @@ def decide_exchange(
 # =========================================================
 # ORDER MUTATIONS (STATUS / ADDRESS / ITEMS)
 # =========================================================
-def update_order_status(db: Session, order_id: uuid.UUID, payload, admin_id, reason: str):
+async def update_order_status(db: Session, order_id: uuid.UUID, payload, admin_id, reason: str):
     order = db.get(Order, order_id)
     if not order: raise ValueError("Order not found")
     
     order.order_status = payload.status
     db.add(OrderStatusHistory(order_id=order_id, status=payload.status, description=payload.description))
     
-    # Trigger Sales Facts if confirmed
     if payload.status == OrderStatusEnum.confirmed:
-        # (This logic is usually in a DB trigger, but can be explicit here too)
         pass
 
     admin_audit_log(db, admin_id=admin_id, action="update_order_status", entity_type="order", entity_id=order_id, reason=reason)
     db.commit()
+
+    try:
+        user_id = order.user_id
+        session_id = None 
+        # 👇 FIXED: Use .value to get the raw string instead of the Enum object
+        status_label = payload.status.value.replace("_", " ").title()
+
+        email_html = f"""
+        <h3>Your Order Status Has Been Updated</h3>
+        <p>Order ID: {order.id}</p>
+        <p>New Status: <strong>{status_label}</strong></p>
+        <p>Notes: {payload.description or 'No additional notes provided.'}</p>
+        """
+
+        send_email_and_log(
+            db=db,
+            user_id=user_id,
+            session_id=session_id,
+            subject=f"Order Update: {status_label}",
+            html_content=email_html,
+            message_type="order_status_update",
+            entity_id=order.id,                 # ⬅️ FIXED: Tie the event directly to the Order
+            entity_type=EntityTypeEnum.order    # ⬅️ FIXED
+        )
+
+        telegram_msg = f"📦 *Order Update*\nOrder: `{str(order.id)[:8]}`\nStatus: *{status_label}*"
+        
+        await send_telegram_and_log(
+            db=db,
+            user_id=user_id,
+            session_id=session_id,
+            text=telegram_msg,
+            message_type="order_status_update",
+            entity_id=order.id,                 # ⬅️ FIXED: Tie the event directly to the Order
+            entity_type=EntityTypeEnum.order    # ⬅️ FIXED
+        )
+    except Exception as e:
+        print(f"Warning: Failed to send order status notifications: {e}")
+
     return order
-
-
 
 # =========================================================
 # OUTBOUND MESSAGING + LOGS

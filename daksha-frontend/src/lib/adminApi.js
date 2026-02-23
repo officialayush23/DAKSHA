@@ -18,7 +18,6 @@ export const apiClient = async (endpoint, method = 'GET', data = null, params = 
     },
   };
 
-  // Inject Supabase Token
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData?.session?.access_token;
 
@@ -35,7 +34,18 @@ export const apiClient = async (endpoint, method = 'GET', data = null, params = 
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      
+      // 👇 FIXED: Properly parse FastAPI 422 Validation Arrays!
+      let errorMessage = `HTTP ${response.status}`;
+      if (error.detail) {
+        if (Array.isArray(error.detail)) {
+          // Extracts exact field errors like "body.status: Input should be a valid enum"
+          errorMessage = error.detail.map(e => `${e.loc.join('.')}: ${e.msg}`).join(', ');
+        } else {
+          errorMessage = error.detail;
+        }
+      }
+      throw new Error(errorMessage);
     }
 
     return await response.json();
@@ -44,8 +54,6 @@ export const apiClient = async (endpoint, method = 'GET', data = null, params = 
     throw error;
   }
 };
-
-
 
 // --- Admin Service ---
 export const AdminService = {
@@ -154,7 +162,7 @@ export const AdminService = {
     apiClient(`/admin/global/orders/${orderId}`, 'GET'),
 
   updateDeliveryOrderStatus: (orderId, data) =>
-    apiClient(`/admin/global/orders/${orderId}/status?reason=admin_update_order_status`, 'POST', data),
+    apiClient(`/admin/global/orders/${orderId}/status?reason=admin_update_order_status`, 'PATCH', data),
 
   // ==========================================
   // 💬 CHAT HANDOFFS (NEW)

@@ -237,14 +237,15 @@ def list_orders_api(
     return list_all_orders(db)
 
 @router.patch("/orders/{order_id}/status")
-def update_order_status_api(
+async def update_order_status_api(
     order_id: UUID,
     payload: OrderStatusUpdate,
-    db: Session = Depends(get_db),
     reason: str = Query(...),
+    db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
-    return update_order_status(db, order_id, payload, admin,reason)
+    # 👇 FIXED: Added 'await'
+    return await update_order_status(db, order_id, payload, admin.id, reason)
 
 @router.patch("/orders/{order_id}/address")
 def change_order_address_api(
@@ -254,7 +255,7 @@ def change_order_address_api(
     reason: str = Query(...),
     admin=Depends(get_current_admin),
 ):
-    return change_order_address(db, order_id, payload, admin,reason)
+    return change_order_address(db, order_id, payload, admin.id,reason)
 
 # =========================================================
 # RETURNS & EXCHANGES

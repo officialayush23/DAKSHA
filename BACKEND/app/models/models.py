@@ -407,7 +407,30 @@ class OrderChangeRequest(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     
     order: Mapped["Order"] = relationship(back_populates="change_requests")
+class RescheduleRequest(Base):
+    __tablename__ = "reschedule_requests"
 
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"))
+    fulfillment_type: Mapped[db_enums.FulfillmentTypeEnum]
+    requested_slot: Mapped[Optional[datetime]]
+    user_selected_slot: Mapped[Optional[datetime]]
+    status: Mapped[db_enums.RescheduleStatusEnum] = mapped_column(default=db_enums.RescheduleStatusEnum.pending)
+    expires_at: Mapped[Optional[datetime]]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
+    
+    
+class DeliveryAttemptEvent(Base):
+    __tablename__ = "delivery_attempt_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"))
+    shipment_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("shipments.id"))
+    event_code: Mapped[Optional[str]]
+    event_message: Mapped[Optional[str]]
+    proof_url: Mapped[Optional[str]]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 class CheckoutSession(Base):
     __tablename__ = "checkout_sessions"
     
@@ -511,6 +534,7 @@ class Pickup(Base):
     scheduled_time: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     status: Mapped[db_enums.PickupStatusEnum] = mapped_column(default=db_enums.PickupStatusEnum.pending)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     
     order: Mapped["Order"] = relationship(back_populates="pickup")
 
@@ -987,7 +1011,10 @@ class FulfillmentAttempt(Base):
     
     status: Mapped[Optional[str]]
     last_error_message: Mapped[Optional[str]] = mapped_column(Text)
-    
+    channel: Mapped[Optional[db_enums.DeliveryChannelEnum]]
+    last_attempt_at: Mapped[Optional[datetime]]
+    resolved: Mapped[bool] = mapped_column(default=False)
+        
     agent_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("agent_runs.id"))
     next_retry_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     

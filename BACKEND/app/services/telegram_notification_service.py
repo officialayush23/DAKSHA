@@ -10,11 +10,13 @@ async def send_telegram_and_log(
     db: Session,
     *,
     user_id,
-    session_id,
+    session_id=None,
     text: str,
     message_type: str,
     buttons=None,
     source: str = "system",
+    entity_id=None,
+    entity_type: EntityTypeEnum = EntityTypeEnum.user_session
 ):
     tg = (
         db.query(TelegramUser)
@@ -24,11 +26,14 @@ async def send_telegram_and_log(
     if not tg:
         return None
 
+    # 🛡️ SAFETY CHECK: Ensure we always have a valid UUID for the database
+    safe_entity_id = entity_id or session_id or user_id
+
     engagement = UserEngagementEvent(
         user_id=user_id,
         session_id=session_id,
-        entity_type=EntityTypeEnum.user_session,
-        entity_id=session_id,
+        entity_type=entity_type,
+        entity_id=safe_entity_id,
         channel=DeliveryChannelEnum.telegram,
         state=EngagementStateEnum.unopened,
         event_metadata_data={

@@ -30,12 +30,20 @@ class PaymentStatusEnum(str, Enum):
     success = "success"
     failed = "failed"
     abandoned = "abandoned"
+class RescheduleStatusEnum(str, Enum):
+    pending = "pending"
+    user_selected = "user_selected"
+    expired = "expired"
+    completed = "completed"
+    cancelled = "cancelled"
+    
 
 class PickupStatusEnum(str, Enum):
     pending = "pending"
     ready_for_pickup = "ready_for_pickup"
     picked_up = "picked_up"
     cancelled = "cancelled"
+    missed = "missed"  # ⬅️ NEW
 
 class CheckoutStateEnum(str, Enum):
     INIT = "INIT"
@@ -99,6 +107,7 @@ class ShipmentStatusEnum(str, Enum):
     delivered = "delivered"
     delayed = "delayed"
     cancelled = "cancelled"
+    delivery_failed = "delivery_failed"  # ⬅️ NEW
 
 class TrendingScopeEnum(str, Enum):
     all = "all"   # underscore to avoid keyword clash

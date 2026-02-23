@@ -83,20 +83,24 @@ export default function Orders() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadingOrders, setLoadingOrders] = useState(true);
+
+  const [draftStatus, setDraftStatus] = useState("");
+  const [draftDescription, setDraftDescription] = useState("");
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   
   // Status options based on database schema
+
   const orderStatuses = [
-    { value: "created", label: "Created", color: "bg-blue-500", description: "Order placed" },
-    { value: "processing", label: "Processing", color: "bg-yellow-500", description: "Order being prepared" },
+    { value: "created", label: "Created", color: "bg-gray-500", description: "Order placed" },
+    { value: "confirmed", label: "Confirmed", color: "bg-blue-500", description: "Payment successful & confirmed" },
+    { value: "packed", label: "Packed", color: "bg-yellow-500", description: "Order packed and ready" },
     { value: "shipped", label: "Shipped", color: "bg-purple-500", description: "Sent for delivery" },
-    { value: "out_for_delivery", label: "Out for Delivery", color: "bg-indigo-500", description: "On the way" },
+    { value: "ready_for_pickup", label: "Ready for Pickup", color: "bg-orange-500", description: "Waiting at store" },
     { value: "delivered", label: "Delivered", color: "bg-green-500", description: "Delivered successfully" },
-    { value: "cancelled", label: "Cancelled", color: "bg-red-500", description: "Order cancelled" },
-    { value: "returned", label: "Returned", color: "bg-orange-500", description: "Return initiated" }
+    { value: "cancelled", label: "Cancelled", color: "bg-red-500", description: "Order cancelled" }
   ];
 
   // --- 1. Fetch All Orders ---
@@ -158,17 +162,15 @@ export default function Orders() {
   };
 
   // --- 3. Update Order Status ---
-  const handleStatusUpdate = async (newStatus, description = "") => {
+ const handleStatusUpdate = async (newStatus, description = "") => {
     if (!selectedOrder) return;
     setUpdating(true);
     try {
-      // Use the new delivery order status endpoint
       await AdminService.updateDeliveryOrderStatus(selectedOrder.id, { 
         status: newStatus, 
         description: description || `Status changed to ${newStatus}` 
       });
       
-      // Update local state
       const updatedOrder = { 
         ...selectedOrder, 
         status: newStatus,
@@ -176,17 +178,16 @@ export default function Orders() {
       };
       
       setSelectedOrder(updatedOrder);
-      
-      // Update in orders list
       setOrders(prev => prev.map(order => 
         order.id === selectedOrder.id ? updatedOrder : order
       ));
       
-      // Show success message
+      // Reset description after successful update
+      setDraftDescription(""); 
       setError(null);
       toast.success(`Order status updated to ${newStatus}`);
     } catch (err) {
-      setError("Failed to update status. Please try again.");
+      setError(`Failed to update: ${err.message}`);
       toast.error("Failed to update status");
       console.error(err);
     } finally {
@@ -211,9 +212,9 @@ export default function Orders() {
     
     const matchesTab = 
       activeTab === "all" ||
-      (activeTab === "active" && !['delivered', 'cancelled', 'returned'].includes(order.status)) ||
+      (activeTab === "active" && !['delivered', 'cancelled'].includes(order.status)) ||
       (activeTab === "delivered" && order.status === 'delivered') ||
-      (activeTab === "pending" && order.status === 'processing');
+      (activeTab === "pending" && order.status === 'confirmed'); // ⬅️ FIXED: 'confirmed' instead of 'processing'
     
     return matchesSearch && matchesStatus && matchesTab;
   });
@@ -403,7 +404,12 @@ export default function Orders() {
                       <TableRow 
                         key={order.id} 
                         className={`cursor-pointer hover:bg-muted/50 ${selectedOrder?.id === order.id ? 'bg-muted' : ''}`}
-                        onClick={() => setSelectedOrder(order)}
+                        onClick={() => {
+                          // 👇 FIXED: Reset draft states when clicking a new order
+                          setSelectedOrder(order);
+                          setDraftStatus(order.status);
+                          setDraftDescription("");
+                        }}
                       >
                         <TableCell className="font-medium">
                           <div className="flex items-center gap-2">
@@ -514,8 +520,8 @@ export default function Orders() {
                   <div className="space-y-3">
                     <Label>Update Order Status</Label>
                     <Select 
-                      value={selectedOrder.status} 
-                      onValueChange={(value) => handleStatusUpdate(value)}
+                      value={draftStatus} // ⬅️ Bound to draft status
+                      onValueChange={setDraftStatus} // ⬅️ Updates local state, doesn't fire API yet
                       disabled={updating}
                     >
                       <SelectTrigger>
@@ -537,12 +543,14 @@ export default function Orders() {
                       placeholder="Add status description or notes..."
                       className="text-sm"
                       rows={2}
+                      value={draftDescription} // ⬅️ Bound to state
+                      onChange={(e) => setDraftDescription(e.target.value)} // ⬅️ Bound to state
                     />
                     
                     <Button 
                       className="w-full"
-                      onClick={() => handleStatusUpdate(selectedOrder.status)}
-                      disabled={updating}
+                      onClick={() => handleStatusUpdate(draftStatus, draftDescription)} // ⬅️ Fires API with draft data!
+                      disabled={updating || !draftStatus}
                     >
                       {updating ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
