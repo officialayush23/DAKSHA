@@ -1,11 +1,12 @@
 # app/service/checkout_service.py
 # app/services/checkout_service.py
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone # ⬅️ IMPORTED timezone
 from uuid import UUID
 from sqlalchemy.orm import Session
 
-from app.models.models import CheckoutSession, Order, OrderItem, CartItem
+# 👇 FIXED: Imported OrderStatusHistory
+from app.models.models import CheckoutSession, Order, OrderItem, CartItem, UserAddress, OrderStatusHistory
 from app.enums.db_enums import (
     CheckoutStateEnum,
     OrderStatusEnum,
@@ -29,7 +30,6 @@ from app.services.email_service import send_email_and_log
 from app.services.telegram_notification_service import send_telegram_and_log
 from app.services.event_service import emit_event
 
-
 def create_checkout_after_fulfillment(
     db: Session,
     *,
@@ -40,11 +40,6 @@ def create_checkout_after_fulfillment(
     store_id: UUID | None = None,
     channel: ChannelEnum = ChannelEnum.web,
 ):
-    """
-    Creates checkout + reserves inventory atomically.
-    Idempotent: returns existing active checkout if present.
-    """
-
     # Prevent duplicate checkout reservations
     existing = (
         db.query(CheckoutSession)
@@ -63,7 +58,9 @@ def create_checkout_after_fulfillment(
         raise ValueError("Cart is empty")
 
     subtotal = sum(i.quantity * i.variant.base_price for i in items)
-    expires_at = datetime.utcnow() + timedelta(minutes=12)
+    
+    # ⬅️ FIXED: Use timezone-aware datetime
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=12)
 
     checkout = CheckoutSession(
         user_id=user_id,
@@ -78,7 +75,7 @@ def create_checkout_after_fulfillment(
         last_active_channel=channel,
     )
     db.add(checkout)
-    db.flush()  # get checkout.id
+    db.flush()  
 
     # -------- RESERVE INVENTORY --------
     if fulfillment_type == FulfillmentTypeEnum.delivery:
@@ -98,7 +95,7 @@ def create_checkout_after_fulfillment(
         entity_type=EntityTypeEnum.checkout,
         entity_id=checkout.id,
         metadata={
-            "cart_value": float(subtotal),  # ⬅️ FIXED: Cast Decimal to float for JSONB serialization
+            "cart_value": float(subtotal),  
             "item_count": len(items),
             "fulfillment": fulfillment_type.value,
         },
@@ -122,10 +119,12 @@ def create_checkout_after_fulfillment(
     db.refresh(checkout)
     return checkout
 
+
 def finalize_checkout(
     db: Session,
     *,
     checkout_id: UUID,
+    delivery_address_id: UUID | None = None,  
     scheduled_time=None,
     redeem_loyalty_points: int = 0,
     agent_run_id: UUID | None = None,
@@ -137,19 +136,26 @@ def finalize_checkout(
     if checkout.state == CheckoutStateEnum.ORDER_CONFIRMED:
         return {"status": "already_completed"}
 
+    # 1. Address Validation & Snapshotting ---------------------------
+    address_snapshot = None
+    if checkout.fulfillment_type == FulfillmentTypeEnum.delivery:
+        if not delivery_address_id:
+            raise ValueError("Delivery address is required for delivery orders.")
+        
+        addr_obj = db.query(UserAddress).filter(
+            UserAddress.id == delivery_address_id, 
+            UserAddress.user_id == checkout.user_id
+        ).first()
+        
+        if not addr_obj:
+            raise ValueError("Invalid delivery address.")
+            
+        # Create a hard text snapshot of the address for history
+        address_snapshot = f"{addr_obj.label or 'Home'}: {addr_obj.address_line1}, {addr_obj.address_line2 or ''}, {addr_obj.city}, {addr_obj.state}, {addr_obj.pincode}"
+    # ----------------------------------------------------------------
+
     checkout.payment_attempts += 1
     final_amount = float(checkout.locked_price) - float(checkout.discount_amount)
-
-    # -------- EVENT: payment started --------
-    emit_event(
-        db,
-        event_type=EventTypeEnum.payment_started,
-        user_id=checkout.user_id,
-        session_id=checkout.session_id,
-        channel=checkout.last_active_channel,
-        entity_type=EntityTypeEnum.checkout,
-        entity_id=checkout.id,
-    )
 
     # -------- PROCESS PAYMENT --------
     success, payment = process_payment(
@@ -179,12 +185,12 @@ def finalize_checkout(
             entity_id=checkout.id,
             metadata={
                 "reason_code": "gateway_fail",
-                "reason": payment.failure_reason,
+                "reason": str(payment.failure_reason),
             },
         )
 
         db.commit()
-        return {"status": "payment_failed"}
+        return {"status": "payment_failed", "reason": payment.failure_reason}
 
     # -------- PAYMENT SUCCESS EVENT --------
     emit_event(
@@ -203,7 +209,9 @@ def finalize_checkout(
         user_id=checkout.user_id,
         fulfillment_type=checkout.fulfillment_type,
         store_id=checkout.store_id,
-        order_status=OrderStatusEnum.confirmed,
+        delivery_address_id=delivery_address_id,  
+        delivery_address=address_snapshot,        
+        order_status=OrderStatusEnum.confirmed, # ⬅️ Status is 'confirmed'
         total_amount=final_amount,
         last_agent_run_id=agent_run_id,
     )
@@ -211,6 +219,14 @@ def finalize_checkout(
     db.flush()
 
     payment.order_id = order.id
+
+    # 👇 Write to OrderStatusHistory ledger
+    status_history = OrderStatusHistory(
+        order_id=order.id,
+        status=OrderStatusEnum.confirmed,
+        description="Order placed and payment successful."
+    )
+    db.add(status_history)
 
     emit_event(
         db,
@@ -222,13 +238,12 @@ def finalize_checkout(
         entity_id=order.id,
         price=final_amount,
         metadata={
-            "checkout_duration_sec": (
-                datetime.utcnow() - checkout.created_at
-            ).total_seconds()
+            # ⬅️ FIXED: Used datetime.now(timezone.utc) to prevent subtract naive/aware crash
+            "checkout_duration_sec": float((datetime.now(timezone.utc) - checkout.created_at).total_seconds())
         },
     )
 
-    # -------- TRANSFER ITEMS --------
+    # -------- TRANSFER ITEMS (Cart to Order) --------
     items = db.query(CartItem).filter(CartItem.cart_id == checkout.cart_id).all()
     for item in items:
         db.add(OrderItem(

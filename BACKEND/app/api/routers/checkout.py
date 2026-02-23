@@ -3,13 +3,16 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from uuid import UUID
+from typing import List
+from datetime import datetime, timezone # ⬅️ Imported for time parsing
 
 from app.core.deps import get_db
-from app.models.models import CheckoutSession
+from app.models.models import CheckoutSession, UserAddress
 from app.enums.db_enums import FulfillmentTypeEnum
 
 from app.schemas.schemas import (
-    DeliveryCheckoutRequest, PickupCheckoutRequest, FinalizeCheckoutRequest, ApplyCouponPayload
+    DeliveryCheckoutRequest, PickupCheckoutRequest, FinalizeCheckoutRequest, 
+    ApplyCouponPayload, AddressResponse
 )
 from app.services.checkout_service import create_checkout_after_fulfillment, finalize_checkout
 from app.services.coupon_service import apply_coupon, get_eligible_coupons
@@ -32,12 +35,23 @@ def start_delivery_checkout(payload: DeliveryCheckoutRequest, db: Session = Depe
     except Exception as e:
         raise HTTPException(400, str(e))
 
-# 2️⃣ FIND PICKUP STORES
+# 2️⃣ GET ADDRESSES FOR DELIVERY CHECKOUT
+@router.get("/{checkout_id}/addresses", response_model=List[AddressResponse])
+def get_checkout_addresses(checkout_id: UUID, db: Session = Depends(get_db)):
+    """Fetches the saved addresses for the user currently checking out."""
+    checkout = db.get(CheckoutSession, checkout_id)
+    if not checkout:
+        raise HTTPException(404, "Checkout not found")
+
+    addresses = db.query(UserAddress).filter(UserAddress.user_id == checkout.user_id).all()
+    return addresses
+
+# 3️⃣ FIND PICKUP STORES
 @router.get("/pickup/stores")
 def pickup_stores(cart_id: UUID, lat: float, lng: float, db: Session = Depends(get_db)):
     return get_nearest_stores_with_cart(db, cart_id, lat, lng)
 
-# 3️⃣ START PICKUP CHECKOUT (Store Selected)
+# 4️⃣ START PICKUP CHECKOUT (Store Selected)
 @router.post("/pickup")
 def start_pickup_checkout(payload: PickupCheckoutRequest, db: Session = Depends(get_db)):
     try:
@@ -53,7 +67,7 @@ def start_pickup_checkout(payload: PickupCheckoutRequest, db: Session = Depends(
     except Exception as e:
         raise HTTPException(400, str(e))
 
-# 4️⃣ GET COUPONS
+# 5️⃣ GET COUPONS
 @router.get("/{checkout_id}/coupons")
 def coupons(checkout_id: UUID, db: Session = Depends(get_db)):
     checkout = db.get(CheckoutSession, checkout_id)
@@ -62,7 +76,7 @@ def coupons(checkout_id: UUID, db: Session = Depends(get_db)):
 
     return get_eligible_coupons(db, checkout.user_id, checkout.locked_price, set())
 
-# 5️⃣ APPLY COUPON
+# 6️⃣ APPLY COUPON
 @router.post("/{checkout_id}/apply-coupon")
 def apply_coupon_route(checkout_id: UUID, payload: ApplyCouponPayload, db: Session = Depends(get_db)):
     checkout = db.get(CheckoutSession, checkout_id)
@@ -75,21 +89,29 @@ def apply_coupon_route(checkout_id: UUID, payload: ApplyCouponPayload, db: Sessi
     )
     return {"status": "success", "discount_amount": discount}
 
-# 6️⃣ FINALIZE (PAY)
+# 7️⃣ FINALIZE (PAY)
 @router.post("/{checkout_id}/finalize")
 def finalize_checkout_route(checkout_id: UUID, payload: FinalizeCheckoutRequest, db: Session = Depends(get_db)):
     try:
-        # ⬇️ FIXED: Removed fulfillment_type and store_id
+        # ⬇️ FIXED: Ensure scheduled_time is parsed into a timezone-aware datetime object if provided
+        parsed_time = None
+        if payload.scheduled_time:
+            # Parse the ISO string. Replace 'Z' with '+00:00' so fromisoformat handles the UTC timezone natively.
+            parsed_time = datetime.fromisoformat(payload.scheduled_time.replace('Z', '+00:00'))
+            # If the resulting datetime is naive (no timezone attached by the frontend string), force it to UTC.
+            if parsed_time.tzinfo is None:
+                parsed_time = parsed_time.replace(tzinfo=timezone.utc)
+
         result = finalize_checkout(
             db=db,
             checkout_id=checkout_id,
             delivery_address_id=payload.delivery_address_id,
-            scheduled_time=payload.scheduled_time,
+            scheduled_time=parsed_time, # Pass the safe datetime object
             redeem_loyalty_points=payload.redeem_loyalty_points,
         )
         if result.get("status") == "payment_failed":
             raise HTTPException(402, result.get("reason", "Payment Failed"))
             
         return result
-    except Exception as e:
+    except ValueError as e:
         raise HTTPException(400, str(e))
