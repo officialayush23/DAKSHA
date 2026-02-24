@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Card, Button, Carousel } from 'antd'; 
+import { Card } from 'antd'; 
 import { Send, ShoppingBag, MapPin, Sparkles, User, Bot } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-// 👇 FIXED: Added SessionService import
 import api, { SessionService } from '../lib/api'; 
 import { toast } from 'sonner';
 
@@ -13,18 +12,16 @@ export default function ChatInterface() {
     { 
       role: 'assistant', 
       content: "Welcome back. I am your Daksha Concierge. How may I assist your style journey today?",
-      current_agent: "AI Concierge" 
+      current_agent: "Unified Agent" 
     }
   ]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const [currentAgent, setCurrentAgent] = useState("AI Concierge");
-  
-  // 👇 FIXED: Added state to hold the session_id
+  const [currentAgent, setCurrentAgent] = useState("Unified Agent");
   const [sessionId, setSessionId] = useState(null);
   const scrollRef = useRef(null);
 
-  // 👇 FIXED: Fetch the active session when the chat component mounts
+  // Fetch the active session when the chat component mounts
   useEffect(() => {
     const fetchSession = async () => {
       try {
@@ -62,35 +59,29 @@ export default function ChatInterface() {
     setIsTyping(true);
 
     try {
-      // 👇 FIXED: Passed session_id in the body exactly as the backend requested!
       const res = await api.post('/chat/', { 
         message: text,
         session_id: sessionId
       });
       
       const data = res.data || res;
-      
       if (data.current_agent) {
         setCurrentAgent(data.current_agent);
       }
 
+      // 👇 PARSING MAGIC: Fallback to multiple common JSON keys your backend might send
+      const uiData = data.ui_data || {};
+      const productsList = uiData.products || uiData.trending_products || uiData.items || [];
+
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: data.response || "I didn't quite catch that.",
-        products: data.ui_elements?.products || [],
-        actions: data.ui_elements?.actions || []
+        content: data.response || "I have processed your request.",
+        products: productsList
       }]);
 
     } catch (err) {
       console.error("Agent Error:", err);
-      
-      if (err.response && err.response.status === 422) {
-        console.error("🚨 SCHEMA MISMATCH DETAILS 🚨:", JSON.stringify(err.response.data.detail, null, 2));
-        toast.error("Format Error: Check browser console for exact backend requirements.");
-      } else {
-        toast.error("Connection lost. Please try again.");
-      }
-
+      toast.error("Connection lost. Please try again.");
       setMessages(prev => [...prev, { 
         role: 'assistant', 
         content: "I apologize, I'm experiencing a brief interruption in my service." 
@@ -131,7 +122,8 @@ export default function ChatInterface() {
               animate={{ opacity: 1, y: 0 }}
               className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              <div className={`flex gap-4 max-w-[80%] ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+              <div className={`flex gap-4 max-w-[90%] md:max-w-[80%] ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                
                 {/* Avatar Icons */}
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border ${
                   m.role === 'user' ? 'bg-zinc-100 border-zinc-200' : 'bg-black border-black text-white'
@@ -139,9 +131,10 @@ export default function ChatInterface() {
                   {m.role === 'user' ? <User size={14} /> : <Bot size={14} />}
                 </div>
 
-                <div className={`space-y-4 ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+                <div className={`space-y-4 ${m.role === 'user' ? 'items-end' : 'items-start'} overflow-hidden`}>
+                  
                   {/* Message Bubble */}
-                  <div className={`p-5 rounded-2xl text-[15px] leading-relaxed shadow-sm transition-all ${
+                  <div className={`p-5 rounded-2xl text-[15px] leading-relaxed shadow-sm transition-all inline-block ${
                     m.role === 'user' 
                       ? 'bg-zinc-900 text-white rounded-tr-none' 
                       : 'bg-[#F9F9F9] text-zinc-800 border border-zinc-100 rounded-tl-none'
@@ -149,26 +142,46 @@ export default function ChatInterface() {
                     {m.content}
                   </div>
 
-                  {/* Optional Product Carousel */}
+                  {/* 👇 HORIZONTAL INFINITE SCROLL GRID FOR PRODUCTS 👇 */}
                   {m.products?.length > 0 && (
-                    <div className="w-[280px] md:w-[480px] py-2">
-                      <Carousel dots={false} arrows infinite={false} slidesToShow={window.innerWidth > 768 ? 2 : 1}>
-                        {m.products.map((p, idx) => (
-                          <div key={idx} className="px-2">
-                            <Card
-                              hoverable
-                              className="rounded-2xl border-zinc-100 overflow-hidden shadow-sm"
-                              cover={<img src={p.image} className="h-40 object-cover bg-zinc-50" />}
-                              actions={[
-                                <ShoppingBag key="add" size={16} onClick={() => onAction(`Add ${p.name} to bag`)} />,
-                                <MapPin key="info" size={16} />
-                              ]}
-                            >
-                              <Meta title={<span className="font-bold text-sm">{p.name}</span>} description={`₹${p.price}`} />
-                            </Card>
-                          </div>
-                        ))}
-                      </Carousel>
+                    <div className="flex overflow-x-auto gap-4 pb-4 pt-2 snap-x scrollbar-hide w-full max-w-[300px] sm:max-w-[450px] md:max-w-[600px]">
+                      {m.products.map((p, idx) => (
+                        <div key={idx} className="snap-start shrink-0 w-[200px]">
+                          <Card
+                            hoverable
+                            className="rounded-2xl border-zinc-200 overflow-hidden shadow-sm hover:shadow-md transition-all h-full flex flex-col"
+                            bodyStyle={{ padding: '12px' }}
+                            cover={
+                              <div className="h-40 w-full bg-zinc-100 overflow-hidden">
+                                <img 
+                                  // Defensively handle different image key names from backend
+                                  src={p.image || p.image_url || "https://via.placeholder.com/200"} 
+                                  alt={p.name}
+                                  className="w-full h-full object-cover" 
+                                />
+                              </div>
+                            }
+                            actions={[
+                              <ShoppingBag 
+                                key="add" 
+                                size={18} 
+                                className="text-zinc-600 hover:text-black transition-colors"
+                                onClick={() => onAction(`Add ${p.name} to my cart`)} 
+                              />
+                            ]}
+                          >
+                            <Meta 
+                              title={<span className="font-bold text-sm whitespace-normal line-clamp-2 leading-tight">{p.name}</span>} 
+                              description={
+                                <div className="mt-2 text-black font-semibold">
+                                  {/* Handle price or final_price keys */}
+                                  ₹{p.final_price || p.price || p.base_price || 0}
+                                </div>
+                              } 
+                            />
+                          </Card>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -185,20 +198,17 @@ export default function ChatInterface() {
               <span className="w-1.5 h-1.5 bg-zinc-300 rounded-full animate-bounce [animation-delay:-0.15s]" />
               <span className="w-1.5 h-1.5 bg-zinc-300 rounded-full animate-bounce" />
             </div>
-            <span className="text-[10px] uppercase tracking-widest text-zinc-400 font-bold italic">
-              {currentAgent} is processing...
-            </span>
           </div>
         )}
         <div ref={scrollRef} />
       </div>
 
       {/* --- INPUT AREA --- */}
-      <div className="p-8 bg-white border-t border-zinc-100 shrink-0">
+      <div className="p-6 md:p-8 bg-white border-t border-zinc-100 shrink-0">
         <div className="max-w-4xl mx-auto relative flex items-center gap-4">
           <input 
-            className="flex-1 bg-zinc-50 border border-zinc-200 rounded-2xl px-6 py-5 outline-none font-sans text-sm focus:ring-2 focus:ring-black/5 focus:border-black transition-all"
-            placeholder="Type your request (e.g., 'Track my return' or 'Suggest a summer outfit')..."
+            className="flex-1 bg-zinc-50 border border-zinc-200 rounded-2xl px-6 py-4 outline-none font-sans text-sm focus:ring-2 focus:ring-black/5 focus:border-black transition-all"
+            placeholder="Type your request (e.g., 'Show me trending items')..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && onAction(input)}
