@@ -7,8 +7,10 @@ from app.ai.tools.recommendation_tools import find_similar_by_image, recommend_p
 # You would define this in rules/recommendation_rules.py
 RECOMMENDATION_PROMPT = "You are the Recommendation Agent. Help the user find the perfect products."
 
-tools = [recommend_products, search_for_items, find_similar_by_image]
-llm_with_tools = get_llm().bind_tools(tools)
+rec_tools = [recommend_products, search_for_items, find_similar_by_image]
+
+# 2. Updated the bind_tools call
+llm_with_tools = get_llm().bind_tools(rec_tools)
 
 prompt = ChatPromptTemplate.from_messages([
     ("system", RECOMMENDATION_PROMPT),
