@@ -174,7 +174,7 @@ export const LoyaltyService = {
 };
 
 export const AgentService = {
-  sendMessage: (msg, channel = 'web') => api.post('/chat/message', null, { params: { message: msg, channel } }),
+  sendMessage: (msg) => api.post('/chat/', { message: msg }),
 };
 
 export const SessionService = {
