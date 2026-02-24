@@ -426,11 +426,9 @@ async def admin_chat_resume(
     config = {"configurable": {"thread_id": request.session_id}}
     
     try:
-        async with AsyncPostgresSaver(pool) as checkpointer:
+        async with AsyncPostgresSaver.from_conn_string(settings.DATABASE_URL) as checkpointer:
             app_graph = agent_workflow.compile(checkpointer=checkpointer)
             
-            # Reset handoff flags and inject the admin's message as an AI message
-            # so the user sees it in the chat, and the agent knows it was handled.
             state_update = {
                 "messages": [AIMessage(content=f"👨‍💻 [Support Admin]: {request.message}")],
                 "pending_human_input": False, 

@@ -6,31 +6,20 @@ from typing import Optional, Dict, Any
 
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from psycopg_pool import AsyncConnectionPool
+# REMOVE the AsyncConnectionPool import from psycopg_pool
 
 from app.core.deps import get_current_user, get_db
 from app.core.config import settings
 from app.models.models import User
 from sqlalchemy.orm import Session
 
-# Import your AI logic
 from app.ai.graph import agent_workflow
 from app.ai.context_loader import load_context
 
 router = APIRouter(prefix="/chat", tags=["Agentic Chat"])
 
 # ---------------------------------------------------------
-# 1. SETUP POSTGRES CONNECTION POOL FOR LANGGRAPH MEMORY
-# ---------------------------------------------------------
-# This ensures the agent remembers the user across Web & Kiosk channels.
-pool = AsyncConnectionPool(
-    conninfo=settings.DATABASE_URL,
-    max_size=10,
-    kwargs={"autocommit": True, "prepare_threshold": 0},
-)
-
-# ---------------------------------------------------------
-# 2. SCHEMAS
+# SCHEMAS
 # ---------------------------------------------------------
 class ChatRequest(BaseModel):
     message: str
@@ -47,7 +36,7 @@ class AdminReplyRequest(BaseModel):
     message: str
 
 # ---------------------------------------------------------
-# 3. ENDPOINTS
+# ENDPOINTS
 # ---------------------------------------------------------
 
 @router.post("/", response_model=ChatResponse)
@@ -59,12 +48,8 @@ async def chat_with_agent(
     try:
         user_id_str = str(current_user.id)
         
-        # 1. Load dynamic user & conversation context
         context = load_context(db, user_id_str, request.session_id)
         
-        # 2. Build the input state
-        # Because we use `add_messages` in AgentState, LangGraph will automatically
-        # append this new HumanMessage to the existing thread history in the database.
         input_state = {
             "messages": [HumanMessage(content=request.message)],
             "user_id": user_id_str,
@@ -74,26 +59,22 @@ async def chat_with_agent(
             "conversation_summary": context.get("conversation_summary"),
         }
 
-        # 3. Configure thread (session persistence)
         config = {"configurable": {"thread_id": request.session_id}}
 
-        # 4. Invoke the Graph with Postgres Checkpointer
-        async with AsyncPostgresSaver(pool) as checkpointer:
-            # Note: You usually run `await checkpointer.setup()` once on app startup, 
-            # but we can ensure it's ready here if needed.
+        # 👇 FIXED: Use .from_conn_string() which perfectly supports `async with`
+        async with AsyncPostgresSaver.from_conn_string(settings.DATABASE_URL) as checkpointer:
+            
+            # Setup the tables if they don't exist yet
             await checkpointer.setup() 
             
             app_graph = agent_workflow.compile(checkpointer=checkpointer)
             
-            # Run the multi-agent graph
             final_state = await app_graph.ainvoke(input_state, config)
 
-        # 5. Extract final response to send to the frontend
         last_msg = final_state["messages"][-1]
         is_human_takeover = final_state.get("pending_human_input", False)
         active_agent = final_state.get("current_agent", "Supervisor")
         
-        # Ensure we return a string even if the last message is a Tool call anomaly
         response_text = last_msg.content if isinstance(last_msg, AIMessage) else "I'm processing your request..."
 
         return ChatResponse(
@@ -104,5 +85,4 @@ async def chat_with_agent(
 
     except Exception as e:
         print(f"[CHAT ERROR]: {e}")
-        raise HTTPException(status_code=500, detail="The agent encountered an error processing your request.")
-
+        raise HTTPException(status_code=500, detail=str(e))
