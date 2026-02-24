@@ -13,7 +13,7 @@ from app.enums.db_enums import (
 )
 from app.services.event_service import emit_event
 from app.schemas.schemas import ComplaintCreate, ComplaintStatusUpdate
-
+from app.services.notification_service import notify_user
 # ==========================================
 # 1. RETURN APIs
 # ==========================================
@@ -145,90 +145,48 @@ def get_return_by_id(db: Session, return_id: uuid.UUID, user_id: Optional[uuid.U
 
     return ret
 
-
-def update_return_status(
-    db: Session,
-    return_id: uuid.UUID,
-    status: ReturnStatusEnum,
-    admin_id: Optional[uuid.UUID] = None,
-    reason: Optional[str] = None
+async def update_return_status(
+    db: Session, return_id: uuid.UUID, status: ReturnStatusEnum,
+    admin_id: Optional[uuid.UUID] = None, reason: Optional[str] = None
 ):
-    """
-    Update return status (admin only)
-    """
     ret = db.query(Return).filter(Return.id == return_id).first()
-
-    if not ret:
-        raise ValueError("Return not found.")
+    if not ret: raise ValueError("Return not found.")
 
     old_status = ret.status
     ret.status = status
-
     db.add(ret)
     db.flush()
 
-    # Get order to find user_id for event
     order = db.query(Order).filter(Order.id == ret.order_id).first()
 
-    emit_event(
-        db,
-        user_id=order.user_id if order else None,
-        event_type=EventTypeEnum.order_placed,  # closest available
-        entity_type=EntityTypeEnum.order,
-        entity_id=ret.order_id,
-        metadata={
-            "return_id": str(ret.id),
-            "old_status": old_status.value,
-            "new_status": status.value,
-            "updated_by": str(admin_id) if admin_id else "system",
-            "reason": reason
-        }
-    )
-
+    emit_event(db, user_id=order.user_id if order else None, event_type=EventTypeEnum.order_placed, entity_type=EntityTypeEnum.order, entity_id=ret.order_id, metadata={"return_id": str(ret.id), "old_status": old_status.value, "new_status": status.value, "updated_by": str(admin_id) if admin_id else "system", "reason": reason})
     db.commit()
     db.refresh(ret)
+
+    # 👇 Notification Trigger
+    if order:
+        await notify_user(
+            db, order.user_id, f"Return Status Update: {status.value.title()}",
+            f"Your return request for Order {str(order.id)[:8]} is now {status.value.replace('_', ' ')}. {reason or ''}",
+            "return_update", order.id, EntityTypeEnum.order
+        )
+
     return ret
 
-
-def cancel_return(db: Session, return_id: uuid.UUID, user_id: uuid.UUID, reason: Optional[str] = None):
+async def cancel_return(db: Session, return_id: uuid.UUID, user_id: uuid.UUID, reason: Optional[str] = None):
     """
     Cancel a return request (user can cancel if status is 'requested')
     """
-    ret = db.query(Return).join(
-        Order, Return.order_id == Order.id
-    ).filter(
-        Return.id == return_id,
-        Order.user_id == user_id
-    ).first()
-
-    if not ret:
-        raise ValueError("Return not found or does not belong to user.")
-
-    if ret.status != ReturnStatusEnum.requested:
-        raise ValueError(f"Cannot cancel return with status: {ret.status.value}")
+    ret = db.query(Return).join(Order, Return.order_id == Order.id).filter(Return.id == return_id, Order.user_id == user_id).first()
+    if not ret: raise ValueError("Return not found or does not belong to user.")
+    if ret.status != ReturnStatusEnum.requested: raise ValueError(f"Cannot cancel return with status: {ret.status.value}")
 
     old_status = ret.status
     ret.status = ReturnStatusEnum.cancelled
-
-    db.add(ret)
-    db.flush()
-
-    emit_event(
-        db,
-        user_id=user_id,
-        event_type=EventTypeEnum.order_placed,  # closest available
-        entity_type=EntityTypeEnum.order,
-        entity_id=ret.order_id,
-        metadata={
-            "return_id": str(ret.id),
-            "old_status": old_status.value,
-            "new_status": ReturnStatusEnum.cancelled.value,
-            "reason": reason or "User cancelled"
-        }
-    )
-
     db.commit()
     db.refresh(ret)
+
+    await notify_user(db, user_id, "Return Cancelled", f"You have successfully cancelled the return request for Order {str(ret.order_id)[:8]}.", "return_update", ret.order_id, EntityTypeEnum.order)
     return ret
 
 
@@ -338,74 +296,30 @@ def get_cancellation_requests(
     return requests
 
 
-def update_cancellation_status(
-    db: Session,
-    request_id: uuid.UUID,
-    status: OrderChangeStatusEnum,
-    admin_id: uuid.UUID,
-    decision_reason: Optional[str] = None
+async def update_cancellation_status(
+    db: Session, request_id: uuid.UUID, status: OrderChangeStatusEnum,
+    admin_id: uuid.UUID, decision_reason: Optional[str] = None
 ):
-    """
-    Approve or reject cancellation request (admin only)
-    """
     from app.models.models import OrderChangeRequest, Order, OrderStatusHistory
-
-    request = db.query(OrderChangeRequest).filter(
-        OrderChangeRequest.id == request_id,
-        # FIX: correct enum value
-        OrderChangeRequest.change_type == OrderChangeTypeEnum.cancel_order
-    ).first()
-
-    if not request:
-        raise ValueError("Cancellation request not found.")
-
-    if request.status != OrderChangeStatusEnum.requested:
-        raise ValueError(f"Cannot update request with status: {request.status.value}")
+    request = db.query(OrderChangeRequest).filter(OrderChangeRequest.id == request_id, OrderChangeRequest.change_type == OrderChangeTypeEnum.cancel_order).first()
+    if not request: raise ValueError("Cancellation request not found.")
 
     old_status = request.status
     request.status = status
     request.decided_by = str(admin_id)
     request.decision_reason = decision_reason
-
     db.add(request)
-    db.flush()
-
-    # If approved, update order status
+    
     if status == OrderChangeStatusEnum.approved:
         order = db.query(Order).filter(Order.id == request.order_id).first()
         if order:
-            old_order_status = order.order_status
             order.order_status = OrderStatusEnum.cancelled
-
-            db.add(order)
-            db.flush()
-
-            status_history = OrderStatusHistory(
-                order_id=order.id,
-                status=OrderStatusEnum.cancelled,
-                description=f"Order cancelled via cancellation request. Reason: {decision_reason or 'Not provided'}",
-                updated_at=datetime.utcnow()
-            )
-            db.add(status_history)
-            db.flush()
-
-    emit_event(
-        db,
-        user_id=request.requested_by,
-        event_type=EventTypeEnum.checkout_cancelled,
-        entity_type=EntityTypeEnum.order,
-        entity_id=request.order_id,
-        metadata={
-            "request_id": str(request.id),
-            "old_status": old_status.value,
-            "new_status": status.value,
-            "reason": decision_reason,
-            "decided_by": str(admin_id)
-        }
-    )
-
+            db.add(OrderStatusHistory(order_id=order.id, status=OrderStatusEnum.cancelled, description=decision_reason))
+    
     db.commit()
     db.refresh(request)
+
+    await notify_user(db, request.requested_by, f"Order Cancellation {status.value.title()}", f"Your cancellation request for Order {str(request.order_id)[:8]} has been {status.value}. {decision_reason or ''}", "cancellation_update", request.order_id, EntityTypeEnum.order)
     return request
 
 
@@ -504,85 +418,37 @@ def get_complaint_by_id(db: Session, complaint_id: uuid.UUID, user_id: Optional[
     return complaint
 
 
-def update_complaint_status(
-    db: Session,
-    complaint_id: uuid.UUID,
-    payload: ComplaintStatusUpdate,
-    resolver_id: uuid.UUID,
-    resolver_type: str = "admin"
+async def update_complaint_status(
+    db: Session, complaint_id: uuid.UUID, payload: ComplaintStatusUpdate,
+    resolver_id: uuid.UUID, resolver_type: str = "admin"
 ):
     complaint = db.query(Complaint).filter(Complaint.id == complaint_id).first()
+    if not complaint: raise ValueError("Complaint not found.")
 
-    if not complaint:
-        raise ValueError("Complaint not found.")
-
-    old_status = complaint.status
     complaint.status = payload.status
     complaint.resolution_notes = payload.resolution_notes
     complaint.resolved_by_type = resolver_type
     complaint.resolved_by_id = resolver_id
-
-    db.add(complaint)
-    db.flush()
-
-    emit_event(
-        db,
-        user_id=complaint.user_id,
-        event_type=EventTypeEnum.session_started,
-        entity_type=EntityTypeEnum.user_session,
-        entity_id=complaint.user_id,
-        metadata={
-            "complaint_id": str(complaint.id),
-            "old_status": old_status.value,
-            "new_status": payload.status.value,
-            "resolved_by": str(resolver_id),
-            "resolver_type": resolver_type
-        }
-    )
-
     db.commit()
     db.refresh(complaint)
+
+    await notify_user(db, complaint.user_id, f"Complaint Status: {payload.status.value.replace('_', ' ').title()}", f"Your complaint regarding Order {str(complaint.order_id)[:8] if complaint.order_id else 'General'} has been marked as {payload.status.value.replace('_', ' ')}.", "complaint_update")
     return complaint
 
-
-def add_complaint_response(
-    db: Session,
-    complaint_id: uuid.UUID,
-    responder_id: uuid.UUID,
-    responder_type: str,
-    message: str
+async def add_complaint_response(
+    db: Session, complaint_id: uuid.UUID, responder_id: uuid.UUID,
+    responder_type: str, message: str
 ):
     complaint = db.query(Complaint).filter(Complaint.id == complaint_id).first()
-
-    if not complaint:
-        raise ValueError("Complaint not found.")
+    if not complaint: raise ValueError("Complaint not found.")
 
     timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     response_entry = f"\n[{timestamp}] [{responder_type} response]: {message}"
-
-    if complaint.resolution_notes:
-        complaint.resolution_notes += response_entry
-    else:
-        complaint.resolution_notes = response_entry
-
-    db.add(complaint)
-    db.flush()
-
-    emit_event(
-        db,
-        user_id=complaint.user_id,
-        event_type=EventTypeEnum.session_started,
-        entity_type=EntityTypeEnum.user_session,
-        entity_id=complaint.user_id,
-        metadata={
-            "complaint_id": str(complaint.id),
-            "responder_type": responder_type,
-            "responder_id": str(responder_id)
-        }
-    )
-
+    complaint.resolution_notes = (complaint.resolution_notes or "") + response_entry
     db.commit()
     db.refresh(complaint)
+
+    await notify_user(db, complaint.user_id, "New Message on Your Complaint", f"Support has replied to your complaint:\n\n{message}", "complaint_update")
     return complaint
 
 
@@ -720,41 +586,19 @@ def get_all_exchanges(
     return exchanges
 
 
-def update_exchange_status(
-    db: Session,
-    exchange_id: uuid.UUID,
-    status: ExchangeStatusEnum,
-    admin_id: uuid.UUID,
-    reason: Optional[str] = None
+async def update_exchange_status(
+    db: Session, exchange_id: uuid.UUID, status: ExchangeStatusEnum,
+    admin_id: uuid.UUID, reason: Optional[str] = None
 ):
     exchange = db.query(Exchange).filter(Exchange.id == exchange_id).first()
+    if not exchange: raise ValueError("Exchange not found.")
 
-    if not exchange:
-        raise ValueError("Exchange not found.")
-
-    old_status = exchange.status
     exchange.status = status
-
-    db.add(exchange)
-    db.flush()
-
-    order = db.query(Order).filter(Order.id == exchange.order_id).first()
-
-    emit_event(
-        db,
-        user_id=order.user_id if order else None,
-        event_type=EventTypeEnum.order_placed,
-        entity_type=EntityTypeEnum.order,
-        entity_id=exchange.order_id,
-        metadata={
-            "exchange_id": str(exchange.id),
-            "old_status": old_status.value,
-            "new_status": status.value,
-            "reason": reason,
-            "updated_by": str(admin_id)
-        }
-    )
-
     db.commit()
     db.refresh(exchange)
+
+    order = db.query(Order).filter(Order.id == exchange.order_id).first()
+    if order:
+        await notify_user(db, order.user_id, f"Exchange Update: {status.value.title()}", f"Your exchange request for Order {str(order.id)[:8]} is now {status.value}. {reason or ''}", "exchange_update", order.id, EntityTypeEnum.order)
+
     return exchange

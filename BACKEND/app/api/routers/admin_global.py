@@ -707,3 +707,32 @@ def set_payment_gateway_config_api(
         "force_status": cfg.force_status,
         "updated_at": cfg.updated_at,
     }
+    
+    
+@router.patch("/complaints/{complaint_id}")
+async def update_complaint_api(complaint_id: UUID, request: ComplaintUpdateRequest, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    try:
+        result = await update_complaint_status(db=db, complaint_id=complaint_id, payload=request, resolver_id=admin.id, resolver_type="admin")
+        return {"success": True, "data": result}
+    except ValueError as e: raise HTTPException(status_code=404, detail=str(e))
+
+@router.post("/complaints/{complaint_id}/respond")
+async def respond_to_complaint_api(complaint_id: UUID, message: str, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    try:
+        result = await add_complaint_response(db=db, complaint_id=complaint_id, responder_id=admin.id, responder_type="admin", message=message)
+        return {"success": True, "data": result}
+    except ValueError as e: raise HTTPException(status_code=404, detail=str(e))
+
+@router.patch("/exchanges/{exchange_id}")
+async def update_exchange_api(exchange_id: UUID, status: ExchangeStatusEnum, reason: Optional[str] = None, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    try:
+        result = await update_exchange_status(db=db, exchange_id=exchange_id, status=status, admin_id=admin.id, reason=reason)
+        return {"success": True, "data": result}
+    except ValueError as e: raise HTTPException(status_code=404, detail=str(e))
+
+@router.patch("/returns/{return_id}/status")
+async def update_return_status_api(return_id: UUID, status: ReturnStatusEnum, reason: Optional[str] = None, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    try:
+        result = await update_return_status(db=db, return_id=return_id, status=status, admin_id=admin.id, reason=reason)
+        return {"success": True, "data": result}
+    except ValueError as e: raise HTTPException(status_code=404, detail=str(e))

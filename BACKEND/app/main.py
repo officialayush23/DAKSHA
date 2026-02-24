@@ -17,6 +17,7 @@ from app.api.routers import (
     support,
     products,
     checkout,
+    notification,
     coupons,
     stores,
     user_preferences,
@@ -66,7 +67,8 @@ app.include_router(session.router)
 app.include_router(support.router)
 app.include_router(loyalty.router)
 app.include_router(checkout.router)
-app.include_router(coupons.router)  
+app.include_router(coupons.router) 
+app.include_router(notification.router)
 app.include_router(stores.router)
 app.include_router(products.router)
 

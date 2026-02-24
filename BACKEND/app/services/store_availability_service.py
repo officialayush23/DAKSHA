@@ -1,8 +1,7 @@
-# app/service/store_availability_service.py
+# app/services/store_availability_service.py
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from uuid import UUID
-
 
 def get_nearest_stores_with_cart(
     db: Session,
@@ -38,18 +37,31 @@ def get_nearest_stores_with_cart(
         s.id,
         s.name,
         s.address,
-        ST_Distance(s.location, up.pt) AS distance
+        (ST_Distance(s.location, up.pt) / 1000) AS distance_km
     FROM stores s
     JOIN valid_stores vs ON vs.store_id = s.id
     CROSS JOIN user_point up
     WHERE ST_DWithin(s.location, up.pt, 20000) -- 20km search radius
-    ORDER BY distance
+    ORDER BY distance_km
     LIMIT :limit
     """)
 
-    return db.execute(query, {
-        "cart_id": cart_id,
+    rows = db.execute(query, {
+        "cart_id": str(cart_id),
         "lat": user_lat,
         "lng": user_lng,
         "limit": limit
-    }).fetchall()
+    }).mappings().fetchall()
+
+    # 🛠️ FIXED: Convert raw DB rows to clean list of dicts for FastAPI
+    eligible_stores = []
+    for row in rows:
+        eligible_stores.append({
+            "store_id": str(row["id"]),
+            "name": row["name"],
+            "address": row["address"],
+            "distance_km": round(float(row["distance_km"]), 2),
+            "available_for_pickup": True,
+        })
+
+    return eligible_stores

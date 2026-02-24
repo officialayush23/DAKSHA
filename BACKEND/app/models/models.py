@@ -1023,7 +1023,25 @@ class FulfillmentAttempt(Base):
     
     order: Mapped["Order"] = relationship(back_populates="fulfillment_attempts")
     
+class ComplaintEvent(Base):
+    __tablename__ = "complaint_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    complaint_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("complaints.id", ondelete="CASCADE"))
+    actor_type: Mapped[Optional[str]]
+    actor_id: Mapped[Optional[uuid.UUID]]
+    message: Mapped[Optional[str]]
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     
+class AgentEvent(Base):
+    __tablename__ = "agent_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    order_id: Mapped[Optional[uuid.UUID]]
+    agent_name: Mapped[Optional[str]]
+    event_type: Mapped[Optional[str]]
+    payload: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 class UserAddress(Base):
     __tablename__ = "user_addresses"
 

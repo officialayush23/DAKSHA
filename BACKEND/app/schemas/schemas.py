@@ -491,3 +491,32 @@ class AddressResponse(BaseSchema):
     pincode: Optional[str] = None
     country: str
     is_default: bool
+    
+
+import uuid
+
+class NotificationResponse(BaseModel):
+    id: uuid.UUID
+    message_type: Optional[str]
+    content: Optional[str]
+    status: str
+    sent_at: Optional[datetime]
+    
+    class Config:
+        from_attributes = True
+
+class RescheduleDeliveryPayload(BaseModel):
+    new_address_text: str
+
+class ReschedulePickupPayload(BaseModel):
+    new_time: datetime
+
+class EscalatePayload(BaseModel):
+    reason: str
+
+class FulfillmentFailurePayload(BaseModel):
+    reason: str
+
+class ReviewCreatePayload(BaseModel):
+    rating: int
+    comment: str

@@ -80,25 +80,14 @@ def get_return(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.patch("/returns/{return_id}/cancel", response_model=dict)
-def cancel_return(
-    return_id: UUID,
-    request: CancelRequest = None,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
-):
-    """Cancel a return request"""
+@router.patch("/returns/{return_id}/cancel")
+async def cancel_return(return_id: UUID, request: CancelRequest = None, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     try:
         reason = request.reason if request else None
-        result = support_service.cancel_return(
-            db=db,
-            return_id=return_id,
-            user_id=current_user.id,
-            reason=reason
-        )
+        result = await support_service.cancel_return(db=db, return_id=return_id, user_id=current_user.id, reason=reason)
         return {"success": True, "data": result}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as e: raise HTTPException(status_code=400, detail=str(e))
+
 
 
 # ==========================================
@@ -246,26 +235,12 @@ def get_all_cancellations(
     return {"success": True, "data": requests}
 
 
-@router.patch("/admin/cancellations/{request_id}", response_model=dict)
-def update_cancellation(
-    request_id: UUID,
-    status: OrderChangeStatusEnum,
-    reason: Optional[str] = None,
-    db: Session = Depends(get_db),
-    admin=Depends(get_current_admin)
-):
-    """Approve or reject cancellation (admin only)"""
+@router.patch("/admin/cancellations/{request_id}")
+async def update_cancellation(request_id: UUID, status: OrderChangeStatusEnum, reason: Optional[str] = None, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
     try:
-        result = support_service.update_cancellation_status(
-            db=db,
-            request_id=request_id,
-            status=status,
-            admin_id=admin.id,
-            decision_reason=reason
-        )
+        result = await support_service.update_cancellation_status(db=db, request_id=request_id, status=status, admin_id=admin.id, decision_reason=reason)
         return {"success": True, "data": result}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as e: raise HTTPException(status_code=400, detail=str(e))
 
 
 # ==========================================
