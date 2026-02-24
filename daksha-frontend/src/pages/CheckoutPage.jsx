@@ -18,7 +18,7 @@ import { Switch } from "@/components/ui/switch";
 
 import { 
   Truck, Store, MapPin, Navigation, CheckCircle2, 
-  ChevronRight, Loader2, Tag, CreditCard, ShoppingBag, Award
+  ChevronRight, Loader2, Tag, CreditCard, ShoppingBag, Award, List
 } from 'lucide-react';
 
 export default function CheckoutPage() {
@@ -46,8 +46,8 @@ export default function CheckoutPage() {
   const [stores, setStores] = useState([]);
   const [selectedStoreId, setSelectedStoreId] = useState("");
   const [locating, setLocating] = useState(false);
-  const [manualLat, setManualLat] = useState("18");
-  const [manualLng, setManualLng] = useState("73");
+  const [manualLat, setManualLat] = useState("");
+  const [manualLng, setManualLng] = useState("");
 
   // --- PAYMENT & CARDS ---
   const [cards, setCards] = useState([]);
@@ -61,7 +61,7 @@ export default function CheckoutPage() {
   const [useLoyalty, setUseLoyalty] = useState(false);
 
   // ==========================================
-  // 1. SMART LOAD DATA (ENRICHMENT FROM CART)
+  // 1. SMART LOAD DATA (ENRICHMENT)
   // ==========================================
   useEffect(() => {
     const bootstrap = async () => {
@@ -81,7 +81,6 @@ export default function CheckoutPage() {
           return;
         }
 
-        // --- ENRICHMENT: Exact match to CartPage override logic ---
         const uniqueProductIds = [...new Set(cartData.items.map(i => i.product_id).filter(Boolean))];
         const productResponses = await Promise.all(
           uniqueProductIds.map(id => ProductService.getDetail(id).catch(() => null))
@@ -125,18 +124,15 @@ export default function CheckoutPage() {
           };
         });
 
-        // Override backend total with the correctly discounted total
         cartData.grand_total = enrichedSubtotal;
         setCart(cartData);
         setSessionId(sessRes?.data?.session_id || sessRes?.session_id);
         setLoyaltySummary(loyaltyRes?.data || loyaltyRes);
         
-        // Addresses
         const userAddresses = Array.isArray(addrRes?.data) ? addrRes.data : (Array.isArray(addrRes) ? addrRes : []);
         setAddresses(userAddresses);
         if (userAddresses.length > 0) setSelectedAddressId(userAddresses[0].id);
 
-        // Cards
         const userCards = Array.isArray(cardsRes?.data) ? cardsRes.data : (Array.isArray(cardsRes) ? cardsRes : []);
         setCards(userCards);
         const defaultCard = userCards.find(c => c.is_default) || userCards[0];
@@ -163,8 +159,9 @@ export default function CheckoutPage() {
       
       setStores(storeList);
       if (storeList.length > 0) {
-        setSelectedStoreId(storeList[0].id);
-        toast.success(`Found ${storeList.length} stores nearby`);
+        // 👇 FIXED: Backend returns store_id, not id
+        setSelectedStoreId(storeList[0].store_id || storeList[0].id);
+        toast.success(`Found ${storeList.length} stores`);
       } else {
         toast.info("No stores found in this area.");
       }
@@ -176,11 +173,40 @@ export default function CheckoutPage() {
     }
   };
 
+  const handleAutoLocate = () => {
+    if (!("geolocation" in navigator)) return toast.error("Geolocation not supported");
+
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = position.coords.latitude.toFixed(4);
+        const lng = position.coords.longitude.toFixed(4);
+        
+        setManualLat(lat);
+        setManualLng(lng);
+        
+        toast.success("Location detected!");
+        fetchStoresFromAPI(parseFloat(lat), parseFloat(lng));
+      },
+      (error) => {
+        toast.error("Please allow location access to find stores.");
+        setLocating(false);
+      },
+      { timeout: 10000 }
+    );
+  };
+
   const handleManualStoreSearch = (e) => {
     e.preventDefault();
     if (!manualLat || !manualLng) return toast.error("Please enter both latitude and longitude");
     setLocating(true);
     fetchStoresFromAPI(parseFloat(manualLat), parseFloat(manualLng));
+  };
+
+  const handleListAllStores = () => {
+    setLocating(true);
+    toast.info("Fetching available boutiques...");
+    fetchStoresFromAPI(18.0, 73.0); 
   };
 
   // ==========================================
@@ -210,7 +236,6 @@ export default function CheckoutPage() {
       if (!cId) throw new Error("Invalid checkout session generated");
       
       setCheckoutId(cId);
-      // Use locked_price from API, fallback to our calculated enriched subtotal
       setLockedPrice(resData?.locked_price || cart.grand_total);
 
       const couponRes = await CheckoutService.getCoupons(cId).catch(() => ({ data: { personalized: [], system: [] } }));
@@ -231,22 +256,33 @@ export default function CheckoutPage() {
   // ==========================================
   // 4. COUPONS & FINALIZE ORDER
   // ==========================================
-  const executeApplyCoupon = async (code) => {
+  const executeApplyCoupon = async (code_or_id) => {
     setProcessing(true);
     try {
-      const matchingCoupon = coupons.find(c => c.code === code || c.coupon_code === code);
-      const offerId = matchingCoupon?.offer_id || matchingCoupon?.id || null;
-
-      const res = await CheckoutService.applyCoupon(checkoutId, { 
-        coupon_code: code,
-        offer_id: offerId
-      });
+      const matchingCoupon = coupons.find(c => c.code === code_or_id || c.id === code_or_id);
       
+      let payload = { coupon_code: null, offer_id: null };
+
+      if (matchingCoupon) {
+        if (matchingCoupon.personalized) {
+          payload.offer_id = matchingCoupon.id; 
+        } else {
+          payload.coupon_code = matchingCoupon.code;
+        }
+      } else {
+        payload.coupon_code = code_or_id;
+      }
+
+      const res = await CheckoutService.applyCoupon(checkoutId, payload);
       const resData = res?.data || res;
+      
       toast.success("Coupon applied successfully!");
-      setAppliedCoupon({ code });
-      setCouponCode(code);
+      
+      const displayCode = matchingCoupon?.code || matchingCoupon?.offer_name || code_or_id;
+      setAppliedCoupon({ code: displayCode });
+      setCouponCode(displayCode);
       setDiscountAmount(resData.discount_amount || 0);
+
     } catch (error) {
       toast.error(error?.response?.data?.detail || "Invalid or expired coupon");
     } finally {
@@ -265,9 +301,16 @@ export default function CheckoutPage() {
     
     setProcessing(true);
     try {
+      let scheduledTime = null;
+      if (fulfillmentType === 'pickup') {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1); 
+        scheduledTime = tomorrow.toISOString();
+      }
+
       const payload = {
         delivery_address_id: fulfillmentType === 'delivery' ? selectedAddressId : null,
-        scheduled_time: null, 
+        scheduled_time: scheduledTime, 
         redeem_loyalty_points: useLoyalty ? (loyaltySummary?.points || 0) : 0
       };
 
@@ -299,9 +342,8 @@ export default function CheckoutPage() {
     );
   }
 
-  // Use lockedPrice if in step 2 (post-backend validation), otherwise use our enriched grand_total
   const subtotal = step === 2 ? lockedPrice : (cart?.grand_total || 0);
-  const deliveryFee = 0; // FREE Shipping
+  const deliveryFee = 0; 
   const loyaltyDiscount = useLoyalty && loyaltySummary ? (loyaltySummary.points * 0.5) : 0; 
   const finalTotal = Math.max(0, subtotal + deliveryFee - discountAmount - loyaltyDiscount);
 
@@ -376,40 +418,78 @@ export default function CheckoutPage() {
                   </motion.div>
                 )}
 
-                {/* PICKUP FLOW */}
+                {/* PICKUP FLOW ENHANCED */}
                 {fulfillmentType === 'pickup' && (
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-6">
-                    <h2 className="text-xl font-serif font-bold text-zinc-900">Find a Store</h2>
-                    <form onSubmit={handleManualStoreSearch} className="flex gap-3">
+                    
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <h2 className="text-xl font-serif font-bold text-zinc-900">Find a Store</h2>
+                      <Button 
+                        onClick={handleAutoLocate} 
+                        disabled={locating} 
+                        variant="outline" 
+                        className="rounded-full text-xs font-bold tracking-widest uppercase border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800"
+                      >
+                        {locating ? <Loader2 className="animate-spin mr-2 h-3 w-3" /> : <Navigation className="mr-2 h-3 w-3" />} 
+                        Auto-Locate Me
+                      </Button>
+                    </div>
+
+                    <form onSubmit={handleManualStoreSearch} className="flex flex-col sm:flex-row gap-3">
                       <div className="flex-1">
-                        <Input placeholder="Latitude (e.g. 18)" value={manualLat} onChange={(e) => setManualLat(e.target.value)} className="h-12 rounded-xl bg-zinc-50 border-zinc-200" type="number" step="any" required />
+                        <Input 
+                          placeholder="Latitude (e.g. 18.52)" 
+                          value={manualLat} 
+                          onChange={(e) => setManualLat(e.target.value)} 
+                          className="h-12 rounded-xl bg-zinc-50 border-zinc-200 focus-visible:ring-black" 
+                          type="number" step="any" 
+                        />
                       </div>
                       <div className="flex-1">
-                        <Input placeholder="Longitude (e.g. 73)" value={manualLng} onChange={(e) => setManualLng(e.target.value)} className="h-12 rounded-xl bg-zinc-50 border-zinc-200" type="number" step="any" required />
+                        <Input 
+                          placeholder="Longitude (e.g. 73.85)" 
+                          value={manualLng} 
+                          onChange={(e) => setManualLng(e.target.value)} 
+                          className="h-12 rounded-xl bg-zinc-50 border-zinc-200 focus-visible:ring-black" 
+                          type="number" step="any" 
+                        />
                       </div>
-                      <Button type="submit" disabled={locating} className="h-12 rounded-xl bg-zinc-900 text-white px-6 font-bold uppercase tracking-widest text-xs">
+                      <Button type="submit" disabled={locating} className="h-12 rounded-xl bg-zinc-900 text-white px-8 font-bold uppercase tracking-widest text-xs">
                         {locating ? <Loader2 className="animate-spin" /> : 'Search'}
                       </Button>
                     </form>
+
                     {stores.length === 0 ? (
                       <div className="p-10 border border-zinc-200 bg-zinc-50 rounded-[1.5rem] text-center">
                         <Store size={32} className="mx-auto text-zinc-300 mb-3" />
-                        <p className="text-zinc-600 font-medium text-sm">Enter coordinates to find the nearest boutiques for free pickup.</p>
+                        <p className="text-zinc-600 font-medium text-sm mb-4">Click Auto-Locate or enter coordinates to find nearby boutiques.</p>
+                        
+                        <Button 
+                          onClick={handleListAllStores}
+                          variant="ghost" 
+                          className="text-xs font-bold uppercase tracking-widest text-zinc-500 hover:text-black"
+                        >
+                          <List size={14} className="mr-2" /> Show All Available Stores
+                        </Button>
                       </div>
                     ) : (
                       <div className="grid gap-3">
-                        {stores.map(store => (
-                          <div key={store.id} onClick={() => setSelectedStoreId(store.id)} className={`p-5 rounded-2xl border-2 cursor-pointer transition-all ${selectedStoreId === store.id ? 'border-zinc-900 bg-zinc-50 shadow-sm' : 'border-zinc-100 bg-white hover:border-zinc-200'}`}>
+                        {stores.map(store => {
+                          // 👇 FIXED: Correct keys
+                          const currentStoreId = store.store_id || store.id;
+                          return (
+                          <div key={currentStoreId} onClick={() => setSelectedStoreId(currentStoreId)} className={`p-5 rounded-2xl border-2 cursor-pointer transition-all ${selectedStoreId === currentStoreId ? 'border-zinc-900 bg-zinc-50 shadow-sm' : 'border-zinc-100 bg-white hover:border-zinc-200'}`}>
                             <div className="flex justify-between items-start">
                               <div>
                                 <h4 className="font-bold text-zinc-900 flex items-center gap-2">{store.name} <Badge variant="secondary" className="text-[9px] uppercase shadow-none bg-emerald-100 text-emerald-700">In Stock</Badge></h4>
                                 <p className="text-sm text-zinc-500 mt-1">{store.address}</p>
-                                {store.distance && <p className="text-xs font-bold text-zinc-400 mt-2">{parseFloat(store.distance).toFixed(1)} km away</p>}
+                                {/* 👇 FIXED: distance_km from swagger */}
+                                {store.distance_km && <p className="text-xs font-bold text-zinc-400 mt-2">{parseFloat(store.distance_km).toFixed(1)} km away</p>}
                               </div>
-                              {selectedStoreId === store.id && <CheckCircle2 className="text-black" size={20} />}
+                              {selectedStoreId === currentStoreId && <CheckCircle2 className="text-black" size={20} />}
                             </div>
                           </div>
-                        ))}
+                        )})}
                       </div>
                     )}
                   </motion.div>
@@ -425,7 +505,7 @@ export default function CheckoutPage() {
               </motion.div>
             )}
 
-            {/* STEP 2 */}
+            {/* STEP 2: FINALIZE */}
             {step === 2 && (
               <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-8">
                 
@@ -498,8 +578,9 @@ export default function CheckoutPage() {
               <h3 className="font-serif font-bold text-xl text-zinc-900">Order Summary</h3>
               
               <div className="space-y-4 max-h-[300px] overflow-y-auto scrollbar-hide pr-2">
-                {cart?.items?.map((item, idx) => (
-                  <div key={idx} className="flex gap-4 items-center">
+                {cart?.items?.map((item) => (
+                  // 👇 FIXED: Secure unique key
+                  <div key={item.product_variant_id || item.variant_id} className="flex gap-4 items-center">
                     <div className="w-16 h-20 bg-[#F8F9FA] rounded-xl overflow-hidden shrink-0 border border-zinc-100 flex items-center justify-center p-1 relative">
                       {item.live_discount > 0 && (
                         <Badge className="absolute top-1 left-1 z-10 bg-red-500 text-white text-[8px] font-bold px-1.5 py-0.5 shadow-sm border-none">
@@ -541,15 +622,16 @@ export default function CheckoutPage() {
                 {coupons.length > 0 && (
                   <div className="flex flex-wrap gap-2 pt-1">
                     {coupons.map(c => {
-                      const code = c.code || c.coupon_code;
+                      const id_or_code = c.code || c.id;
+                      const displayName = c.code || c.offer_name || "OFFER";
                       return (
                         <Badge 
-                          key={code} 
+                          key={id_or_code} 
                           variant="secondary" 
-                          onClick={() => executeApplyCoupon(code)} 
+                          onClick={() => executeApplyCoupon(id_or_code)} 
                           className="cursor-pointer bg-zinc-100 hover:bg-zinc-200 text-zinc-700 shadow-none font-bold uppercase tracking-widest text-[9px] py-1.5 px-3 transition-colors"
                         >
-                          <Tag size={10} className="mr-1" /> {code}
+                          <Tag size={10} className="mr-1" /> {displayName}
                         </Badge>
                       );
                     })}
