@@ -1,12 +1,12 @@
-# app/api/routers/chat.py
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 import uuid
+import re
+import json
 from typing import Optional, Dict, Any
 
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-# REMOVE the AsyncConnectionPool import from psycopg_pool
 
 from app.core.deps import get_current_user, get_db
 from app.core.config import settings
@@ -18,9 +18,6 @@ from app.ai.context_loader import load_context
 
 router = APIRouter(prefix="/chat", tags=["Agentic Chat"])
 
-# ---------------------------------------------------------
-# SCHEMAS
-# ---------------------------------------------------------
 class ChatRequest(BaseModel):
     message: str
     session_id: str
@@ -30,14 +27,11 @@ class ChatResponse(BaseModel):
     response: str
     current_agent: Optional[str] = "SalesSupervisor"
     human_takeover: bool = False
+    ui_data: Optional[Dict[str, Any]] = None  # ⬅️ FOR FRONTEND RENDERING
 
 class AdminReplyRequest(BaseModel):
     session_id: str
     message: str
-
-# ---------------------------------------------------------
-# ENDPOINTS
-# ---------------------------------------------------------
 
 @router.post("/", response_model=ChatResponse)
 async def chat_with_agent(
@@ -47,7 +41,6 @@ async def chat_with_agent(
 ):
     try:
         user_id_str = str(current_user.id)
-        
         context = load_context(db, user_id_str, request.session_id)
         
         input_state = {
@@ -61,14 +54,9 @@ async def chat_with_agent(
 
         config = {"configurable": {"thread_id": request.session_id}}
 
-        # 👇 FIXED: Use .from_conn_string() which perfectly supports `async with`
         async with AsyncPostgresSaver.from_conn_string(settings.DATABASE_URL) as checkpointer:
-            
-            # Setup the tables if they don't exist yet
             await checkpointer.setup() 
-            
             app_graph = agent_workflow.compile(checkpointer=checkpointer)
-            
             final_state = await app_graph.ainvoke(input_state, config)
 
         last_msg = final_state["messages"][-1]
@@ -76,11 +64,23 @@ async def chat_with_agent(
         active_agent = final_state.get("current_agent", "Supervisor")
         
         response_text = last_msg.content if isinstance(last_msg, AIMessage) else "I'm processing your request..."
+        
+        # 🟢 MAGIC TRICK: Extract UI JSON for Frontend
+        ui_data = None
+        match = re.search(r'<UI_DATA>(.*?)</UI_DATA>', response_text, re.DOTALL)
+        if match:
+            try:
+                ui_data = json.loads(match.group(1))
+                # Remove the JSON from the conversational text
+                response_text = response_text.replace(match.group(0), "").strip()
+            except:
+                pass
 
         return ChatResponse(
             response=response_text,
             current_agent=active_agent,
-            human_takeover=is_human_takeover
+            human_takeover=is_human_takeover,
+            ui_data=ui_data
         )
 
     except Exception as e:
