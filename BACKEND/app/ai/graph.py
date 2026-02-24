@@ -69,6 +69,6 @@ def build_graph():
 
     builder.add_edge("Handoff", END)
 
-    return builder.compile()
+    return builder
 
 agent_workflow = build_graph()
