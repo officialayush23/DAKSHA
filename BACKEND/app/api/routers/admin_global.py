@@ -11,11 +11,54 @@ from app.services.support_service import *
 from app.core.deps import get_db, get_current_admin
 from app.schemas.schemas import *
 from app.services.admin_global_service import *
+from pydantic import BaseModel
+
+from typing import Optional, Dict, Any
+
+from langchain_core.messages import HumanMessage, AIMessage
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg_pool import AsyncConnectionPool
+
+from app.core.deps import get_current_user
+from app.core.config import settings
+from app.models.models import User
+
+# Import your AI logic
+from app.ai.graph import agent_workflow
+from app.ai.context_loader import load_context
 
 router = APIRouter(
     prefix="/admin/global",
     tags=["Admin – Global"]
 )
+
+# ---------------------------------------------------------
+# 1. SETUP POSTGRES CONNECTION POOL FOR LANGGRAPH MEMORY
+# ---------------------------------------------------------
+# This ensures the agent remembers the user across Web & Kiosk channels.
+pool = AsyncConnectionPool(
+    conninfo=settings.DATABASE_URL,
+    max_size=10,
+    kwargs={"autocommit": True, "prepare_threshold": 0},
+)
+
+# ---------------------------------------------------------
+# 2. SCHEMAS
+# ---------------------------------------------------------
+class ChatRequest(BaseModel):
+    message: str
+    session_id: str
+    channel: str = "web"
+
+class ChatResponse(BaseModel):
+    response: str
+    current_agent: Optional[str] = "SalesSupervisor"
+    human_takeover: bool = False
+
+class AdminReplyRequest(BaseModel):
+    session_id: str
+    message: str
+
 
 # =========================================================
 # PRODUCTS
@@ -350,7 +393,7 @@ def list_ai_handoffs_api(
 ):
     return list_ai_handoffs(db)
 
-@router.get("/agent/runs")
+
 
 # def list_agent_runs_api(
 #     db: Session = Depends(get_db),
@@ -370,6 +413,35 @@ def list_agent_runs_api(
         query = query.filter(AgentRun.user_id == user_id)
     return query.order_by(desc(AgentRun.started_at)).all()
 
+
+@router.post("/admin-reply")
+async def admin_chat_resume(
+    request: AdminReplyRequest, 
+    current_admin: User = Depends(get_current_user)  # Enforce admin check in real app
+):
+    """
+    Used by the human support dashboard to reply to a user who triggered a handoff.
+    This injects the admin's message and resets the agent's failure count.
+    """
+    config = {"configurable": {"thread_id": request.session_id}}
+    
+    try:
+        async with AsyncPostgresSaver(pool) as checkpointer:
+            app_graph = agent_workflow.compile(checkpointer=checkpointer)
+            
+            # Reset handoff flags and inject the admin's message as an AI message
+            # so the user sees it in the chat, and the agent knows it was handled.
+            state_update = {
+                "messages": [AIMessage(content=f"👨‍💻 [Support Admin]: {request.message}")],
+                "pending_human_input": False, 
+                "failure_count": 0
+            }
+            
+            await app_graph.ainvoke(state_update, config)
+            
+        return {"status": "Message injected to thread successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/agent/decisions")
 def list_decision_records_api(
