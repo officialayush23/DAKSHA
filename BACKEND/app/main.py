@@ -12,6 +12,7 @@ from app.api.routers import (
     user,
     kiosk,
     cart,
+    chat,
     orders,
     session,
     support,
@@ -62,6 +63,7 @@ app.include_router(admin_user.router)
 app.include_router(user_preferences.router)
 app.include_router(user.router)
 app.include_router(kiosk.router)
+app.include_router(chat.router)
 app.include_router(cart.router)
 app.include_router(orders.router)
 app.include_router(recommendation.router)
