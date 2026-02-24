@@ -47,9 +47,9 @@ def generate_candidates(
             SELECT product_variant_id
             FROM product_multimodal_embeddings
             WHERE modality = 'text'
-            ORDER BY embedding <=> :vec
+            ORDER BY embedding <=> CAST(:vec AS vector)
             LIMIT 150
-        """), {"vec": str(vec)}).fetchall()
+        """), {"vec": vec}).fetchall()
 
         candidates.update(str(r[0]) for r in rows)
 

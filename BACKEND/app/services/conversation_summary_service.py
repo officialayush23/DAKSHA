@@ -1,7 +1,7 @@
 # app/services/conversation_summary_service.py
 from sqlalchemy.orm import Session
 from app.models.models import Conversation, ConversationSummary
-from app.services.embedding_service import generate_embedding
+from app.services.embedding_service import generate_text_embedding
 
 MAX_MESSAGES = 30
 
@@ -22,7 +22,7 @@ def update_conversation_summary(db: Session, session_id):
         for m in reversed(messages)
     )
 
-    embedding = generate_embedding(text)
+    embedding = generate_text_embedding(text)
 
     summary = (
         db.query(ConversationSummary)

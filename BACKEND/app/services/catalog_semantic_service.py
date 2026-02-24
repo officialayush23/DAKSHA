@@ -15,9 +15,9 @@ def semantic_catalog_search(db: Session, query: str, limit: int = 30):
         SELECT product_variant_id
         FROM product_multimodal_embeddings
         WHERE modality = 'text'
-        ORDER BY embedding <=> :vec
+        ORDER BY embedding <=> CAST(:vec AS vector)
         LIMIT :limit
-    """), {"vec": str(vec), "limit": limit}).fetchall()
+    """), {"vec": vec, "limit": limit}).fetchall()
 
     return [str(r[0]) for r in rows]
 
@@ -35,10 +35,10 @@ def search_similar_by_image(db: Session, image_url: str, limit: int = 30):
         SELECT product_variant_id
         FROM product_multimodal_embeddings
         WHERE modality = 'image'
-        ORDER BY embedding <=> :vec
+        ORDER BY embedding <=> CAST(:vec AS vector)
         LIMIT :limit
     """), {
-        "vec": str(vec),
+        "vec": vec,
         "limit": limit
     }).fetchall()
 
