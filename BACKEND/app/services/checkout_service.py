@@ -40,44 +40,59 @@ def create_checkout_after_fulfillment(
     store_id: UUID | None = None,
     channel: ChannelEnum = ChannelEnum.web,
 ):
-    # Prevent duplicate checkout reservations
+    # Find any active checkout for this cart
     existing = (
         db.query(CheckoutSession)
         .filter(
             CheckoutSession.cart_id == cart_id,
-            CheckoutSession.inventory_locked == True,
             CheckoutSession.state != CheckoutStateEnum.ORDER_CONFIRMED,
         )
         .first()
     )
-    if existing:
-        return existing
 
     items = db.query(CartItem).filter(CartItem.cart_id == cart_id).all()
     if not items:
         raise ValueError("Cart is empty")
 
     subtotal = sum(i.quantity * i.variant.base_price for i in items)
-    
-    # ⬅️ FIXED: Use timezone-aware datetime
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=12)
 
-    checkout = CheckoutSession(
-        user_id=user_id,
-        session_id=session_id,
-        cart_id=cart_id,
-        state=CheckoutStateEnum.STOCK_RESERVED,
-        locked_price=subtotal,
-        reserved_until=expires_at,
-        inventory_locked=True,
-        fulfillment_type=fulfillment_type,
-        store_id=store_id,
-        last_active_channel=channel,
-    )
-    db.add(checkout)
+    if existing:
+        # 👇 THE FIX: If it exists, we simply UPDATE it instead of creating a new row!
+        if existing.fulfillment_type != fulfillment_type or str(existing.store_id) != str(store_id):
+            if existing.inventory_locked:
+                release_reservations(db, existing.id) # Release the old warehouse/store locks
+            
+            # Update to the new fulfillment method
+            existing.fulfillment_type = fulfillment_type
+            existing.store_id = store_id
+        
+        # Refresh the timer and price
+        existing.state = CheckoutStateEnum.STOCK_RESERVED
+        existing.locked_price = subtotal
+        existing.reserved_until = expires_at
+        existing.inventory_locked = True
+        
+        checkout = existing
+    else:
+        # Create it for the very first time
+        checkout = CheckoutSession(
+            user_id=user_id,
+            session_id=session_id,
+            cart_id=cart_id,
+            state=CheckoutStateEnum.STOCK_RESERVED,
+            locked_price=subtotal,
+            reserved_until=expires_at,
+            inventory_locked=True,
+            fulfillment_type=fulfillment_type,
+            store_id=store_id,
+            last_active_channel=channel,
+        )
+        db.add(checkout)
+        
     db.flush()  
 
-    # -------- RESERVE INVENTORY --------
+    # -------- RESERVE NEW INVENTORY --------
     if fulfillment_type == FulfillmentTypeEnum.delivery:
         reserve_inventory_delivery(db, checkout.id, cart_id, expires_at)
     else:
