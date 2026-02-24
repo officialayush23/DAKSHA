@@ -62,10 +62,10 @@ def build_graph():
         # If the LLM called a tool, go to tools. Otherwise, return to Supervisor.
         builder.add_conditional_edges(
             agent_name,
-            lambda state, t=tool_name: t if getattr(state["messages"][-1], "tool_calls", None) else "Supervisor"
+            lambda state, t=tool_name: t if getattr(state["messages"][-1], "tocd ol_calls", None) else "Supervisor"
         )
         # Tools always return to Supervisor
-        builder.add_edge(tool_name, "Supervisor")
+        builder.add_edge(tool_name, agent_name)
 
     builder.add_edge("Handoff", END)
 
