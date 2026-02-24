@@ -48,6 +48,8 @@ import AdminUserLayout from './admin_user/AdminUserLayout';
 import AdminUserList from './admin_user/pages/AdminUserList';
 import AdminUserDetail from './admin_user/pages/AdminUserDetail';
 
+import ReturnsPage from './pages/ReturnsPage';
+
 
 // ============================================================
 // ROUTE GUARDS
@@ -127,6 +129,7 @@ export default function App() {
         <Route path="checkout" element={<CheckoutPage />} />
         <Route path="wishlist" element={<WishlistPage />} />
         <Route path="checkout" element={<CheckoutPage />} />
+        <Route path="return" element={<ReturnsPage/>} />
         <Route path="agent" element={
           <div className="h-full flex items-center justify-center">
             <div className="w-full max-w-4xl h-full">

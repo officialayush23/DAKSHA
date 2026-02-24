@@ -34,6 +34,7 @@ const DesktopSidebar = ({ user, signOut, cartCount, isAdmin, sessionInfo }) => {
     { title: "Wishlist", url: "/dash/wishlist", icon: Heart }, // <-- Added Wishlist
     { title: "My Bag", url: "/dash/cart", icon: ShoppingCart, badge: cartCount },
     { title: "Orders", url: "/dash/orders", icon: Package },
+    { title: "Returns", url: "/dash/return", icon: User },
     { title: "Profile", url: "/dash/profile", icon: User },
   ];
 

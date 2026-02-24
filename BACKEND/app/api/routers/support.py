@@ -5,7 +5,7 @@ from uuid import UUID
 from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel
-
+from fastapi.encoders import jsonable_encoder
 from app.core.deps import get_db, get_current_user, get_current_admin
 from app.models.models import Return, Complaint, Exchange, Order
 from app.enums.db_enums import (
@@ -40,7 +40,8 @@ def create_return(
             user_id=current_user.id,
             payload=request
         )
-        return {"success": True, "data": result}
+        # 👇 FIXED: Wrap 'result' in jsonable_encoder()
+        return {"success": True, "data": jsonable_encoder(result)}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -59,7 +60,7 @@ def get_my_returns(
         skip=skip,
         limit=limit
     )
-    return {"success": True, "data": returns}
+    return {"success": True, "data": jsonable_encoder(returns)}
 
 
 @router.get("/returns/{return_id}", response_model=dict)
@@ -75,7 +76,7 @@ def get_return(
             return_id=return_id,
             user_id=current_user.id
         )
-        return {"success": True, "data": ret}
+        return {"success": True, "data": jsonable_encoder(ret)}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

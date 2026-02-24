@@ -2,7 +2,7 @@
 import uuid
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, desc
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta , timezone
 from typing import List, Optional, Dict, Any
 
 from app.models.models import Return, Exchange, Complaint, Order, OrderItem, ProductVariant
@@ -34,7 +34,8 @@ def request_return(db: Session, user_id: uuid.UUID, payload):
 
     # 2. Check if order is eligible for return
     return_window_days = 30
-    if order.created_at < datetime.utcnow() - timedelta(days=return_window_days):
+    # 👇 FIXED: Using timezone-aware datetime for the check
+    if order.created_at < datetime.now(timezone.utc) - timedelta(days=return_window_days):
         raise ValueError(f"Order is outside {return_window_days}-day return window.")
 
     # Check if order status allows returns — only delivered orders
@@ -70,7 +71,8 @@ def request_return(db: Session, user_id: uuid.UUID, payload):
         quantity=payload.quantity,
         reason=payload.reason,
         status=ReturnStatusEnum.requested,
-        created_at=datetime.utcnow()
+        # 👇 FIXED: Using timezone-aware datetime for the database insert
+        created_at=datetime.now(timezone.utc) 
     )
     db.add(ret)
     db.flush()
@@ -93,7 +95,6 @@ def request_return(db: Session, user_id: uuid.UUID, payload):
     # 7. Refresh to get all fields
     db.refresh(ret)
     return ret
-
 
 def get_user_returns(db: Session, user_id: uuid.UUID, skip: int = 0, limit: int = 100):
     """
