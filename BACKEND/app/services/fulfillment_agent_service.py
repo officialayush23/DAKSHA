@@ -56,7 +56,7 @@ async def handle_delivery_failure(db: Session, order_id: uuid.UUID, reason: str,
 
     await notify_user(
         db=db, user_id=order.user_id, 
-        subject="Delivery Attempt Failed 🚚",
+        subject="Delivery Attempt Failed ",
         message=f"We tried to deliver Order {str(order_id)[:8]} but couldn't reach you. Please reply to me or use the dashboard to reschedule your delivery.", 
         message_type="fulfillment_retry", entity_id=order.id, entity_type=EntityTypeEnum.order
     )
@@ -84,7 +84,10 @@ async def reschedule_delivery(db: Session, order_id: uuid.UUID, new_address_text
 
 async def handle_missed_pickup(db: Session, order_id: uuid.UUID, reason: str, agent_run_id: uuid.UUID = None):
     order = db.get(Order, order_id)
+    
     pickup = db.query(Pickup).filter_by(order_id=order_id).first()
+    if not pickup:
+        return {"error": "Pickup not found"}
 
     pickup.status = PickupStatusEnum.missed
 
@@ -95,6 +98,8 @@ async def handle_missed_pickup(db: Session, order_id: uuid.UUID, reason: str, ag
 
     attempt.attempt_number += 1
     attempt.last_error_message = reason
+    
+    attempt.last_attempt_at = datetime.utcnow()
 
     if attempt.attempt_number >= attempt.max_retries:
         attempt.status = "failed"
@@ -105,7 +110,7 @@ async def handle_missed_pickup(db: Session, order_id: uuid.UUID, reason: str, ag
 
     await notify_user(
         db=db, user_id=order.user_id, 
-        subject="Missed Store Pickup 🏪",
+        subject="Missed Store Pickup ",
         message=f"You missed your pickup slot for Order {str(order_id)[:8]}. Please reply to reschedule your pickup time.", 
         message_type="fulfillment_retry", entity_id=order.id, entity_type=EntityTypeEnum.order
     )
@@ -125,7 +130,7 @@ async def reschedule_pickup(db: Session, order_id: uuid.UUID, new_time: datetime
     
     await notify_user(
         db=db, user_id=order.user_id, 
-        subject="Pickup Rescheduled ✅",
+        subject="Pickup Rescheduled ",
         message=f"Your new pickup time is set for {new_time.strftime('%b %d, %H:%M')}.", 
         message_type="order_update", entity_id=order.id, entity_type=EntityTypeEnum.order
     )

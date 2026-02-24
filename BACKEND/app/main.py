@@ -23,6 +23,7 @@ from app.api.routers import (
     user_preferences,
     loyalty,
     support,
+    fulfillment,
     recommendation,
 )
 
@@ -56,6 +57,7 @@ app.add_middleware(
 
 # ---------- ROUTERS ----------
 app.include_router(admin_global.router)
+app.include_router(fulfillment.router)
 app.include_router(admin_user.router)
 app.include_router(user_preferences.router)
 app.include_router(user.router)

@@ -1,6 +1,7 @@
 # app/service/post_purchase_agent_service.py
 # app/services/post_purchase_agent_service.py
 import uuid
+from app.services.notification_service import notify_user
 from sqlalchemy.orm import Session
 from app.models.models import Order, Review
 from app.services.telegram_notification_service import send_telegram_and_log
@@ -18,13 +19,14 @@ async def request_feedback_from_user(db: Session, order_id: uuid.UUID):
 
     msg = f"⭐ *How was your order?*\nOrder `{str(order_id)[:8]}` was recently delivered! We'd love to know what you think. Reply with a rating (1-5) and your thoughts. If you need a return or exchange, just let me know!"
     
-    await send_telegram_and_log(
-        db=db, 
-        user_id=order.user_id, 
-        text=msg, 
-        message_type="feedback_request", 
-        entity_id=order.id
-    )
+    await notify_user(
+    db,
+    order.user_id,
+    subject="How was your order?",
+    message=msg,
+    message_type="feedback_request",
+    entity_id=order.id
+)
 
     return {"status": "feedback_requested"}
 

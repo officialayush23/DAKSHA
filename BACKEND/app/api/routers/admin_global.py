@@ -1,6 +1,8 @@
 # app/api/routers/admin_global.py
 
 
+from app.services.post_purchase_agent_service import request_feedback_from_user
+from app.services.fulfillment_agent_service import handle_delivery_failure
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from uuid import UUID
@@ -736,3 +738,23 @@ async def update_return_status_api(return_id: UUID, status: ReturnStatusEnum, re
         result = await update_return_status(db=db, return_id=return_id, status=status, admin_id=admin.id, reason=reason)
         return {"success": True, "data": result}
     except ValueError as e: raise HTTPException(status_code=404, detail=str(e))
+    
+    
+    
+@router.post("/orders/{order_id}/delivery-failed")
+async def report_delivery_failure(
+    order_id: UUID,
+    reason: str,
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin)
+):
+    return await handle_delivery_failure(db, order_id, reason)
+
+
+@router.post("/orders/{order_id}/request-feedback")
+async def request_feedback(
+    order_id: UUID,
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin),
+):
+    return await request_feedback_from_user(db, order_id)
