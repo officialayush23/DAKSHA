@@ -1,7 +1,8 @@
 # app/services/coupon_service.py
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from datetime import datetime
+from datetime import datetime, timezone
+from uuid import UUID
 from typing import List, Dict
 from app.models.models import (
     CheckoutSession,
@@ -13,7 +14,7 @@ from app.services.personalized_offer_service import get_active_personal_offers
 
 def get_eligible_coupons(db: Session, user_id, cart_total: float, category_set: set[str]):
     """Returns eligible coupons. Personalized offers ALWAYS first."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     personalized = get_active_personal_offers(db, user_id)
 
     # Use .mappings() to get dictionary-like row access
@@ -21,14 +22,13 @@ def get_eligible_coupons(db: Session, user_id, cart_total: float, category_set: 
         SELECT *
         FROM coupons
         WHERE status = 'active'
-        AND valid_from <= :now
+        AND (valid_from IS NULL OR valid_from <= :now)
         AND (valid_to IS NULL OR valid_to >= :now)
         AND (min_order_value IS NULL OR min_order_value <= :total)
     """), {"now": now, "total": cart_total}).mappings().fetchall()
 
     eligible = []
     for r in rows:
-        # 🛠️ FIXED: Convert SQLAlchemy RowMapping to a standard Python dictionary
         coupon_dict = dict(r)
         
         # Safely cast UUIDs and Decimals to strings and floats for JSON
@@ -47,7 +47,6 @@ def get_eligible_coupons(db: Session, user_id, cart_total: float, category_set: 
         elif r["scope"] == "product":
             eligible.append(coupon_dict)
 
-    # 🛠️ FIXED: Serialize personalized offers safely
     serialized_personalized = []
     for p in personalized:
         serialized_personalized.append({
@@ -75,12 +74,41 @@ def apply_coupon(
     if not checkout:
         raise ValueError("Checkout session not found.")
 
-    if personal_offer_id:
-        offer = db.get(UserPersonalizedOffer, personal_offer_id)
+    # 🛡️ Clean inputs: React often sends "null", "undefined", or "" instead of a true None
+    if isinstance(personal_offer_id, str) and personal_offer_id.strip().lower() in ("", "null", "undefined", "none"):
+        personal_offer_id = None
         
-        # 🛡️ SAFETY CHECK to prevent NoneType Error
+    if isinstance(coupon_code, str):
+        coupon_code = coupon_code.strip()
+        if coupon_code.lower() in ("", "null", "undefined", "none"):
+            coupon_code = None
+
+    # Handle explicit clearing of coupons
+    if not personal_offer_id and not coupon_code:
+        checkout.applied_personal_offer_id = None
+        checkout.applied_coupon_id = None
+        checkout.discount_amount = 0
+        db.commit()
+        return 0
+
+    if personal_offer_id:
+        # Validate UUID format before querying
+        try:
+            valid_uuid = UUID(str(personal_offer_id))
+        except ValueError:
+            raise ValueError("Invalid personalized offer ID format.")
+
+        offer = db.get(UserPersonalizedOffer, valid_uuid)
+        
+        # 🛡️ STRICT SAFETY CHECKS
         if not offer:
-            raise ValueError("Personalized offer not found or invalid.")
+            raise ValueError("Personalized offer not found.")
+        if offer.user_id != checkout.user_id:
+            raise ValueError("This offer belongs to a different user.")
+        if offer.is_redeemed:
+            raise ValueError("This offer has already been redeemed.")
+        if offer.expires_at and offer.expires_at < datetime.now(timezone.utc):
+            raise ValueError("This offer has expired.")
 
         discount = (
             cart_total * float(offer.discount_value) / 100
@@ -88,16 +116,16 @@ def apply_coupon(
             else float(offer.discount_value)
         )
 
+        # Apply to checkout, but do NOT mark as redeemed yet!
         checkout.applied_personal_offer_id = offer.id
-        checkout.applied_coupon_id = None # Clear system coupon if applying personal
+        checkout.applied_coupon_id = None # Clear standard coupon
         checkout.discount_amount = discount
 
     elif coupon_code:
         coupon = db.query(Coupon).filter_by(code=coupon_code).first()
         
-        # 🛡️ SAFETY CHECK to prevent NoneType Error
-        if not coupon:
-            raise ValueError(f"Coupon code '{coupon_code}' not found or invalid.")
+        if not coupon or getattr(coupon.status, 'value', coupon.status) != "active":
+            raise ValueError(f"Coupon code '{coupon_code}' is invalid or inactive.")
 
         discount = (
             cart_total * float(coupon.value) / 100
@@ -108,18 +136,25 @@ def apply_coupon(
         if coupon.max_discount:
             discount = min(discount, float(coupon.max_discount))
 
+        # Apply to checkout
         checkout.applied_coupon_id = coupon.id
-        checkout.applied_personal_offer_id = None # Clear personal offer if applying system coupon
+        checkout.applied_personal_offer_id = None # Clear personal offer
         checkout.discount_amount = discount
 
     db.commit()
     return checkout.discount_amount
 
+
 def finalize_coupon_redemption(db: Session, checkout_id, order_id):
+    """
+    Called ONLY when the payment is successful and order is confirmed.
+    This safely executes the actual consumption of the offer.
+    """
     checkout = db.get(CheckoutSession, checkout_id)
     if not checkout:
         return
 
+    # Handle standard coupon
     if checkout.applied_coupon_id:
         redemption = CouponRedemption(
             coupon_id=checkout.applied_coupon_id,
@@ -128,6 +163,7 @@ def finalize_coupon_redemption(db: Session, checkout_id, order_id):
         )
         db.add(redemption)
 
+    # Handle Personalized Offers (Mark as redeemed so it can't be used again)
     if checkout.applied_personal_offer_id:
         offer = db.get(UserPersonalizedOffer, checkout.applied_personal_offer_id)
         if offer:

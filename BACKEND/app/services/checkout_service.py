@@ -4,7 +4,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone # ⬅️ IMPORTED timezone
 from uuid import UUID
 from sqlalchemy.orm import Session
-
+from app.services.notification_service import notify_user
 # 👇 FIXED: Imported OrderStatusHistory
 from app.models.models import CheckoutSession, Order, OrderItem, CartItem, UserAddress, OrderStatusHistory,User
 from app.enums.db_enums import (
@@ -119,7 +119,6 @@ def create_checkout_after_fulfillment(
     db.refresh(checkout)
     return checkout
 
-
 async def finalize_checkout(
     db: Session,
     *,
@@ -136,6 +135,10 @@ async def finalize_checkout(
     if checkout.state == CheckoutStateEnum.ORDER_CONFIRMED:
         return {"status": "already_completed"}
 
+    user = db.get(User, checkout.user_id)
+    if not user or not user.email:
+        raise ValueError("An email address is required to place an order. Please update your profile.")
+
     # 1. Address Validation & Snapshotting ---------------------------
     address_snapshot = None
     if checkout.fulfillment_type == FulfillmentTypeEnum.delivery:
@@ -150,8 +153,14 @@ async def finalize_checkout(
         if not addr_obj:
             raise ValueError("Invalid delivery address.")
             
-        # Create a hard text snapshot of the address for history
         address_snapshot = f"{addr_obj.label or 'Home'}: {addr_obj.address_line1}, {addr_obj.address_line2 or ''}, {addr_obj.city}, {addr_obj.state}, {addr_obj.pincode}"
+    else:
+        # 🛡️ PICKUP SAFETY: Ensure we don't save an address, but require a store/time
+        delivery_address_id = None
+        if not checkout.store_id:
+            raise ValueError("Store ID is missing for pickup order.")
+        if not scheduled_time:
+            raise ValueError("Scheduled time is required for pickup orders.")
     # ----------------------------------------------------------------
 
     checkout.payment_attempts += 1
@@ -175,34 +184,11 @@ async def finalize_checkout(
             checkout.inventory_locked = False
             checkout.state = CheckoutStateEnum.CANCELLED
 
-        emit_event(
-            db,
-            event_type=EventTypeEnum.payment_failed,
-            user_id=checkout.user_id,
-            session_id=checkout.session_id,
-            channel=checkout.last_active_channel,
-            entity_type=EntityTypeEnum.checkout,
-            entity_id=checkout.id,
-            metadata={
-                "reason_code": "gateway_fail",
-                "reason": str(payment.failure_reason),
-            },
-        )
-
+        emit_event(db, event_type=EventTypeEnum.payment_failed, user_id=checkout.user_id, session_id=checkout.session_id, channel=checkout.last_active_channel, entity_type=EntityTypeEnum.checkout, entity_id=checkout.id, metadata={"reason_code": "gateway_fail", "reason": str(payment.failure_reason)})
         db.commit()
         return {"status": "payment_failed", "reason": payment.failure_reason}
 
-    # -------- PAYMENT SUCCESS EVENT --------
-    emit_event(
-        db,
-        event_type=EventTypeEnum.payment_success,
-        user_id=checkout.user_id,
-        session_id=checkout.session_id,
-        channel=checkout.last_active_channel,
-        entity_type=EntityTypeEnum.checkout,
-        entity_id=checkout.id,
-        price=final_amount,
-    )
+    emit_event(db, event_type=EventTypeEnum.payment_success, user_id=checkout.user_id, session_id=checkout.session_id, channel=checkout.last_active_channel, entity_type=EntityTypeEnum.checkout, entity_id=checkout.id, price=final_amount)
 
     # -------- CREATE ORDER --------
     order = Order(
@@ -211,7 +197,7 @@ async def finalize_checkout(
         store_id=checkout.store_id,
         delivery_address_id=delivery_address_id,  
         delivery_address=address_snapshot,        
-        order_status=OrderStatusEnum.confirmed, # ⬅️ Status is 'confirmed'
+        order_status=OrderStatusEnum.confirmed, 
         total_amount=final_amount,
         last_agent_run_id=agent_run_id,
     )
@@ -219,92 +205,46 @@ async def finalize_checkout(
     db.flush()
 
     payment.order_id = order.id
+    db.add(OrderStatusHistory(order_id=order.id, status=OrderStatusEnum.confirmed, description="Order placed and payment successful."))
 
-    # 👇 Write to OrderStatusHistory ledger
-    status_history = OrderStatusHistory(
-        order_id=order.id,
-        status=OrderStatusEnum.confirmed,
-        description="Order placed and payment successful."
-    )
-    db.add(status_history)
+    emit_event(db, event_type=EventTypeEnum.order_placed, user_id=checkout.user_id, session_id=checkout.session_id, channel=checkout.last_active_channel, entity_type=EntityTypeEnum.order, entity_id=order.id, price=final_amount, metadata={"checkout_duration_sec": float((datetime.now(timezone.utc) - checkout.created_at).total_seconds())})
 
-    emit_event(
-        db,
-        event_type=EventTypeEnum.order_placed,
-        user_id=checkout.user_id,
-        session_id=checkout.session_id,
-        channel=checkout.last_active_channel,
-        entity_type=EntityTypeEnum.order,
-        entity_id=order.id,
-        price=final_amount,
-        metadata={
-            # ⬅️ FIXED: Used datetime.now(timezone.utc) to prevent subtract naive/aware crash
-            "checkout_duration_sec": float((datetime.now(timezone.utc) - checkout.created_at).total_seconds())
-        },
-    )
-
-    # -------- TRANSFER ITEMS (Cart to Order) --------
+    # -------- TRANSFER ITEMS --------
     items = db.query(CartItem).filter(CartItem.cart_id == checkout.cart_id).all()
     for item in items:
-        db.add(OrderItem(
-            order_id=order.id,
-            product_variant_id=item.product_variant_id,
-            quantity=item.quantity,
-            price_at_purchase=item.variant.base_price,
-        ))
+        db.add(OrderItem(order_id=order.id, product_variant_id=item.product_variant_id, quantity=item.quantity, price_at_purchase=item.variant.base_price))
     db.query(CartItem).filter(CartItem.cart_id == checkout.cart_id).delete()
 
-    # -------- FINALIZE INVENTORY --------
+    # -------- FINALIZE INVENTORY & COUPONS --------
     finalize_reservations(db, checkout.id)
-
-    # -------- COUPONS & LOYALTY --------
     finalize_coupon_redemption(db, checkout.id, order.id)
 
     if redeem_loyalty_points > 0:
-        debit_points(
-            db=db,
-            user_id=checkout.user_id,
-            points=redeem_loyalty_points,
-            reason="Checkout redemption",
-            channel=checkout.last_active_channel,
-        )
+        debit_points(db=db, user_id=checkout.user_id, points=redeem_loyalty_points, reason="Checkout redemption", channel=checkout.last_active_channel)
 
-    credit_points_for_order(
-        db=db,
-        user_id=checkout.user_id,
-        order_id=order.id,
-        order_total=final_amount,
-        channel=checkout.last_active_channel,
-    )
+    credit_points_for_order(db=db, user_id=checkout.user_id, order_id=order.id, order_total=final_amount, channel=checkout.last_active_channel)
 
     # -------- FULFILLMENT --------
     if checkout.fulfillment_type == FulfillmentTypeEnum.delivery:
         create_shipment(db, order.id)
+        msg_text = f"Order `{str(order.id)[:8]}` is confirmed for Delivery.\nTotal: ₹{final_amount}"
     else:
-        if not checkout.store_id or not scheduled_time:
-            raise ValueError("Pickup requires scheduled time")
         create_pickup(db, order.id, checkout.store_id, scheduled_time)
+        msg_text = f"Order `{str(order.id)[:8]}` is confirmed for Pickup.\nScheduled for: {scheduled_time.strftime('%b %d, %H:%M')}\nTotal: ₹{final_amount}"
 
     checkout.state = CheckoutStateEnum.ORDER_CONFIRMED
     checkout.inventory_locked = False
-    
-    
-
     db.commit()
 
-    # -------- NOTIFICATIONS --------
-    send_email_and_log(
-        db,
+    # -------- OMNICHANNEL NOTIFICATION --------
+    await notify_user(
+        db=db,
         user_id=checkout.user_id,
-        session_id=checkout.session_id,
-        subject="Order Confirmed",
-        html_content=f"Order {order.id} confirmed. Total ₹{final_amount}",
+        subject="Order Confirmed 🎉",
+        message=msg_text,
         message_type="order_update",
-    )
-
-    await send_telegram_and_log(
-        db, user_id=checkout.user_id, session_id=checkout.session_id,
-        text=f"Order confirmed 🎉\nOrder ID: {order.id}", message_type="order_update"
+        entity_id=order.id,
+        entity_type=EntityTypeEnum.order
     )
 
     return {"status": "success", "order_id": order.id}
