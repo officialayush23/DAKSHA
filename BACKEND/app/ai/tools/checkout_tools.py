@@ -16,13 +16,17 @@ def log_agent_event(db, order_id, agent_name, event_type, payload):
     db.add(AgentEvent(order_id=order_id, agent_name=agent_name, event_type=event_type, payload=payload))
     db.commit()
 
+# ==========================================
+# CART TOOLS
+# ==========================================
 @tool
 def view_cart(user_id: str) -> str:
     """Gets the current contents of the user's cart."""
     with SessionLocal() as db:
         try:
             data = get_hydrated_cart(db, user_id=uuid.UUID(user_id))
-            return json.dumps(data)
+            # 🟢 FIXED: default=str prevents crashes from datetime and UUID objects
+            return json.dumps(data, default=str)
         except Exception as e:
             return f"Error fetching cart: {str(e)}"
 
@@ -67,6 +71,9 @@ def remove_from_cart(user_id: str, session_id: str, variant_id: str) -> str:
         except Exception as e:
             return f"Failed to remove from cart: {str(e)}"
 
+# ==========================================
+# CHECKOUT TOOLS
+# ==========================================
 @tool
 def start_delivery_checkout(user_id: str, session_id: str, cart_id: str) -> str:
     """Initiates delivery checkout and locks inventory."""
@@ -111,7 +118,8 @@ async def finalize_payment(checkout_id: str, address_id: str = None, scheduled_t
         if result.get("order_id"):
             log_agent_event(db, result["order_id"], "UnifiedAgent", "finalize_payment", result)
             
-        return json.dumps(result)
+        # 🟢 FIXED: Safe serialization for final output
+        return json.dumps(result, default=str)
     except Exception as e:
         return f"Error finalizing: {str(e)}"
     finally:
