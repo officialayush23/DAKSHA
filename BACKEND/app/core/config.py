@@ -15,28 +15,30 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str
     SUPABASE_SERVICE_ROLE_KEY: str
     SUPABASE_JWT_SECRET: str  
-    SMTP_HOST:str
+    SMTP_HOST: str = ""
     SMTP_PORT: int = 587
-    SMTP_USERNAME: str
-    SMTP_PASSWORD: str
-    SMTP_FROM_EMAIL: str
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = ""
 
-    RENDER_API_KEY: str
-
-
-    EMBEDDING_PROVIDER: str
-    NOMIC_TEXT_MODEL: str
-    NOMIC_VISION_MODEL: str
-    NOMIC_MATRYOSHKA_DIM: int
-    LANGCHAIN_TRACING_V2: str
-    LANGCHAIN_API_KEY: str
-    LANGCHAIN_PROJECT: str
-    # 🔑 THIS WAS MISSING
+    EMBEDDING_PROVIDER: str = "nomic"
+    NOMIC_TEXT_MODEL: str = "nomic-embed-text-v1.5"
+    NOMIC_VISION_MODEL: str = "nomic-embed-vision-v1.5"
+    NOMIC_MATRYOSHKA_DIM: int = 768
+    LANGCHAIN_TRACING_V2: str = "false"
+    LANGCHAIN_API_KEY: str = ""
+    LANGCHAIN_PROJECT: str = "daksha"
 
     # AI
-    GEMINI_API_KEY: str
-    GROQ_API_KEY: str
-    TELEGRAM_TOKEN: str
+    GEMINI_API_KEY: str = ""
+    GROQ_API_KEY: str = ""
+    TELEGRAM_TOKEN: str = ""
+
+    # Email (Resend)
+    RESEND_API_KEY: str = ""
+
+    # Maps
+    MAP_BOX_API_KEY: str = ""
 
     # Infra
     REDIS_URL: str

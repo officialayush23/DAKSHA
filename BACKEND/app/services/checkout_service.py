@@ -6,7 +6,10 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from app.services.notification_service import notify_user
 # 👇 FIXED: Imported OrderStatusHistory
-from app.models.models import CheckoutSession, Order, OrderItem, CartItem, UserAddress, OrderStatusHistory,User
+from app.models.models import (
+    CheckoutSession, Order, OrderItem, CartItem, UserAddress,
+    OrderStatusHistory, User, RecommendationImpression, TrainingSignal,
+)
 from app.enums.db_enums import (
     CheckoutStateEnum,
     OrderStatusEnum,
@@ -230,6 +233,9 @@ async def finalize_checkout(
         db.add(OrderItem(order_id=order.id, product_variant_id=item.product_variant_id, quantity=item.quantity, price_at_purchase=item.variant.base_price))
     db.query(CartItem).filter(CartItem.cart_id == checkout.cart_id).delete()
 
+    # -------- TRAINING SIGNALS: link purchased items to recent impressions --------
+    _log_purchase_training_signals(db, checkout.user_id, checkout.session_id, items, order.id)
+
     # -------- FINALIZE INVENTORY & COUPONS --------
     finalize_reservations(db, checkout.id)
     finalize_coupon_redemption(db, checkout.id, order.id)
@@ -263,3 +269,48 @@ async def finalize_checkout(
     )
 
     return {"status": "success", "order_id": order.id}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TRAINING SIGNAL HELPER
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _log_purchase_training_signals(db, user_id, session_id, cart_items: list, order_id) -> None:
+    """
+    For each cart item, check if it had a recent recommendation impression
+    (within this session or the last 24h). If so, write a 'purchase' training signal
+    with reward=1.0 so the model knows what converted.
+    """
+    import logging as _log
+    _logger = _log.getLogger(__name__)
+    try:
+        from datetime import timedelta
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+
+        for item in cart_items:
+            variant_id = item.product_variant_id
+
+            impression = (
+                db.query(RecommendationImpression)
+                .filter(
+                    RecommendationImpression.user_id == user_id,
+                    RecommendationImpression.product_variant_id == variant_id,
+                    RecommendationImpression.created_at >= cutoff,
+                )
+                .order_by(RecommendationImpression.created_at.desc())
+                .first()
+            )
+
+            signal = TrainingSignal(
+                user_id=user_id,
+                product_variant_id=variant_id,
+                signal_type="purchase",
+                signal_strength=1.0,
+                source="checkout",
+                impression_id=impression.id if impression else None,
+            )
+            db.add(signal)
+
+        db.flush()
+    except Exception as e:
+        _logger.warning(f"training_signals log failed: {e}")

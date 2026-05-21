@@ -1,9 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Card } from 'antd'; 
-import { Send, ShoppingBag, MapPin, Sparkles, User, Bot } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Card } from 'antd';
+import { Send, ShoppingBag, MapPin, Sparkles, User, Bot, Mic, MicOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import api, { SessionService } from '../lib/api'; 
+import api, { SessionService } from '../lib/api';
 import { toast } from 'sonner';
+
+// ── Recommendation outcome tracker ──────────────────────────────────────────
+const logRecommendationOutcome = async (impressionId, outcomeType, rewardValue = 0.1) => {
+  if (!impressionId) return;
+  try {
+    await api.post('/recommendations/outcome', {
+      impression_id: impressionId,
+      outcome_type: outcomeType,
+      reward_value: rewardValue,
+    });
+  } catch (_) {
+    // Fire-and-forget — never surface errors to user
+  }
+};
 
 const { Meta } = Card;
 
@@ -20,6 +34,38 @@ export default function ChatInterface() {
   const [currentAgent, setCurrentAgent] = useState("Unified Agent");
   const [sessionId, setSessionId] = useState(null);
   const scrollRef = useRef(null);
+
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef(null);
+
+  // Web Speech API mic handler
+  const toggleMic = () => {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      toast.error('Speech recognition not supported in this browser.');
+      return;
+    }
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-IN';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.onresult = (e) => {
+      const transcript = e.results[0][0].transcript;
+      setInput(prev => (prev ? prev + ' ' + transcript : transcript));
+      setIsListening(false);
+    };
+    recognition.onerror = () => { setIsListening(false); toast.error('Mic error — try again'); };
+    recognition.onend  = () => setIsListening(false);
+    recognition.start();
+    recognitionRef.current = recognition;
+    setIsListening(true);
+  };
+
 
   // Fetch the active session when the chat component mounts
   useEffect(() => {
@@ -151,6 +197,7 @@ export default function ChatInterface() {
                             hoverable
                             className="rounded-2xl border-zinc-200 overflow-hidden shadow-sm hover:shadow-md transition-all h-full flex flex-col"
                             bodyStyle={{ padding: '12px' }}
+                            onClick={() => logRecommendationOutcome(p.impression_id, 'click', 0.1)}
                             cover={
                               <div className="h-40 w-full bg-zinc-100 overflow-hidden">
                                 <img 
@@ -162,11 +209,14 @@ export default function ChatInterface() {
                               </div>
                             }
                             actions={[
-                              <ShoppingBag 
-                                key="add" 
-                                size={18} 
+                              <ShoppingBag
+                                key="add"
+                                size={18}
                                 className="text-zinc-600 hover:text-black transition-colors"
-                                onClick={() => onAction(`Add ${p.name} to my cart`)} 
+                                onClick={() => {
+                                  logRecommendationOutcome(p.impression_id, 'cart', 0.5);
+                                  onAction(`Add ${p.name} to my cart`);
+                                }}
                               />
                             ]}
                           >
@@ -208,12 +258,25 @@ export default function ChatInterface() {
         <div className="max-w-4xl mx-auto relative flex items-center gap-4">
           <input 
             className="flex-1 bg-zinc-50 border border-zinc-200 rounded-2xl px-6 py-4 outline-none font-sans text-sm focus:ring-2 focus:ring-black/5 focus:border-black transition-all"
-            placeholder="Type your request (e.g., 'Show me trending items')..."
+            placeholder={isListening ? "Listening…" : "Type or speak your request…"}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && onAction(input)}
             disabled={isTyping}
           />
+          {/* Mic button */}
+          <button
+            onClick={toggleMic}
+            disabled={isTyping}
+            title={isListening ? 'Stop listening' : 'Speak'}
+            className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all disabled:opacity-30 ${
+              isListening
+                ? 'bg-red-500 text-white animate-pulse'
+                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+            }`}
+          >
+            {isListening ? <MicOff size={20} /> : <Mic size={20} />}
+          </button>
           <button 
             onClick={() => onAction(input)}
             disabled={!input.trim() || isTyping}

@@ -23,10 +23,12 @@ from app.api.routers import (
     stores,
     user_preferences,
     loyalty,
-    support,
     fulfillment,
     recommendation,
 )
+from app.api.routers.websocket_handoff import router as ws_handoff_router
+from app.api.routers.agent_runs_admin import router as agent_runs_admin_router
+from app.api.routers.delivery_webhook import router as delivery_webhook_router
 
 app = FastAPI(title="Agentic Commerce Platform")
 
@@ -71,8 +73,10 @@ app.include_router(session.router)
 app.include_router(support.router)
 app.include_router(loyalty.router)
 app.include_router(checkout.router)
-app.include_router(coupons.router) 
+app.include_router(coupons.router)
 app.include_router(notification.router)
 app.include_router(stores.router)
 app.include_router(products.router)
-
+app.include_router(ws_handoff_router)       # WebSocket human handoff
+app.include_router(agent_runs_admin_router)  # Admin agent run traces
+app.include_router(delivery_webhook_router)  # Courier webhook + delivery tracking

@@ -407,19 +407,6 @@ class OrderChangeRequest(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     
     order: Mapped["Order"] = relationship(back_populates="change_requests")
-class RescheduleRequest(Base):
-    __tablename__ = "reschedule_requests"
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"))
-    fulfillment_type: Mapped[db_enums.FulfillmentTypeEnum]
-    requested_slot: Mapped[Optional[datetime]]
-    user_selected_slot: Mapped[Optional[datetime]]
-    status: Mapped[db_enums.RescheduleStatusEnum] = mapped_column(default=db_enums.RescheduleStatusEnum.pending)
-    expires_at: Mapped[Optional[datetime]]
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
-    
     
 class DeliveryAttemptEvent(Base):
     __tablename__ = "delivery_attempt_events"
@@ -969,7 +956,6 @@ class AgentHandoff(Base):
     __tablename__ = "agent_handoffs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-
     session_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("sessions.id"))
 
     # customer who triggered handoff
@@ -984,131 +970,128 @@ class AgentHandoff(Base):
 
     status: Mapped[db_enums.ComplaintStatusEnum] = mapped_column(default=db_enums.ComplaintStatusEnum.open)
 
+    # v2 additions
+    ws_room_id: Mapped[Optional[str]]
+    resolved_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
+    resolution_note: Mapped[Optional[str]] = mapped_column(Text)
+    escalation_level: Mapped[int] = mapped_column(Integer, default=1)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
-    # ✅ clarify relationships
     user: Mapped["User"] = relationship(
         "User",
         foreign_keys=[user_id],
         back_populates="agent_handoffs",
     )
-
     assigned_admin: Mapped["User"] = relationship(
         "User",
         foreign_keys=[assigned_to_admin_id],
     )
+    handoff_messages: Mapped[List["HandoffMessage"]] = relationship(back_populates="handoff")
 
 
-class FulfillmentAttempt(Base):
-    __tablename__ = "fulfillment_attempts"
+class HandoffMessage(Base):
+    """Real-time chat messages during a human handoff session."""
+    __tablename__ = "handoff_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    handoff_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agent_handoffs.id", ondelete="CASCADE"))
+    session_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("sessions.id", ondelete="SET NULL"))
+
+    speaker: Mapped[str]            # 'user' | 'admin' | 'system'
+    message: Mapped[str] = mapped_column(Text)
+    admin_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    handoff: Mapped["AgentHandoff"] = relationship(back_populates="handoff_messages")
+
+
+class DeliveryTracking(Base):
+    """Push-based delivery status events."""
+    __tablename__ = "delivery_tracking"
+
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"))
-    
-    attempt_number: Mapped[int] = mapped_column(default=1)
-    max_retries: Mapped[int] = mapped_column(default=5)
-    attempt_type: Mapped[Optional[db_enums.FulfillmentTypeEnum]]
-    
-    status: Mapped[Optional[str]]
-    last_error_message: Mapped[Optional[str]] = mapped_column(Text)
-    channel: Mapped[Optional[db_enums.DeliveryChannelEnum]]
-    last_attempt_at: Mapped[Optional[datetime]]
-    resolved: Mapped[bool] = mapped_column(default=False)
-        
-    agent_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("agent_runs.id"))
-    next_retry_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    
+
+    status: Mapped[str]
+    location_text: Mapped[Optional[str]] = mapped_column(Text)
+    carrier_event_code: Mapped[Optional[str]]
+    carrier_message: Mapped[Optional[str]] = mapped_column(Text)
+    is_exception: Mapped[bool] = mapped_column(Boolean, default=False)
+    exception_reason: Mapped[Optional[str]] = mapped_column(Text)
+
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    
-    order: Mapped["Order"] = relationship(back_populates="fulfillment_attempts")
-    
-class ComplaintEvent(Base):
-    __tablename__ = "complaint_events"
 
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    complaint_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("complaints.id", ondelete="CASCADE"))
-    actor_type: Mapped[Optional[str]]
-    actor_id: Mapped[Optional[uuid.UUID]]
-    message: Mapped[Optional[str]]
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-    
-class AgentEvent(Base):
-    __tablename__ = "agent_events"
 
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    order_id: Mapped[Optional[uuid.UUID]]
-    agent_name: Mapped[Optional[str]]
-    event_type: Mapped[Optional[str]]
-    payload: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-class UserAddress(Base):
-    __tablename__ = "user_addresses"
+class RescheduleRequest(Base):
+    """Delivery reschedule requests — merged model covering all DB columns."""
+    __tablename__ = "reschedule_requests"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    label: Mapped[Optional[str]]
-    address_line1: Mapped[str]
-    address_line2: Mapped[Optional[str]]
+    order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"))
+    session_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("sessions.id", ondelete="SET NULL"))
 
-    city: Mapped[Optional[str]]
-    state: Mapped[Optional[str]]
-    pincode: Mapped[Optional[str]]
-    country: Mapped[str] = mapped_column(default="India")
+    # Original DB columns (from base schema)
+    fulfillment_type: Mapped[Optional[db_enums.FulfillmentTypeEnum]]
+    requested_slot: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    user_selected_slot: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
-    is_default: Mapped[bool] = mapped_column(default=False)
+    # Added in v3 migration — agent-facing fields
+    requested_by: Mapped[Optional[str]] = mapped_column(default="agent")   # 'user' | 'agent' | 'admin'
+    offered_slots: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)  # JSON array of ISO datetimes
+    chosen_slot: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    reason: Mapped[Optional[str]] = mapped_column(Text)
+    agent_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("agent_runs.id", ondelete="SET NULL"))
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    status: Mapped[db_enums.RescheduleStatusEnum] = mapped_column(default=db_enums.RescheduleStatusEnum.pending)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class AgentAction(Base):
+    """Fine-grained per-tool-call log for every agent action."""
+    __tablename__ = "agent_actions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("sessions.id", ondelete="SET NULL"))
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    agent_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("agent_runs.id", ondelete="SET NULL"))
+
+    agent_name: Mapped[str]
+    tool_name: Mapped[str]
+    tool_input: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
+    tool_output: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
+    model_used: Mapped[Optional[str]]
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer)
+    success: Mapped[bool] = mapped_column(Boolean, default=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    user: Mapped["User"] = relationship(back_populates="addresses")
 
+class PolicyDecision(Base):
+    """Immutable audit log of every policy rule application."""
+    __tablename__ = "policy_decisions"
 
-# IMPORTANT: In your User class inside models.py, add this line:
-# addresses: Mapped[List["UserAddress"]] = relationship(back_populates="user")
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("sessions.id", ondelete="SET NULL"))
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    agent_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("agent_runs.id", ondelete="SET NULL"))
+    agent_action_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("agent_actions.id", ondelete="SET NULL"))
 
+    agent_name: Mapped[str]
+    rule_name: Mapped[str]
+    rule_category: Mapped[str]   # offer|return|exchange|cancellation|delivery|loyalty|payment
 
-class CouponEmbedding(Base):
-    __tablename__ = "coupon_embeddings"
+    input_value: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)    # what agent requested
+    applied_value: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)  # what policy allowed
+    was_overridden: Mapped[bool] = mapped_column(Boolean, default=False)
+    override_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    override_reason: Mapped[Optional[str]] = mapped_column(Text)
 
-    coupon_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("coupons.id", ondelete="CASCADE"),
-        primary_key=True
-    )
-    embedding: Mapped[List[float]] = mapped_column(Vector(768))
-    model: Mapped[str] = mapped_column(default="nomic-embed-text-v1.5")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now()
-    )
-
-
-class UserPersonalizedOfferEmbedding(Base):
-    __tablename__ = "user_personalized_offer_embeddings"
-
-    offer_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("user_personalized_offers.id", ondelete="CASCADE"),
-        primary_key=True
-    )
-    
-    embedding: Mapped[List[float]] = mapped_column(Vector(768))
-    model: Mapped[str] = mapped_column(default="nomic-embed-text-v1.5")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now()
-    )
-class ProductPriceSnapshot(Base):
-    __tablename__ = "product_price_snapshots"
-
-    product_variant_id = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("product_variants.id"),
-        primary_key=True
-    )
-    base_price = mapped_column(Numeric, nullable=False)
-    display_price = mapped_column(Numeric, nullable=False)
-    discount_percent = mapped_column(Numeric)
-    discount_reason = mapped_column(Text)
-    computed_at = mapped_column(DateTime(timezone=True), server_default=func.now())
-    valid_until = mapped_column(DateTime(timezone=True))
-
-
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

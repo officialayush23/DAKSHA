@@ -1,5 +1,5 @@
 # app/api/routers/chat.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 import uuid
 import re
@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.graph import agent_workflow
 from app.ai.context_loader import load_context
+from app.services.preference_service import refresh_user_preference_summary
 
 router = APIRouter(prefix="/chat", tags=["Agentic Chat"])
 
@@ -43,7 +44,8 @@ class AdminReplyRequest(BaseModel):
 
 @router.post("/", response_model=ChatResponse)
 async def chat_with_agent(
-    request: ChatRequest, 
+    request: ChatRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -99,6 +101,13 @@ async def chat_with_agent(
         print(f"📦 UI DATA   : {json.dumps(ui_data, indent=2) if ui_data else 'NONE'}")
         print("="*50 + "\n")
 
+        # 🧠 Background: refresh user taste profile after every turn
+        background_tasks.add_task(
+            refresh_user_preference_summary,
+            user_id_str,
+            request.session_id,
+        )
+
         return ChatResponse(
             response=response_text,
             current_agent=active_agent,
@@ -125,7 +134,7 @@ async def admin_chat_resume(
             
             state_update = {
                 "messages": [AIMessage(content=f"👨‍💻 [Support Admin]: {request.message}")],
-                "pending_human_input": False, 
+                "pending_human_input": False,
                 "failure_count": 0
             }
             

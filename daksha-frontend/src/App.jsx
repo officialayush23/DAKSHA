@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
 import { useAuth } from './context/AuthContext';
@@ -49,6 +50,7 @@ import AdminUserList from './admin_user/pages/AdminUserList';
 import AdminUserDetail from './admin_user/pages/AdminUserDetail';
 
 import ReturnsPage from './pages/ReturnsPage';
+import AdvancedArchitectureSimulator from './pages/Anim';
 
 
 // ============================================================
@@ -98,8 +100,19 @@ const KioskProtectedRoute = ({ children }) => {
 // ============================================================
 
 export default function App() {
+  const location = useLocation();
+
   return (
-    <Routes>
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={location.pathname}
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -8 }}
+        transition={{ duration: 0.18, ease: "easeInOut" }}
+        style={{ width: '100%' }}
+      >
+    <Routes location={location}>
 
       {/* ============================== */}
       {/* 1. PUBLIC ROUTES               */}
@@ -107,6 +120,8 @@ export default function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<AuthPage />} />
       <Route path="/register" element={<AuthPage isRegister />} />
+      <Route path="/animation" element={<AdvancedArchitectureSimulator />} />
+
 
 
       {/* ============================== */}
@@ -214,5 +229,7 @@ export default function App() {
       <Route path="*" element={<Navigate to="/" replace />} />
 
     </Routes>
+      </motion.div>
+    </AnimatePresence>
   );
 }

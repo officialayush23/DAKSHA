@@ -1,5 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import { gsap } from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+gsap.registerPlugin(ScrollTrigger);
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -37,12 +39,48 @@ export default function Hero() {
     return () => clearInterval(interval);
   }, []);
 
+  // Scroll-based reveal: title scale + video parallax
+  const videoRef = useRef(null);
+  useEffect(() => {
+    const ctx = gsap.context(() => {
+      // Parallax: video drifts up as user scrolls
+      if (videoRef.current) {
+        gsap.to(videoRef.current, {
+          yPercent: -20,
+          ease: "none",
+          scrollTrigger: {
+            trigger: "section",
+            start: "top top",
+            end: "bottom top",
+            scrub: true,
+          },
+        });
+      }
+      // Title scale-down on scroll
+      if (titleRef.current) {
+        gsap.to(titleRef.current, {
+          scale: 0.85,
+          opacity: 0.6,
+          ease: "none",
+          scrollTrigger: {
+            trigger: "section",
+            start: "top top",
+            end: "40% top",
+            scrub: 1,
+          },
+        });
+      }
+    });
+    return () => ctx.revert();
+  }, []);
+
   return (
     <section className="relative h-screen w-full overflow-hidden bg-daksha-black text-daksha-cream">
       {/* Video Background */}
       <div className="absolute inset-0 opacity-60">
         <video 
           autoPlay loop muted playsInline 
+          ref={videoRef}
           className="w-full h-full object-cover"
         >
           {/* Use a real fashion video URL here */}

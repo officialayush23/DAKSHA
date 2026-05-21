@@ -16,10 +16,11 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 
-import { 
-  Truck, Store, MapPin, Navigation, CheckCircle2, 
-  ChevronRight, Loader2, Tag, CreditCard, ShoppingBag, Award, List
+import {
+  Truck, Store, MapPin, CheckCircle2,
+  ChevronRight, Loader2, Tag, CreditCard, ShoppingBag, Award
 } from 'lucide-react';
+import MapboxStorePicker from '../components/MapboxStorePicker';
 
 export default function CheckoutPage() {
   const navigate = useNavigate();
@@ -43,11 +44,8 @@ export default function CheckoutPage() {
   const [selectedAddressId, setSelectedAddressId] = useState("");
 
   // Pickup State
-  const [stores, setStores] = useState([]);
-  const [selectedStoreId, setSelectedStoreId] = useState("");
-  const [locating, setLocating] = useState(false);
-  const [manualLat, setManualLat] = useState("");
-  const [manualLng, setManualLng] = useState("");
+  const [selectedStoreId, setSelectedStoreId]   = useState("");
+  const [selectedStore,   setSelectedStore]      = useState(null);
 
   // --- PAYMENT & CARDS ---
   const [cards, setCards] = useState([]);
@@ -149,64 +147,11 @@ export default function CheckoutPage() {
   }, [navigate]);
 
   // ==========================================
-  // 2. FETCH PICKUP STORES
+  // 2. STORE SELECTION (via MapboxStorePicker)
   // ==========================================
-  const fetchStoresFromAPI = async (lat, lng) => {
-    try {
-      const cartId = cart.cart_id || cart.id;
-      const res = await CheckoutService.getPickupStores(cartId, lat, lng);
-      const storeList = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
-      
-      setStores(storeList);
-      if (storeList.length > 0) {
-        // 👇 FIXED: Backend returns store_id, not id
-        setSelectedStoreId(storeList[0].store_id || storeList[0].id);
-        toast.success(`Found ${storeList.length} stores`);
-      } else {
-        toast.info("No stores found in this area.");
-      }
-    } catch (err) {
-      toast.error("Backend issue retrieving stores.");
-      setStores([]); 
-    } finally {
-      setLocating(false);
-    }
-  };
-
-  const handleAutoLocate = () => {
-    if (!("geolocation" in navigator)) return toast.error("Geolocation not supported");
-
-    setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = position.coords.latitude.toFixed(4);
-        const lng = position.coords.longitude.toFixed(4);
-        
-        setManualLat(lat);
-        setManualLng(lng);
-        
-        toast.success("Location detected!");
-        fetchStoresFromAPI(parseFloat(lat), parseFloat(lng));
-      },
-      (error) => {
-        toast.error("Please allow location access to find stores.");
-        setLocating(false);
-      },
-      { timeout: 10000 }
-    );
-  };
-
-  const handleManualStoreSearch = (e) => {
-    e.preventDefault();
-    if (!manualLat || !manualLng) return toast.error("Please enter both latitude and longitude");
-    setLocating(true);
-    fetchStoresFromAPI(parseFloat(manualLat), parseFloat(manualLng));
-  };
-
-  const handleListAllStores = () => {
-    setLocating(true);
-    toast.info("Fetching available boutiques...");
-    fetchStoresFromAPI(18.0, 73.0); 
+  const handleStoreSelect = (store) => {
+    setSelectedStore(store);
+    setSelectedStoreId(store.id || store.store_id);
   };
 
   // ==========================================
@@ -418,78 +363,53 @@ export default function CheckoutPage() {
                   </motion.div>
                 )}
 
-                {/* PICKUP FLOW ENHANCED */}
+                {/* PICKUP FLOW — Mapbox store picker */}
                 {fulfillmentType === 'pickup' && (
-                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-6">
-                    
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    className="space-y-4"
+                  >
+                    <div className="flex items-center justify-between">
                       <h2 className="text-xl font-serif font-bold text-zinc-900">Find a Store</h2>
-                      <Button 
-                        onClick={handleAutoLocate} 
-                        disabled={locating} 
-                        variant="outline" 
-                        className="rounded-full text-xs font-bold tracking-widest uppercase border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800"
-                      >
-                        {locating ? <Loader2 className="animate-spin mr-2 h-3 w-3" /> : <Navigation className="mr-2 h-3 w-3" />} 
-                        Auto-Locate Me
-                      </Button>
+                      {selectedStore && (
+                        <button
+                          onClick={() => { setSelectedStore(null); setSelectedStoreId(''); }}
+                          className="text-xs font-bold uppercase tracking-widest text-zinc-500 hover:text-black underline"
+                        >
+                          Change
+                        </button>
+                      )}
                     </div>
 
-                    <form onSubmit={handleManualStoreSearch} className="flex flex-col sm:flex-row gap-3">
-                      <div className="flex-1">
-                        <Input 
-                          placeholder="Latitude (e.g. 18.52)" 
-                          value={manualLat} 
-                          onChange={(e) => setManualLat(e.target.value)} 
-                          className="h-12 rounded-xl bg-zinc-50 border-zinc-200 focus-visible:ring-black" 
-                          type="number" step="any" 
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <Input 
-                          placeholder="Longitude (e.g. 73.85)" 
-                          value={manualLng} 
-                          onChange={(e) => setManualLng(e.target.value)} 
-                          className="h-12 rounded-xl bg-zinc-50 border-zinc-200 focus-visible:ring-black" 
-                          type="number" step="any" 
-                        />
-                      </div>
-                      <Button type="submit" disabled={locating} className="h-12 rounded-xl bg-zinc-900 text-white px-8 font-bold uppercase tracking-widest text-xs">
-                        {locating ? <Loader2 className="animate-spin" /> : 'Search'}
-                      </Button>
-                    </form>
+                    {/* Map — always visible; bottom strip inside it handles confirmation */}
+                    <div
+                      className="rounded-[1.5rem] overflow-hidden border border-zinc-200 shadow-sm"
+                      style={{ height: 460 }}
+                    >
+                      <MapboxStorePicker
+                        cartItems={
+                          cart?.items?.map(i => ({
+                            product_variant_id: i.product_variant_id || i.variant_id,
+                            quantity: i.quantity,
+                          })) || []
+                        }
+                        onStoreSelect={handleStoreSelect}
+                        onClose={() => setFulfillmentType('delivery')}
+                      />
+                    </div>
 
-                    {stores.length === 0 ? (
-                      <div className="p-10 border border-zinc-200 bg-zinc-50 rounded-[1.5rem] text-center">
-                        <Store size={32} className="mx-auto text-zinc-300 mb-3" />
-                        <p className="text-zinc-600 font-medium text-sm mb-4">Click Auto-Locate or enter coordinates to find nearby boutiques.</p>
-                        
-                        <Button 
-                          onClick={handleListAllStores}
-                          variant="ghost" 
-                          className="text-xs font-bold uppercase tracking-widest text-zinc-500 hover:text-black"
-                        >
-                          <List size={14} className="mr-2" /> Show All Available Stores
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="grid gap-3">
-                        {stores.map(store => {
-                          // 👇 FIXED: Correct keys
-                          const currentStoreId = store.store_id || store.id;
-                          return (
-                          <div key={currentStoreId} onClick={() => setSelectedStoreId(currentStoreId)} className={`p-5 rounded-2xl border-2 cursor-pointer transition-all ${selectedStoreId === currentStoreId ? 'border-zinc-900 bg-zinc-50 shadow-sm' : 'border-zinc-100 bg-white hover:border-zinc-200'}`}>
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <h4 className="font-bold text-zinc-900 flex items-center gap-2">{store.name} <Badge variant="secondary" className="text-[9px] uppercase shadow-none bg-emerald-100 text-emerald-700">In Stock</Badge></h4>
-                                <p className="text-sm text-zinc-500 mt-1">{store.address}</p>
-                                {/* 👇 FIXED: distance_km from swagger */}
-                                {store.distance_km && <p className="text-xs font-bold text-zinc-400 mt-2">{parseFloat(store.distance_km).toFixed(1)} km away</p>}
-                              </div>
-                              {selectedStoreId === currentStoreId && <CheckCircle2 className="text-black" size={20} />}
-                            </div>
-                          </div>
-                        )})}
+                    {/* Confirmation chip shown once store is selected */}
+                    {selectedStore && (
+                      <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                        <CheckCircle2 className="text-emerald-600 shrink-0" size={16} />
+                        <p className="text-sm font-medium text-emerald-800">
+                          <span className="font-bold">{selectedStore.name}</span>
+                          {selectedStore.distance_km
+                            ? ` · ${selectedStore.distance_km.toFixed(1)} km away`
+                            : ''
+                          } selected for pickup
+                        </p>
                       </div>
                     )}
                   </motion.div>
@@ -497,7 +417,7 @@ export default function CheckoutPage() {
 
                 <Button 
                   onClick={handleStartCheckout} 
-                  disabled={processing || (fulfillmentType === 'delivery' ? !selectedAddressId : !selectedStoreId)}
+                  disabled={processing || (fulfillmentType === 'delivery' ? !selectedAddressId : (!selectedStoreId || !selectedStore))}
                   className="w-full h-14 rounded-full bg-zinc-900 hover:bg-black text-white font-bold tracking-[0.15em] uppercase text-sm shadow-xl active:scale-95 transition-all disabled:opacity-50"
                 >
                   {processing ? <Loader2 className="animate-spin mr-2" /> : null} Proceed to Payment
@@ -516,7 +436,14 @@ export default function CheckoutPage() {
                     </div>
                     <div>
                       <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Fulfillment</p>
-                      <p className="font-bold text-sm text-zinc-900">{fulfillmentType === 'delivery' ? 'Standard Delivery' : 'Store Pickup'}</p>
+                      <p className="font-bold text-sm text-zinc-900">
+                        {fulfillmentType === 'delivery'
+                          ? 'Standard Delivery'
+                          : selectedStore
+                            ? `Pickup · ${selectedStore.name}`
+                            : 'Store Pickup'
+                        }
+                      </p>
                     </div>
                   </div>
                   <Button variant="link" onClick={() => setStep(1)} className="text-xs font-bold underline text-zinc-500 hover:text-black">Change</Button>
