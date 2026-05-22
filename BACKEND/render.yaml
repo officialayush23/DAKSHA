@@ -1,9 +1,85 @@
 services:
   - type: web
     name: daksha-backend
-    env: python
+    runtime: python
+    rootDir: .
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2
+    healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
+
+      # ── Database (Supabase) ──────────────────────────────────────────────────
+      - key: DATABASE_URL
+        sync: false   # set manually in Render dashboard
+      - key: LANGGRAPH_DB_URL
+        sync: false
+
+      # ── Supabase ─────────────────────────────────────────────────────────────
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+
+      # ── AI / Gemini ───────────────────────────────────────────────────────────
+      - key: GEMINI_VERTEX_API_KEY
+        sync: false
+      - key: VERTEX_API_KEY
+        sync: false
+      - key: VERTEX_AI_LOCATION
+        value: asia-south1
+
+      # ── Groq ─────────────────────────────────────────────────────────────────
+      - key: GROQ_API_KEY
+        sync: false
+
+      # ── Maps ─────────────────────────────────────────────────────────────────
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+
+      # ── Redis ────────────────────────────────────────────────────────────────
+      - key: REDIS_URL
+        sync: false
+
+      # ── Email ────────────────────────────────────────────────────────────────
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM_EMAIL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+
+      # ── Embeddings (Nomic) ───────────────────────────────────────────────────
+      - key: NOMIC_API_KEY
+        sync: false
+      - key: EMBEDDING_PROVIDER
+        value: nomic
+      - key: NOMIC_TEXT_MODEL
+        value: nomic-ai/nomic-embed-text-v1.5
+      - key: NOMIC_VISION_MODEL
+        value: nomic-ai/nomic-embed-vision-v1.5
+      - key: NOMIC_MATRYOSHKA_DIM
+        value: "768"
+
+      # ── LangChain tracing (optional) ─────────────────────────────────────────
+      - key: LANGCHAIN_TRACING_V2
+        value: "false"
+      - key: LANGCHAIN_API_KEY
+        sync: false
+      - key: LANGCHAIN_PROJECT
+        value: daksha
+
+      # ── Telegram bot (optional) ──────────────────────────────────────────────
+      - key: TELEGRAM_TOKEN
+        sync: false
