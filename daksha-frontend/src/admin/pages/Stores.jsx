@@ -1,326 +1,125 @@
-import React, { useState, useEffect } from "react";
-import { AdminService } from '@/lib/adminApi';
+// src/admin/pages/Stores.jsx
+// Admin store management — Google Maps + Places autocomplete + geocoding
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-  DialogDescription,
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+  DialogTrigger, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-  CardDescription,
+  Card, CardHeader, CardTitle, CardContent, CardDescription,
 } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
-  Badge
-} from "@/components/ui/badge";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { 
-  Plus, 
-  Store, 
-  MoreHorizontal, 
-  Search,
-  Edit,
-  Trash2,
-  Download,
-  Loader2,
-  CheckCircle,
-  XCircle,
-  AlertCircle,
-  Building,
-  Map,
-  Globe,
-  Pin,
-  MapPin,
-  RefreshCw,
-  ShoppingBag,
-  PackageCheck
+import {
+  Plus, Store, MoreHorizontal, Search, Edit, Trash2, Download,
+  Loader2, CheckCircle, XCircle, AlertCircle, Building, Globe,
+  MapPin, RefreshCw, ShoppingBag, PackageCheck, Map, Crosshair,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Switch } from "@/components/ui/switch";
-import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 
-// Leaflet imports
-import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
-import L from 'leaflet';
+const API_BASE    = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const GMAPS_KEY   = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 
-// Fix for Leaflet default icons
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+// ── Auth header helper ─────────────────────────────────────────────────────
+const authHeaders = () => ({
+  "Content-Type": "application/json",
+  Authorization: `Bearer ${localStorage.getItem("token")}`,
 });
 
-// Custom Icons
-const createCustomIcon = () => {
-  return new L.DivIcon({
-    html: `
-      <div style="
-        position: relative;
-        width: 40px;
-        height: 40px;
-        background: #3b82f6;
-        border: 3px solid white;
-        border-radius: 50%;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      ">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="white" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
-          <circle cx="12" cy="10" r="3"/>
-        </svg>
-      </div>
-    `,
-    className: 'custom-marker',
-    iconSize: [40, 40],
-    iconAnchor: [20, 40],
-    popupAnchor: [0, -40]
+// ── Load Google Maps once ─────────────────────────────────────────────────
+let _gmapsLoaded = false, _gmapsCbs = [];
+function loadGMaps() {
+  return new Promise((r) => {
+    if (window.google?.maps) { r(); return; }
+    if (_gmapsLoaded) { _gmapsCbs.push(r); return; }
+    _gmapsLoaded = true; _gmapsCbs.push(r);
+    window.__gmapsAdminReady = () => _gmapsCbs.forEach(fn => fn());
+    const s = document.createElement("script");
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&libraries=places,geometry&callback=__gmapsAdminReady`;
+    s.async = true; s.defer = true;
+    document.head.appendChild(s);
   });
-};
-
-const createActiveStoreIcon = () => {
-  return new L.DivIcon({
-    html: `
-      <div style="
-        position: relative;
-        width: 40px;
-        height: 40px;
-        background: #10b981;
-        border: 3px solid white;
-        border-radius: 50%;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      ">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="white" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
-          <circle cx="12" cy="10" r="3"/>
-        </svg>
-      </div>
-    `,
-    className: 'active-store-marker',
-    iconSize: [40, 40],
-    iconAnchor: [20, 40],
-    popupAnchor: [0, -40]
-  });
-};
-
-const createInactiveStoreIcon = () => {
-  return new L.DivIcon({
-    html: `
-      <div style="
-        position: relative;
-        width: 40px;
-        height: 40px;
-        background: #ef4444;
-        border: 3px solid white;
-        border-radius: 50%;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        opacity: 0.7;
-      ">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="white" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
-          <circle cx="12" cy="10" r="3"/>
-        </svg>
-      </div>
-    `,
-    className: 'inactive-store-marker',
-    iconSize: [40, 40],
-    iconAnchor: [20, 40],
-    popupAnchor: [0, -40]
-  });
-};
-
-// Helper function to parse location
-const parseLocation = (location) => {
-  if (!location) return { type: 'Point', coordinates: [73.8677, 18.4650] };
-  
-  if (typeof location === 'string') {
-    try {
-      return JSON.parse(location);
-    } catch (e) {
-      console.error('Failed to parse location string:', e);
-      return { type: 'Point', coordinates: [73.8677, 18.4650] };
-    }
-  }
-  
-  return location;
-};
-
-// Helper function to get coordinates
-const getCoordinates = (location) => {
-  const parsed = parseLocation(location);
-  if (parsed.coordinates && Array.isArray(parsed.coordinates) && parsed.coordinates.length >= 2) {
-    // Note: In GeoJSON, coordinates are [longitude, latitude]
-    // For Leaflet, we need [latitude, longitude]
-    return [parsed.coordinates[1], parsed.coordinates[0]];
-  }
-  return [18.4650, 73.8677]; // Default to Pune
-};
-
-// Location Picker Component
-function LocationPicker({ onLocationSelect, initialPosition }) {
-  const [position, setPosition] = useState(initialPosition || [18.4650, 73.8677]);
-  
-  const map = useMapEvents({
-    click: (e) => {
-      const { lat, lng } = e.latlng;
-      setPosition([lat, lng]);
-      // Convert to GeoJSON format: [longitude, latitude]
-      onLocationSelect({ type: 'Point', coordinates: [lng, lat] });
-    },
-    locationfound: (e) => {
-      const { lat, lng } = e.latlng;
-      setPosition([lat, lng]);
-      onLocationSelect({ type: 'Point', coordinates: [lng, lat] });
-      map.flyTo([lat, lng], map.getZoom());
-    },
-  });
-
-  useEffect(() => {
-    map.locate();
-  }, [map]);
-
-  return position ? (
-    <Marker 
-      position={position} 
-      icon={createCustomIcon()}
-      eventHandlers={{
-        dragend: (e) => {
-          const marker = e.target;
-          const position = marker.getLatLng();
-          setPosition([position.lat, position.lng]);
-          // Convert to GeoJSON format: [longitude, latitude]
-          onLocationSelect({ type: 'Point', coordinates: [position.lng, position.lat] });
-        },
-      }}
-      draggable={true}
-    >
-      <Popup>
-        <div className="p-2">
-          <h3 className="font-bold">Selected Location</h3>
-          <p className="text-sm">Click and drag to adjust position</p>
-          <p className="text-xs font-mono mt-1">
-            Lat: {position[0].toFixed(6)}, Lng: {position[1].toFixed(6)}
-          </p>
-        </div>
-      </Popup>
-    </Marker>
-  ) : null;
 }
 
-// --- NEW COMPONENT: Store Pickups Dialog ---
-const StorePickupsDialog = ({ store, open, onOpenChange }) => {
+// ── API helpers ───────────────────────────────────────────────────────────
+async function apiFetch(path, opts = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: authHeaders(), ...opts,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "API error");
+  }
+  return res.json();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STORE PICKUPS DIALOG
+// ─────────────────────────────────────────────────────────────────────────────
+function StorePickupsDialog({ store, open, onOpenChange }) {
   const [pickups, setPickups] = useState([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (open && store) {
-      fetchPickups();
-    }
-  }, [open, store]);
-
-  const fetchPickups = async () => {
+    if (!open || !store) return;
     setLoading(true);
-    try {
-      const data = await AdminService.listStorePickups(store.id);
-      setPickups(Array.isArray(data) ? data : []);
-    } catch (error) {
-      console.error("Error fetching pickups:", error);
-      toast.error("Failed to load pickups");
-    } finally {
-      setLoading(false);
-    }
-  };
+    apiFetch(`/admin/global/pickups`)
+      .then(d => setPickups(Array.isArray(d) ? d.filter(p => p.store_id === store.id) : []))
+      .catch(() => toast.error("Failed to load pickups"))
+      .finally(() => setLoading(false));
+  }, [open, store]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <ShoppingBag className="h-5 w-5" />
-            Pickups for {store?.name}
+            <ShoppingBag className="h-5 w-5" /> Pickups — {store?.name}
           </DialogTitle>
-          <DialogDescription>List of orders scheduled for pickup at this location</DialogDescription>
+          <DialogDescription>Orders scheduled for pickup at this location</DialogDescription>
         </DialogHeader>
-
         <div className="border rounded-md min-h-[200px]">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Order ID</TableHead>
-                <TableHead>Customer</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Scheduled</TableHead>
                 <TableHead className="text-right">Items</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow>
-                  <TableCell colSpan={4} className="h-24 text-center">
-                    <Loader2 className="h-6 w-6 animate-spin mx-auto" />
-                  </TableCell>
-                </TableRow>
+                <TableRow><TableCell colSpan={4} className="h-24 text-center">
+                  <Loader2 className="h-6 w-6 animate-spin mx-auto" />
+                </TableCell></TableRow>
               ) : pickups.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
-                    No pickups scheduled for this store.
-                  </TableCell>
+                <TableRow><TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                  No pickups scheduled.
+                </TableCell></TableRow>
+              ) : pickups.map(p => (
+                <TableRow key={p.id}>
+                  <TableCell className="font-mono text-xs">{p.id?.slice(0, 8)}…</TableCell>
+                  <TableCell><Badge variant="secondary">{p.status}</Badge></TableCell>
+                  <TableCell className="text-sm">{p.scheduled_time ? new Date(p.scheduled_time).toLocaleString() : "—"}</TableCell>
+                  <TableCell className="text-right">{p.items_count || 0}</TableCell>
                 </TableRow>
-              ) : (
-                pickups.map((pickup) => (
-                  <TableRow key={pickup.id}>
-                    <TableCell className="font-mono text-xs">{pickup.id.slice(0,8)}...</TableCell>
-                    <TableCell>{pickup.customer_name || 'N/A'}</TableCell>
-                    <TableCell>
-                      <Badge variant={pickup.status === 'completed' ? 'default' : 'secondary'}>
-                        {pickup.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">{pickup.items_count || 0}</TableCell>
-                  </TableRow>
-                ))
-              )}
+              ))}
             </TableBody>
           </Table>
         </div>
@@ -330,438 +129,443 @@ const StorePickupsDialog = ({ store, open, onOpenChange }) => {
       </DialogContent>
     </Dialog>
   );
-};
+}
 
-// Main Component
+// ─────────────────────────────────────────────────────────────────────────────
+// ADDRESS AUTOCOMPLETE INPUT
+// ─────────────────────────────────────────────────────────────────────────────
+function AddressAutocomplete({ value, onChange, onPlaceSelect, placeholder }) {
+  const [suggestions, setSuggestions] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const sessionRef = useRef(crypto.randomUUID?.() || Math.random().toString(36));
+  const debounceRef = useRef(null);
+
+  const fetchSuggestions = useCallback(async (q) => {
+    if (q.length < 3) { setSuggestions([]); setOpen(false); return; }
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ q, session_token: sessionRef.current });
+      const data = await apiFetch(`/stores/geocode/autocomplete?${params}`);
+      setSuggestions(Array.isArray(data) ? data : []);
+      setOpen(Array.isArray(data) && data.length > 0);
+    } catch { /* silently ignore */ }
+    finally { setLoading(false); }
+  }, []);
+
+  const handleChange = (e) => {
+    onChange(e.target.value);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchSuggestions(e.target.value), 280);
+  };
+
+  const handleSelect = async (suggestion) => {
+    setOpen(false);
+    onChange(suggestion.description);
+    try {
+      const data = await apiFetch("/stores/geocode/place", {
+        method: "POST",
+        body: JSON.stringify({ place_id: suggestion.place_id, session_token: sessionRef.current }),
+      });
+      // Rotate session token after a complete autocomplete session
+      sessionRef.current = crypto.randomUUID?.() || Math.random().toString(36);
+      onPlaceSelect(data);
+    } catch (e) {
+      toast.error("Could not resolve place: " + e.message);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <div className="relative">
+        <Input
+          value={value}
+          onChange={handleChange}
+          placeholder={placeholder || "Start typing an address…"}
+          className="pr-8"
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onFocus={() => suggestions.length && setOpen(true)}
+          autoComplete="off"
+        />
+        {loading && (
+          <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-muted-foreground" />
+        )}
+      </div>
+      {open && (
+        <ul className="absolute z-50 mt-1 w-full bg-popover border rounded-md shadow-lg text-sm overflow-hidden">
+          {suggestions.map((s) => (
+            <li
+              key={s.place_id}
+              onMouseDown={() => handleSelect(s)}
+              className="flex items-start gap-2 px-3 py-2 cursor-pointer hover:bg-accent transition-colors"
+            >
+              <MapPin className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-muted-foreground" />
+              <span className="text-xs leading-relaxed">{s.description}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MINI MAP (shows selected pin, draggable for fine-tuning)
+// ─────────────────────────────────────────────────────────────────────────────
+function MiniMap({ lat, lng, onDragEnd }) {
+  const containerRef = useRef(null);
+  const mapRef       = useRef(null);
+  const markerRef    = useRef(null);
+  const [gmapsReady, setGmapsReady] = useState(!!window.google?.maps);
+
+  useEffect(() => {
+    if (window.google?.maps) { setGmapsReady(true); return; }
+    loadGMaps().then(() => setGmapsReady(true));
+  }, []);
+
+  useEffect(() => {
+    if (!gmapsReady || !containerRef.current) return;
+    if (!mapRef.current) {
+      mapRef.current = new window.google.maps.Map(containerRef.current, {
+        center: { lat: lat || 20.5937, lng: lng || 78.9629 },
+        zoom: lat ? 15 : 5,
+        mapTypeControl: false, streetViewControl: false,
+        fullscreenControl: false, zoomControl: true,
+        styles: [
+          { featureType: "poi", stylers: [{ visibility: "off" }] },
+          { featureType: "transit", stylers: [{ visibility: "off" }] },
+        ],
+      });
+    }
+    if (lat && lng) {
+      const pos = { lat, lng };
+      mapRef.current.panTo(pos);
+      mapRef.current.setZoom(15);
+      if (!markerRef.current) {
+        markerRef.current = new window.google.maps.Marker({
+          map: mapRef.current,
+          position: pos,
+          draggable: true,
+          icon: {
+            url: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44"><text y="38" font-size="36">🏪</text></svg>`,
+            scaledSize: new window.google.maps.Size(44, 44),
+            anchor: new window.google.maps.Point(22, 44),
+          },
+          title: "Store location — drag to fine-tune",
+        });
+        markerRef.current.addListener("dragend", (e) => {
+          onDragEnd({ lat: e.latLng.lat(), lng: e.latLng.lng() });
+        });
+      } else {
+        markerRef.current.setPosition(pos);
+      }
+    }
+  }, [gmapsReady, lat, lng]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="w-full h-full rounded-lg"
+      style={{ minHeight: "100%" }}
+    />
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN PAGE
+// ─────────────────────────────────────────────────────────────────────────────
 export default function StoresPage() {
-  const [stores, setStores] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [stores, setStores]         = useState([]);
+  const [loading, setLoading]       = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedStore, setSelectedStore] = useState(null);
-  const [isEditing, setIsEditing] = useState(false);
-  
-  // Pickups Dialog State
+  const [isEditing, setIsEditing]   = useState(false);
+  const [saving, setSaving]         = useState(false);
+
   const [isPickupsOpen, setIsPickupsOpen] = useState(false);
   const [pickupStore, setPickupStore] = useState(null);
 
-  // Form State
+  // Form state
   const [formData, setFormData] = useState({
-    name: "",
-    city: "",
-    state: "",
-    address: "",
-    active: true,
-    location: {
-      type: "Point",
-      coordinates: [73.8677, 18.4650] // [longitude, latitude]
-    }
+    name: "", address: "", city: "", state: "", active: true,
+    latitude: null, longitude: null,
   });
+  const [geocoding, setGeocoding] = useState(false);
 
-  // Map State
-  const [mapPosition, setMapPosition] = useState([18.4650, 73.8677]); // [latitude, longitude]
-  const [mapZoom, setMapZoom] = useState(12);
-  
-  // Filter States
+  // Filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [stateFilter, setStateFilter] = useState("all");
 
-  // 1. Fetch Stores
+  // ── Fetch stores ───────────────────────────────────────────────────────────
   const fetchStores = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const data = await AdminService.listStores();
-      const storesList = Array.isArray(data) ? data : [];
-      setStores(storesList);
-      toast.success("Stores loaded successfully");
-    } catch (err) {
-      console.error("Failed to fetch stores", err);
-      toast.error("Failed to load stores");
-    } finally {
-      setLoading(false);
-    }
+      const data = await apiFetch("/stores/admin/list");
+      setStores(Array.isArray(data) ? data : []);
+    } catch (e) {
+      toast.error("Failed to load stores: " + e.message);
+    } finally { setLoading(false); }
   };
 
-  useEffect(() => {
-    fetchStores();
-  }, []);
+  useEffect(() => { fetchStores(); }, []);
 
-  // 2. Handle Form Submission
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      // Prepare the data in correct format
-      const storeData = {
-        name: formData.name.trim(),
-        city: formData.city.trim(),
-        state: formData.state.trim(),
-        address: formData.address.trim(),
-        location: formData.location, // Already in correct GeoJSON format
-        active: formData.active
-      };
-
-      if (isEditing && selectedStore) {
-        await AdminService.updateStore(selectedStore.id, storeData);
-        toast.success("Store updated successfully");
-      } else {
-        await AdminService.createStore(storeData);
-        toast.success("Store created successfully");
-      }
-      
-      resetForm();
-      setIsDialogOpen(false);
-      fetchStores();
-    } catch (err) {
-      console.error("Error saving store:", err);
-      // Extract better error message
-      let errorMessage = "Failed to save store";
-      if (err.response?.data?.detail) {
-        if (Array.isArray(err.response.data.detail)) {
-          errorMessage = err.response.data.detail.map(e => e.msg).join(", ");
-        } else {
-          errorMessage = err.response.data.detail;
-        }
-      } else if (err.message) {
-        errorMessage = err.message;
-      }
-      toast.error(errorMessage);
-    }
-  };
-
-  // 3. Handle Edit Store
-  const handleEdit = (store) => {
-    setSelectedStore(store);
-    setIsEditing(true);
-    
-    const parsedLocation = parseLocation(store.location);
-    const coordinates = parsedLocation.coordinates || [73.8677, 18.4650];
-    
-    setFormData({
-      name: store.name || "",
-      city: store.city || "",
-      state: store.state || "",
-      address: store.address || "",
-      active: store.active !== false,
-      location: parsedLocation
-    });
-    
-    // Set map position (convert from [lng, lat] to [lat, lng])
-    setMapPosition([coordinates[1], coordinates[0]]);
-    setIsDialogOpen(true);
-  };
-
-  // 4. Reset Form
-  const resetForm = () => {
-    setFormData({
-      name: "",
-      city: "",
-      state: "",
-      address: "",
-      active: true,
-      location: {
-        type: "Point",
-        coordinates: [73.8677, 18.4650]
-      }
-    });
-    setSelectedStore(null);
-    setIsEditing(false);
-    setMapPosition([18.4650, 73.8677]);
-  };
-
-  // 5. Handle Location Selection
-  const handleLocationSelect = (location) => {
+  // ── Handle place selection (autocomplete → geocoded) ───────────────────────
+  const handlePlaceSelect = (placeData) => {
     setFormData(prev => ({
       ...prev,
-      location
+      address: placeData.formatted_address || prev.address,
+      city: placeData.city || prev.city,
+      state: placeData.state || prev.state,
+      latitude: placeData.lat,
+      longitude: placeData.lng,
     }));
   };
 
-  // 6. Filter Stores
-  const filteredStores = stores.filter(store => {
-    const matchesSearch = 
-      store.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      store.city?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      store.address?.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesStatus = 
-      statusFilter === "all" || 
-      (statusFilter === "active" && store.active !== false) ||
-      (statusFilter === "inactive" && store.active === false);
-    
-    const matchesState = 
-      stateFilter === "all" || 
-      store.state === stateFilter;
-    
-    return matchesSearch && matchesStatus && matchesState;
+  // ── Geocode manually typed address ─────────────────────────────────────────
+  const handleManualGeocode = async () => {
+    if (!formData.address) return;
+    setGeocoding(true);
+    try {
+      const data = await apiFetch("/stores/geocode/address", {
+        method: "POST",
+        body: JSON.stringify({ address: formData.address }),
+      });
+      setFormData(prev => ({
+        ...prev,
+        latitude: data.lat,
+        longitude: data.lng,
+        city: prev.city || data.city || "",
+        state: prev.state || data.state || "",
+      }));
+      toast.success("Address geocoded successfully");
+    } catch (e) {
+      toast.error("Geocoding failed: " + e.message);
+    } finally { setGeocoding(false); }
+  };
+
+  // ── Submit create / update ─────────────────────────────────────────────────
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!formData.name.trim()) { toast.error("Store name is required"); return; }
+    if (!formData.address.trim()) { toast.error("Address is required"); return; }
+    setSaving(true);
+    try {
+      const payload = {
+        name: formData.name.trim(),
+        address: formData.address.trim(),
+        city: formData.city.trim(),
+        state: formData.state.trim(),
+        active: formData.active,
+        latitude: formData.latitude,
+        longitude: formData.longitude,
+      };
+
+      if (isEditing && selectedStore) {
+        await apiFetch(`/stores/admin/${selectedStore.id}`, {
+          method: "PUT", body: JSON.stringify(payload),
+        });
+        toast.success("Store updated");
+      } else {
+        await apiFetch("/stores/admin/create", {
+          method: "POST", body: JSON.stringify(payload),
+        });
+        toast.success("Store created");
+      }
+      resetForm();
+      setIsDialogOpen(false);
+      fetchStores();
+    } catch (e) {
+      toast.error(e.message);
+    } finally { setSaving(false); }
+  };
+
+  const handleEdit = (store) => {
+    setSelectedStore(store);
+    setIsEditing(true);
+    setFormData({
+      name: store.name || "",
+      address: store.address || "",
+      city: store.city || "",
+      state: store.state || "",
+      active: store.active !== false,
+      latitude: store.latitude,
+      longitude: store.longitude,
+    });
+    setIsDialogOpen(true);
+  };
+
+  const handleDeactivate = async (store) => {
+    if (!window.confirm(`Deactivate "${store.name}"?`)) return;
+    try {
+      await apiFetch(`/stores/admin/${store.id}`, { method: "DELETE" });
+      toast.success("Store deactivated");
+      fetchStores();
+    } catch (e) { toast.error(e.message); }
+  };
+
+  const resetForm = () => {
+    setFormData({ name: "", address: "", city: "", state: "", active: true, latitude: null, longitude: null });
+    setSelectedStore(null);
+    setIsEditing(false);
+  };
+
+  // ── Filters ────────────────────────────────────────────────────────────────
+  const filtered = stores.filter(s => {
+    const q = searchQuery.toLowerCase();
+    const matchSearch = !q || s.name?.toLowerCase().includes(q) || s.city?.toLowerCase().includes(q) || s.address?.toLowerCase().includes(q);
+    const matchStatus = statusFilter === "all" || (statusFilter === "active" && s.active !== false) || (statusFilter === "inactive" && s.active === false);
+    return matchSearch && matchStatus;
   });
 
-  // 7. Calculate Statistics
-  const activeStores = stores.filter(store => store.active !== false).length;
-  const statesCovered = new Set(stores.map(s => s.state).filter(Boolean)).size;
-  const citiesCovered = new Set(stores.map(s => s.city).filter(Boolean)).size;
+  const activeCount = stores.filter(s => s.active !== false).length;
+  const stateCount  = new Set(stores.map(s => s.state).filter(Boolean)).size;
 
-  // 8. Get Store Icon
-  const getStoreIcon = (store) => {
-    return store.active !== false ? createActiveStoreIcon() : createInactiveStoreIcon();
-  };
-
-  // 9. Export Stores
-  const exportStores = () => {
-    const csvContent = [
-      ['Store Name', 'City', 'State', 'Address', 'Status', 'Longitude', 'Latitude'],
-      ...filteredStores.map(store => {
-        const parsedLocation = parseLocation(store.location);
-        const coordinates = parsedLocation.coordinates || [0, 0];
-        return [
-          store.name,
-          store.city || '',
-          store.state || '',
-          store.address || '',
-          store.active !== false ? 'Active' : 'Inactive',
-          coordinates[0] || '', // longitude
-          coordinates[1] || ''  // latitude
-        ];
-      })
-    ].map(row => row.join(',')).join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `stores_${new Date().toISOString().split('T')[0]}.csv`;
+  const exportCSV = () => {
+    const rows = [
+      ["Name", "City", "State", "Address", "Status", "Latitude", "Longitude"],
+      ...filtered.map(s => [s.name, s.city || "", s.state || "", s.address || "", s.active !== false ? "Active" : "Inactive", s.latitude || "", s.longitude || ""]),
+    ].map(r => r.join(",")).join("\n");
+    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([rows], { type: "text/csv" })), download: `stores_${Date.now()}.csv` });
     a.click();
-    
-    toast.success("Stores exported successfully");
+    toast.success("Exported");
   };
 
-  // 10. Handle Delete Store (Deactivate instead)
-  const handleDeleteStore = async (store) => {
-    if (window.confirm("Are you sure you want to deactivate this store?")) {
-      try {
-        // Get the current store data to preserve all fields
-        const parsedLocation = parseLocation(store.location);
-        
-        // Prepare update data with ALL required fields
-        const updateData = {
-          name: store.name || "",
-          city: store.city || "",
-          state: store.state || "",
-          address: store.address || "",
-          active: false,
-          location: parsedLocation // Include the full location object
-        };
-        
-        console.log("Deactivating store with data:", updateData);
-        
-        await AdminService.updateStore(store.id, updateData);
-        toast.success("Store deactivated successfully");
-        fetchStores();
-      } catch (error) {
-        console.error("Failed to deactivate store:", error);
-        console.dir(error); // Log the full error object
-        
-        // Extract better error message
-        let errorMessage = "Failed to deactivate store";
-        
-        if (error.response?.data?.detail) {
-          if (Array.isArray(error.response.data.detail)) {
-            errorMessage = error.response.data.detail.map(err => err.msg).join(", ");
-          } else {
-            errorMessage = error.response.data.detail;
-          }
-        } else if (error.response?.data?.message) {
-          errorMessage = error.response.data.message;
-        } else if (error.message) {
-          errorMessage = error.message;
-        }
-        
-        toast.error(errorMessage);
-      }
-    }
-  };
-
-  // New: Open Pickups Dialog
-  const handleViewPickups = (store) => {
-    setPickupStore(store);
-    setIsPickupsOpen(true);
-  };
-
-  // Get unique states from stores
-  const storeStates = Array.from(new Set(stores.map(s => s.state).filter(Boolean)));
-
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="p-6 space-y-6">
-      {/* Pickups Dialog */}
-      <StorePickupsDialog 
-        store={pickupStore} 
-        open={isPickupsOpen} 
-        onOpenChange={setIsPickupsOpen} 
-      />
+      <StorePickupsDialog store={pickupStore} open={isPickupsOpen} onOpenChange={setIsPickupsOpen} />
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Store Management</h1>
-          <p className="text-muted-foreground">
-            Manage physical store locations
-          </p>
+          <p className="text-muted-foreground">Manage physical store locations — powered by Google Maps</p>
         </div>
-        
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={exportStores} className="gap-2">
-            <Download className="w-4 h-4" />
-            Export
+          <Button variant="outline" size="sm" onClick={exportCSV} className="gap-2">
+            <Download className="w-4 h-4" /> Export
           </Button>
           <Button variant="outline" size="sm" onClick={fetchStores} disabled={loading} className="gap-2">
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} /> Refresh
           </Button>
-          <Dialog open={isDialogOpen} onOpenChange={(open) => {
-            setIsDialogOpen(open);
-            if (!open) resetForm();
-          }}>
+
+          <Dialog open={isDialogOpen} onOpenChange={(v) => { setIsDialogOpen(v); if (!v) resetForm(); }}>
             <DialogTrigger asChild>
-              <Button className="gap-2">
-                <Plus className="w-4 h-4" /> Add Store
-              </Button>
+              <Button className="gap-2"><Plus className="w-4 h-4" /> Add Store</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+
+            <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>
-                  {isEditing ? "Edit Store" : "Register New Store"}
-                </DialogTitle>
+                <DialogTitle>{isEditing ? "Edit Store" : "Register New Store"}</DialogTitle>
                 <DialogDescription>
-                  {isEditing 
-                    ? "Update store details and location" 
-                    : "Add a new physical store location"}
+                  {isEditing ? "Update store details — address is re-geocoded automatically." : "Type an address to auto-detect lat/lng via Google Maps."}
                 </DialogDescription>
               </DialogHeader>
-              
+
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Left Column: Form Fields */}
+                  {/* LEFT: Form fields */}
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="name">Store Name *</Label>
-                      <Input 
-                        id="name"
-                        placeholder="e.g. Mumbai Main Store"
+                      <Label>Store Name *</Label>
+                      <Input
+                        placeholder="e.g. Mumbai Central Store"
                         value={formData.name}
-                        onChange={(e) => setFormData({...formData, name: e.target.value})}
+                        onChange={e => setFormData(p => ({ ...p, name: e.target.value }))}
                         required
                       />
                     </div>
-                    
+
+                    <div className="space-y-2">
+                      <Label>Address * (with Google Places autocomplete)</Label>
+                      <AddressAutocomplete
+                        value={formData.address}
+                        onChange={v => setFormData(p => ({ ...p, address: v }))}
+                        onPlaceSelect={handlePlaceSelect}
+                        placeholder="Start typing a store address…"
+                      />
+                      {formData.address && !formData.latitude && (
+                        <Button
+                          type="button" variant="outline" size="sm"
+                          onClick={handleManualGeocode}
+                          disabled={geocoding}
+                          className="gap-2 text-xs mt-1"
+                        >
+                          {geocoding ? <Loader2 className="h-3 w-3 animate-spin" /> : <Crosshair className="h-3 w-3" />}
+                          {geocoding ? "Geocoding…" : "Geocode this address"}
+                        </Button>
+                      )}
+                    </div>
+
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="city">City *</Label>
-                        <Input 
-                          id="city"
-                          placeholder="e.g. Mumbai"
-                          value={formData.city}
-                          onChange={(e) => setFormData({...formData, city: e.target.value})}
-                          required
-                        />
+                        <Label>City</Label>
+                        <Input placeholder="e.g. Mumbai" value={formData.city} onChange={e => setFormData(p => ({ ...p, city: e.target.value }))} />
                       </div>
-                      
                       <div className="space-y-2">
-                        <Label htmlFor="state">State *</Label>
-                        <Input 
-                          id="state"
-                          placeholder="e.g. Maharashtra"
-                          value={formData.state}
-                          onChange={(e) => setFormData({...formData, state: e.target.value})}
-                          required
-                        />
+                        <Label>State</Label>
+                        <Input placeholder="e.g. Maharashtra" value={formData.state} onChange={e => setFormData(p => ({ ...p, state: e.target.value }))} />
                       </div>
                     </div>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="address">Complete Address *</Label>
-                      <Textarea 
-                        id="address"
-                        placeholder="Enter full address..."
-                        value={formData.address}
-                        onChange={(e) => setFormData({...formData, address: e.target.value})}
-                        rows={3}
-                        required
-                      />
-                    </div>
-                    
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>Active Status</Label>
-                        <p className="text-sm text-muted-foreground">Make this store operational</p>
+
+                    <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                      <div>
+                        <Label>Active</Label>
+                        <p className="text-xs text-muted-foreground">Make this store available for pickup orders</p>
                       </div>
-                      <Switch 
-                        checked={formData.active}
-                        onCheckedChange={(checked) => setFormData({...formData, active: checked})}
-                      />
+                      <Switch checked={formData.active} onCheckedChange={v => setFormData(p => ({ ...p, active: v }))} />
                     </div>
-                    
-                    {/* Coordinates Display */}
-                    <div className="space-y-2 p-3 bg-muted rounded-lg">
-                      <Label className="flex items-center gap-2">
-                        <Pin className="w-4 h-4" />
-                        Selected Coordinates (GeoJSON)
+
+                    {/* Coordinates display */}
+                    <div className="p-3 bg-muted/40 rounded-lg space-y-2">
+                      <Label className="flex items-center gap-1.5 text-xs font-semibold">
+                        <MapPin className="h-3.5 w-3.5 text-violet-500" />
+                        Resolved Coordinates
                       </Label>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div className="font-mono bg-background p-2 rounded">
-                          Longitude: {formData.location.coordinates[0].toFixed(6)}
+                      {formData.latitude ? (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="font-mono text-xs bg-background rounded p-2">
+                            Lat: {formData.latitude.toFixed(6)}
+                          </div>
+                          <div className="font-mono text-xs bg-background rounded p-2">
+                            Lng: {formData.longitude.toFixed(6)}
+                          </div>
                         </div>
-                        <div className="font-mono bg-background p-2 rounded">
-                          Latitude: {formData.location.coordinates[1].toFixed(6)}
-                        </div>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Format: [longitude, latitude]
-                      </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Select an address from autocomplete or click "Geocode this address"
+                        </p>
+                      )}
                     </div>
                   </div>
-                  
-                  {/* Right Column: Map */}
+
+                  {/* RIGHT: Mini map */}
                   <div className="space-y-2">
-                    <Label className="flex items-center gap-2">
-                      <Map className="w-4 h-4" />
-                      Select Location on Map
+                    <Label className="flex items-center gap-1.5">
+                      <Map className="h-4 w-4" /> Live Map Preview
                     </Label>
-                    
-                    <div className="h-[400px] border rounded-lg overflow-hidden">
-                      <MapContainer
-                        center={mapPosition}
-                        zoom={mapZoom}
-                        className="h-full w-full"
-                        style={{ height: '100%', width: '100%' }}
-                      >
-                        <TileLayer
-                          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                        />
-                        <LocationPicker 
-                          onLocationSelect={handleLocationSelect}
-                          initialPosition={mapPosition}
-                        />
-                      </MapContainer>
+                    <div className="h-[380px] border rounded-lg overflow-hidden">
+                      <MiniMap
+                        lat={formData.latitude}
+                        lng={formData.longitude}
+                        onDragEnd={({ lat, lng }) =>
+                          setFormData(p => ({ ...p, latitude: lat, longitude: lng }))
+                        }
+                      />
                     </div>
-                    
                     <Alert>
                       <AlertCircle className="h-4 w-4" />
                       <AlertDescription className="text-xs">
-                        Click on the map to set the exact store location. Drag the marker to fine-tune.
+                        Drag the 🏪 marker to fine-tune the store's exact location on the map.
                       </AlertDescription>
                     </Alert>
                   </div>
                 </div>
-                
+
                 <DialogFooter>
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    onClick={() => setIsDialogOpen(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="submit">
+                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+                  <Button type="submit" disabled={saving} className="gap-2">
+                    {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                     {isEditing ? "Update Store" : "Create Store"}
                   </Button>
                 </DialogFooter>
@@ -771,278 +575,139 @@ export default function StoresPage() {
         </div>
       </div>
 
-      {/* Stats Cards */}
+      {/* Stats */}
       <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">
-              Total Stores
-            </CardTitle>
-            <Store className="w-5 h-5 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">
-              {stores.length}
-            </div>
-            <p className="text-sm text-muted-foreground mt-1">
-              {activeStores} active
-            </p>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">
-              Active Stores
-            </CardTitle>
-            <CheckCircle className="w-5 h-5 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">
-              {activeStores}
-            </div>
-            <p className="text-sm text-muted-foreground mt-1">
-              {((activeStores / stores.length) * 100 || 0).toFixed(1)}% active rate
-            </p>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">
-              Coverage
-            </CardTitle>
-            <Globe className="w-5 h-5 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">
-              {statesCovered}
-            </div>
-            <p className="text-sm text-muted-foreground mt-1">
-              {citiesCovered} cities
-            </p>
-          </CardContent>
-        </Card>
+        {[
+          { label: "Total Stores", value: stores.length, sub: `${activeCount} active`, icon: Store },
+          { label: "Active Stores", value: activeCount, sub: `${((activeCount / (stores.length || 1)) * 100).toFixed(0)}% active rate`, icon: CheckCircle },
+          { label: "States Covered", value: stateCount, sub: `${new Set(stores.map(s => s.city).filter(Boolean)).size} cities`, icon: Globe },
+        ].map(({ label, value, sub, icon: Icon }) => (
+          <Card key={label}>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">{label}</CardTitle>
+              <Icon className="w-5 h-5 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">{value}</div>
+              <p className="text-sm text-muted-foreground mt-1">{sub}</p>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      {/* Search and Filter */}
+      {/* Filters */}
       <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-2 flex-1">
-              <Search className="w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="Search stores by name, city, or address..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="max-w-sm"
-              />
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[140px]">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Stores</SelectItem>
-                  <SelectItem value="active">Active Only</SelectItem>
-                  <SelectItem value="inactive">Inactive Only</SelectItem>
-                </SelectContent>
-              </Select>
-              
-              <Select value={stateFilter} onValueChange={setStateFilter}>
-                <SelectTrigger className="w-[140px]">
-                  <SelectValue placeholder="State" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All States</SelectItem>
-                  {storeStates.map(state => (
-                    <SelectItem key={state} value={state}>{state}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+        <CardContent className="p-4 flex flex-col sm:flex-row items-center gap-4">
+          <div className="flex items-center gap-2 flex-1">
+            <Search className="w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by name, city, or address…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="max-w-sm"
+            />
           </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[140px]"><SelectValue placeholder="Status" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Stores</SelectItem>
+              <SelectItem value="active">Active Only</SelectItem>
+              <SelectItem value="inactive">Inactive Only</SelectItem>
+            </SelectContent>
+          </Select>
         </CardContent>
       </Card>
 
-      {/* Stores Table */}
+      {/* Table */}
       <Card>
         <CardHeader>
           <CardTitle>Store Locations</CardTitle>
-          <CardDescription>
-            {filteredStores.length} store{filteredStores.length !== 1 ? 's' : ''} found
-          </CardDescription>
+          <CardDescription>{filtered.length} store{filtered.length !== 1 ? "s" : ""} found</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[300px]">Store Details</TableHead>
+                  <TableHead>Store</TableHead>
                   <TableHead>Location</TableHead>
+                  <TableHead>Coordinates</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center py-10">
-                      <div className="flex items-center justify-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Loading stores...
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ) : filteredStores.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center py-10 text-muted-foreground">
-                      <Store className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                      <p className="font-medium">No stores found</p>
-                      <p className="text-sm">Try adjusting your search or add a new store</p>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredStores.map((store) => {
-                    const parsedLocation = parseLocation(store.location);
-                    const coordinates = parsedLocation.coordinates || [0, 0];
-                    
-                    return (
-                      <TableRow key={store.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <div className="p-2 rounded-full bg-blue-100 dark:bg-blue-900/30">
-                              <Building className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                            </div>
-                            <div>
-                              <div className="font-medium">{store.name}</div>
-                              <div className="text-sm text-muted-foreground">
-                                ID: {store.id?.slice(0, 8) || 'N/A'}...
-                              </div>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium flex items-center gap-1">
-                              <MapPin className="w-3 h-3" />
-                              {store.city || 'Unknown City'}
-                            </div>
-                            <div className="text-sm text-muted-foreground">
-                              {store.state || 'Unknown State'}
-                            </div>
-                            <div className="text-xs font-mono text-muted-foreground mt-1">
-                              {coordinates[0]?.toFixed(4) || 'N/A'}, {coordinates[1]?.toFixed(4) || 'N/A'}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge 
-                            variant={store.active !== false ? "default" : "secondary"}
-                            className="gap-1"
-                          >
-                            {store.active !== false ? (
-                              <>
-                                <CheckCircle className="w-3 h-3" />
-                                Active
-                              </>
-                            ) : (
-                              <>
-                                <XCircle className="w-3 h-3" />
-                                Inactive
-                              </>
-                            )}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" className="h-8 w-8 p-0">
-                                <span className="sr-only">Open menu</span>
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuLabel>Store Actions</DropdownMenuLabel>
-                              <DropdownMenuItem onClick={() => handleEdit(store)}>
-                                <Edit className="mr-2 h-4 w-4" />
-                                Edit Store
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleViewPickups(store)}>
-                                <PackageCheck className="mr-2 h-4 w-4" />
-                                View Pickups
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem 
-                                className="text-destructive"
-                                onClick={() => handleDeleteStore(store)}
-                              >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Deactivate Store
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Map Overview */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Globe className="w-5 h-5" />
-            Store Locations Map
-          </CardTitle>
-          <CardDescription>
-            Visual overview of all store locations
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[400px] rounded-lg overflow-hidden border">
-            <MapContainer
-              center={[20.5937, 78.9629]} // Center of India
-              zoom={4}
-              className="h-full w-full"
-              style={{ height: '400px', width: '100%' }}
-            >
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-              {stores.map(store => {
-                if (!store.location) return null;
-                const coordinates = getCoordinates(store.location);
-                return (
-                  <Marker 
-                    key={store.id} 
-                    position={coordinates}
-                    icon={getStoreIcon(store)}
-                  >
-                    <Popup>
-                      <div className="p-2">
-                        <h3 className="font-bold">{store.name}</h3>
-                        <p className="text-sm">{store.city}, {store.state}</p>
-                        <p className="text-xs text-muted-foreground">{store.address}</p>
-                        <div className="mt-2">
-                          <Badge variant={store.active !== false ? "default" : "secondary"}>
-                            {store.active !== false ? "Active" : "Inactive"}
-                          </Badge>
+                  <TableRow><TableCell colSpan={5} className="text-center py-10">
+                    <Loader2 className="w-5 h-5 animate-spin mx-auto" />
+                  </TableCell></TableRow>
+                ) : filtered.length === 0 ? (
+                  <TableRow><TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
+                    <Store className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                    <p className="font-medium">No stores found</p>
+                    <p className="text-sm">Add a new store to get started</p>
+                  </TableCell></TableRow>
+                ) : filtered.map((store) => (
+                  <TableRow key={store.id} className="hover:bg-muted/50">
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-full bg-violet-100 dark:bg-violet-900/30 text-lg">🏪</div>
+                        <div>
+                          <div className="font-medium">{store.name}</div>
+                          <div className="text-xs text-muted-foreground font-mono">{store.id?.slice(0, 8)}…</div>
                         </div>
                       </div>
-                    </Popup>
-                  </Marker>
-                );
-              })}
-            </MapContainer>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-start gap-1">
+                        <MapPin className="h-3.5 w-3.5 mt-0.5 text-violet-500 flex-shrink-0" />
+                        <div>
+                          <div className="font-medium text-sm">{store.city || "—"}{store.state ? `, ${store.state}` : ""}</div>
+                          <div className="text-xs text-muted-foreground line-clamp-1 max-w-[200px]">{store.address || "—"}</div>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {store.latitude ? (
+                        <div className="font-mono text-xs text-muted-foreground space-y-0.5">
+                          <div>{store.latitude?.toFixed(5)}</div>
+                          <div>{store.longitude?.toFixed(5)}</div>
+                        </div>
+                      ) : <span className="text-xs text-muted-foreground">Not set</span>}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={store.active !== false ? "default" : "secondary"} className="gap-1">
+                        {store.active !== false
+                          ? <><CheckCircle className="w-3 h-3" /> Active</>
+                          : <><XCircle className="w-3 h-3" /> Inactive</>}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" className="h-8 w-8 p-0">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                          <DropdownMenuItem onClick={() => handleEdit(store)}>
+                            <Edit className="mr-2 h-4 w-4" /> Edit Store
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => { setPickupStore(store); setIsPickupsOpen(true); }}>
+                            <PackageCheck className="mr-2 h-4 w-4" /> View Pickups
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem className="text-destructive" onClick={() => handleDeactivate(store)}>
+                            <Trash2 className="mr-2 h-4 w-4" /> Deactivate
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         </CardContent>
       </Card>

@@ -39,6 +39,15 @@ class Settings(BaseSettings):
 
     # Maps
     MAP_BOX_API_KEY: str = ""
+    GOOGLE_MAPS_API_KEY: str = ""
+
+    # Vertex AI / Gemini
+    GEMINI_VERTEX_API_KEY: str = ""
+    VERTEX_AI_LOCATION: str = "asia-south1"
+    VERTEX_API_KEY: str = ""
+
+    # LangGraph checkpointer (session pooler — supports prepared statements)
+    LANGGRAPH_DB_URL: str = ""
 
     # Infra
     REDIS_URL: str

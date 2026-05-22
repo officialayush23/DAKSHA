@@ -118,18 +118,24 @@ async def _do_refresh(db: Session, user_id: str, session_id: Optional[str]) -> N
 
 
 async def _call_gemini_distil(summaries_text: str) -> Optional[str]:
-    """Uses Gemini Flash to produce a compact taste-profile paragraph."""
+    """Uses Gemini Flash (via Vertex AI) to produce a compact taste-profile paragraph."""
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from langchain_google_vertexai import ChatVertexAI
         from langchain_core.messages import HumanMessage
         from app.core.config import settings
 
-        if not settings.GEMINI_API_KEY:
+        api_key = (
+            settings.GEMINI_VERTEX_API_KEY
+            or settings.VERTEX_API_KEY
+            or settings.GEMINI_API_KEY
+        )
+        if not api_key:
             return None
 
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash",
-            google_api_key=settings.GEMINI_API_KEY,
+        llm = ChatVertexAI(
+            model="gemini-2.0-flash-001",
+            location=settings.VERTEX_AI_LOCATION,
+            api_key=api_key,
             temperature=0.2,
             max_tokens=200,
         )
@@ -138,4 +144,8 @@ async def _call_gemini_distil(summaries_text: str) -> Optional[str]:
         return response.content.strip() or None
     except Exception as e:
         logger.warning(f"⚠️ preference_service: Gemini distil failed: {e}")
+        return None
+
+    except Exception as e:
+        logger.warning(f"preference_service: Gemini distil failed: {e}")
         return None

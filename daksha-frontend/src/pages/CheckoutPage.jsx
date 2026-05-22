@@ -20,7 +20,7 @@ import {
   Truck, Store, MapPin, CheckCircle2,
   ChevronRight, Loader2, Tag, CreditCard, ShoppingBag, Award
 } from 'lucide-react';
-import MapboxStorePicker from '../components/MapboxStorePicker';
+import GoogleMapsStorePicker from '../components/GoogleMapsStorePicker';
 
 export default function CheckoutPage() {
   const navigate = useNavigate();
@@ -147,7 +147,7 @@ export default function CheckoutPage() {
   }, [navigate]);
 
   // ==========================================
-  // 2. STORE SELECTION (via MapboxStorePicker)
+  // 2. STORE SELECTION (via GoogleMapsStorePicker)
   // ==========================================
   const handleStoreSelect = (store) => {
     setSelectedStore(store);
@@ -363,7 +363,7 @@ export default function CheckoutPage() {
                   </motion.div>
                 )}
 
-                {/* PICKUP FLOW — Mapbox store picker */}
+                {/* PICKUP FLOW — Google Maps store picker */}
                 {fulfillmentType === 'pickup' && (
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
@@ -387,7 +387,7 @@ export default function CheckoutPage() {
                       className="rounded-[1.5rem] overflow-hidden border border-zinc-200 shadow-sm"
                       style={{ height: 460 }}
                     >
-                      <MapboxStorePicker
+                      <GoogleMapsStorePicker
                         cartItems={
                           cart?.items?.map(i => ({
                             product_variant_id: i.product_variant_id || i.variant_id,

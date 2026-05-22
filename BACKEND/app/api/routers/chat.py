@@ -68,7 +68,9 @@ async def chat_with_agent(
         config = {"configurable": {"thread_id": request.session_id}}
 
         # Run LangGraph with Postgres Checkpointer
-        async with AsyncPostgresSaver.from_conn_string(settings.DATABASE_URL) as checkpointer:
+        # Uses session-pooler URL (port 5432) — supports prepared statements unlike transaction pooler
+        lg_url = settings.LANGGRAPH_DB_URL or settings.DATABASE_URL
+        async with AsyncPostgresSaver.from_conn_string(lg_url) as checkpointer:
             await checkpointer.setup() 
             app_graph = agent_workflow.compile(checkpointer=checkpointer)
             
@@ -129,9 +131,10 @@ async def admin_chat_resume(
     config = {"configurable": {"thread_id": request.session_id}}
     
     try:
-        async with AsyncPostgresSaver.from_conn_string(settings.DATABASE_URL) as checkpointer:
+        lg_url = settings.LANGGRAPH_DB_URL or settings.DATABASE_URL
+        async with AsyncPostgresSaver.from_conn_string(lg_url) as checkpointer:
             app_graph = agent_workflow.compile(checkpointer=checkpointer)
-            
+
             state_update = {
                 "messages": [AIMessage(content=f"👨‍💻 [Support Admin]: {request.message}")],
                 "pending_human_input": False,

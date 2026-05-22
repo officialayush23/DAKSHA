@@ -10,10 +10,18 @@ from google.genai import types
 
 from app.core.config import settings
 from app.services.embedding_service import generate_text_embedding
-from app.models.models import UserPreferences 
+from app.models.models import UserPreferences
 
-client = genai.Client(api_key=settings.GEMINI_API_KEY)
-MODEL = "gemini-2.5-flash"
+# Use the Vertex-issued API key (AQ. prefix) if available, else fall back
+def _make_client():
+    api_key = (
+        settings.GEMINI_VERTEX_API_KEY
+        or settings.VERTEX_API_KEY
+        or settings.GEMINI_API_KEY
+    )
+    return genai.Client(api_key=api_key)
+
+MODEL = "gemini-2.0-flash-001"
 
 def build_user_preference_summary(db: Session, user_id: str):
     print(f"\n{'='*50}\n🚀 [AI PREF] STARTING FOR USER {user_id}\n{'='*50}")
@@ -102,8 +110,8 @@ def build_user_preference_summary(db: Session, user_id: str):
         {history}
         """
 
-        # Ask Gemini to analyze the history
-        resp = client.models.generate_content(
+        # Ask Gemini (via Vertex AI API key) to analyze the history
+        resp = _make_client().models.generate_content(
             model=MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
