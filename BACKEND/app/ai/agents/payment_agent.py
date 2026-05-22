@@ -8,6 +8,7 @@ Maps exactly onto CheckoutStateEnum.
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import ToolMessage
 from app.ai.llm import get_llm_for_agent
+from app.ai.message_utils import trim_messages_for_groq
 from app.ai.state import AgentState
 from app.ai.policy.company_policy import build_agent_prompt
 from app.ai.tools.checkout_tools import (
@@ -75,7 +76,7 @@ _chain_text = _prompt | _llm_text
 
 def payment_agent_node(state: AgentState) -> dict:
     from app.ai.policy.company_policy import PAYMENT_POLICY
-    messages = state["messages"]
+    messages = trim_messages_for_groq(state["messages"])
     ctx = {
         "messages": messages,
         "user_id": state.get("user_id", ""),
