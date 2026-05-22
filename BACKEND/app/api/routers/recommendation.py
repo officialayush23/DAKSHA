@@ -9,7 +9,6 @@ from app.services.ranking_service import rank_candidates
 from app.services.postrank_service import apply_business_rules
 from app.services.impression_service import log_impressions
 from app.services.impression_outcome_service import log_recommendation_outcome
-from app.services.ml_service import train_collaborative_model
 from app.services.trending_service import get_trending_feed
 from app.services.copurchase_service import get_bought_together
 
@@ -83,6 +82,7 @@ def trigger_training(
     db: Session = Depends(get_db)
 ):
     """Consumes Events + Outcomes to train TwoTower Model"""
+    from app.services.ml_service import train_collaborative_model  # lazy — torch optional
     background_tasks.add_task(train_collaborative_model, db)
     return {"status": "Training started"}
 

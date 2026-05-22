@@ -4,7 +4,6 @@ from sqlalchemy import text
 from typing import Optional, List
 
 from app.services.embedding_service import generate_text_embedding
-from app.services.ml_service import get_collaborative_candidates
 
 
 def generate_candidates(
@@ -58,6 +57,7 @@ def generate_candidates(
     # --------------------------------------------------
     if user_id:
         try:
+            from app.services.ml_service import get_collaborative_candidates  # lazy — torch optional
             collab_ids = get_collaborative_candidates(user_id, k=100)
             candidates.update(str(vid) for vid in collab_ids)
         except Exception:
