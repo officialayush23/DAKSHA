@@ -28,7 +28,7 @@ import CheckoutPage from './pages/CheckoutPage';
 import AttractScreen from './kiosk/pages/AttractScreen';
 import LoginScreen from './kiosk/pages/LoginScreen';
 import KioskSelectScreen from './kiosk/pages/KioskSelectScreen';
-import WishlistPage from './pages/WishlistPage';
+import WishlistPage from './pages/WishListPage';
 
 // --- ADMIN PAGES ---
 import Dashboard from './admin/pages/Dashboard';
@@ -42,7 +42,7 @@ import Returns from './admin/pages/Returns';
 import Kiosks from './admin/pages/Kiosk';
 import DiscountRules from './admin/pages/DiscountRules';
 import AgentRuns from './admin/pages/AgentRuns';
-import Paymentmanage from './admin/pages/Paymentmanage';
+import Paymentmanage from './admin/pages/PaymentManage';
 
 // --- ADMIN USER CRM MODULE ---
 import AdminUserLayout from './admin_user/AdminUserLayout';
