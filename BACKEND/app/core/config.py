@@ -16,10 +16,18 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_ROLE_KEY: str
     SUPABASE_JWT_SECRET: str
 
-    # ── AI / Gemini (AQ. prefix keys) ─────────────────────────────────────────
+    # ── AI / Gemini ───────────────────────────────────────────────────────────
+    # Option A — Vertex AI (production, no rate limits)
+    GOOGLE_CLOUD_PROJECT: str = ""            # e.g. "creativedirector-494221"
+    GOOGLE_CLOUD_LOCATION: str = "us-central1"
+    # Paste the entire service-account JSON as a single env var on Render.
+    # The app writes it to /tmp at startup so google-auth ADC picks it up.
+    GOOGLE_APPLICATION_CREDENTIALS_JSON: str = ""
+
+    # Option B — Google AI Studio API key (AQ. prefix, dev/fallback only)
     GEMINI_VERTEX_API_KEY: str = ""
     VERTEX_API_KEY: str = ""
-    VERTEX_AI_LOCATION: str = "asia-south1"
+    VERTEX_AI_LOCATION: str = "us-central1"
 
     # ── Groq ──────────────────────────────────────────────────────────────────
     GROQ_API_KEY: str = ""

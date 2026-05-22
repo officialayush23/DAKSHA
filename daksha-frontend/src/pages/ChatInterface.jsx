@@ -20,6 +20,18 @@ const logRecommendationOutcome = async (impressionId, outcomeType, rewardValue =
   }
 };
 
+// ── Direct cart add (no AI needed) ──────────────────────────────────────────
+const directAddToCart = async (variantId, impressionId, productName, toastFn) => {
+  logRecommendationOutcome(impressionId, 'cart', 0.5);
+  try {
+    await api.post('/cart/quick-add', { variant_id: variantId, quantity: 1 });
+    toastFn?.success(`Added to cart!`);
+  } catch (err) {
+    const detail = err?.response?.data?.detail || 'Could not add to cart';
+    toastFn?.error(detail);
+  }
+};
+
 const { Meta } = Card;
 
 const WELCOME_MSG = {
@@ -282,22 +294,28 @@ export default function ChatInterface() {
                               <ShoppingBag
                                 key="add"
                                 size={18}
-                                className="text-zinc-600 hover:text-black transition-colors"
-                                onClick={() => {
-                                  logRecommendationOutcome(p.impression_id, 'cart', 0.5);
-                                  onAction(`Add ${p.name} to my cart`);
+                                className="text-zinc-600 hover:text-black transition-colors cursor-pointer"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  directAddToCart(p.variant_id, p.impression_id, p.name, toast);
                                 }}
                               />
                             ]}
                           >
-                            <Meta 
-                              title={<span className="font-bold text-sm whitespace-normal line-clamp-2 leading-tight">{p.name}</span>} 
+                            <Meta
+                              title={<span className="font-bold text-sm whitespace-normal line-clamp-2 leading-tight">{p.name}</span>}
                               description={
-                                <div className="mt-2 text-black font-semibold">
-                                  {/* Handle price or final_price keys */}
-                                  ₹{p.final_price || p.price || p.base_price || 0}
+                                <div className="mt-1 space-y-0.5">
+                                  {(p.color || p.size) && (
+                                    <div className="text-xs text-zinc-500">
+                                      {[p.color, p.size].filter(Boolean).join(' · ')}
+                                    </div>
+                                  )}
+                                  <div className="text-black font-semibold text-sm">
+                                    ₹{p.final_price || p.price || p.base_price || 0}
+                                  </div>
                                 </div>
-                              } 
+                              }
                             />
                           </Card>
                         </div>

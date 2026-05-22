@@ -2,20 +2,29 @@
 """
 LLM Factory for DAKSHA agents.
 
-Uses google-genai SDK (google-genai 1.x) with Vertex AI / Google AI Studio
-API keys (AQ. prefix).  Does NOT use the deprecated google-generativeai pkg
-or ChatVertexAI.
+Authentication priority
+────────────────────────
+1. Vertex AI (production) — no free-tier limits, pay-as-you-go
+   Requires: GOOGLE_CLOUD_PROJECT + one of:
+     a) GOOGLE_APPLICATION_CREDENTIALS_JSON  (full SA JSON as env var, for Render)
+     b) GOOGLE_APPLICATION_CREDENTIALS       (path to SA JSON file, for local/K8s)
+     c) Workload Identity / ADC              (GCE / Cloud Run)
+
+2. Google AI Studio API key (fallback, dev only)
+   Requires: GEMINI_VERTEX_API_KEY or VERTEX_API_KEY  (AQ. prefix)
+   ⚠️  Hard daily limit of 20 requests/day on free tier.
 
 Model assignments
-─────────────────
-  Gemini 2.0 Flash  → Orchestrator, RecommendationAgent, OfferAgent
-                       (reasoning, vision, nuanced tool selection)
-  Groq llama-3.3-70b → CartAgent, PaymentAgent, DeliveryAgent,
-                        PostPurchaseAgent, SupportAgent
-                        (fast, cheap, deterministic tool calls)
+──────────────────
+  gemini-2.5-flash  → Unified agent (all reasoning, tool selection, vision)
+  Groq llama-3.3-70b → fast/deterministic fallback (unused in unified flow)
 """
 import asyncio
 import base64
+import json
+import logging
+import os
+import tempfile
 from typing import Any, List, Literal, Optional
 
 import httpx
@@ -36,18 +45,85 @@ from google.genai import types
 
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
+
 ModelRole = Literal["orchestrator", "reasoning", "fast"]
 GEMINI_MODEL = "gemini-2.5-flash"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Internal helpers
+# One-time credential bootstrap (runs at module import)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _bootstrap_credentials() -> None:
+    """
+    If GOOGLE_APPLICATION_CREDENTIALS_JSON is set (typical on Render / Heroku
+    where you can't mount files), write the JSON to a temp file and point
+    GOOGLE_APPLICATION_CREDENTIALS at it so google-auth ADC picks it up.
+    """
+    raw = settings.GOOGLE_APPLICATION_CREDENTIALS_JSON.strip()
+    if not raw:
+        return
+    # Already bootstrapped in this process
+    if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+        return
+    try:
+        # Validate it's real JSON
+        json.loads(raw)
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, prefix="gcp_sa_"
+        )
+        tmp.write(raw)
+        tmp.flush()
+        tmp.close()
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp.name
+        logger.info(f"✅ GCP credentials written to {tmp.name}")
+    except Exception as e:
+        logger.warning(f"⚠️  Failed to bootstrap GCP credentials: {e}")
+
+
+_bootstrap_credentials()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Client factory
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _make_client() -> genai.Client:
-    api_key = settings.GEMINI_VERTEX_API_KEY or settings.VERTEX_API_KEY or ""
+    """
+    Returns a google-genai Client.
+
+    Uses Vertex AI when GOOGLE_CLOUD_PROJECT is set — this routes requests to
+    aiplatform.googleapis.com (no free-tier daily cap, purely pay-as-you-go).
+
+    Falls back to Google AI Studio API key when no project is configured.
+    """
+    project = settings.GOOGLE_CLOUD_PROJECT.strip()
+    if project:
+        location = (
+            settings.GOOGLE_CLOUD_LOCATION.strip()
+            or settings.VERTEX_AI_LOCATION.strip()
+            or "us-central1"
+        )
+        return genai.Client(
+            vertexai=True,
+            project=project,
+            location=location,
+        )
+
+    # Fallback: Google AI Studio API key
+    api_key = settings.GEMINI_VERTEX_API_KEY or settings.VERTEX_API_KEY
+    if not api_key:
+        raise RuntimeError(
+            "No Gemini credentials configured. Set GOOGLE_CLOUD_PROJECT "
+            "(+ service account) or GEMINI_VERTEX_API_KEY."
+        )
     return genai.Client(api_key=api_key)
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Message conversion helpers
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _lc_to_genai(messages: List[BaseMessage]):
     """
@@ -67,7 +143,6 @@ def _lc_to_genai(messages: List[BaseMessage]):
         # ── Human / User ────────────────────────────────────────────────────
         elif isinstance(msg, HumanMessage):
             if isinstance(msg.content, list):
-                # Multimodal block list
                 parts = []
                 for block in msg.content:
                     btype = block.get("type")
@@ -76,7 +151,6 @@ def _lc_to_genai(messages: List[BaseMessage]):
                     elif btype == "image_url":
                         url: str = block["image_url"]["url"]
                         if url.startswith("data:"):
-                            # Inline base64: data:<mime>;base64,<data>
                             header, b64 = url.split(",", 1)
                             mime = header.split(";")[0].split(":")[1]
                             parts.append(types.Part(
@@ -86,7 +160,6 @@ def _lc_to_genai(messages: List[BaseMessage]):
                                 )
                             ))
                         else:
-                            # Remote URL — fetch bytes
                             resp = httpx.get(url, timeout=15, follow_redirects=True)
                             mime = resp.headers.get("content-type", "image/jpeg").split(";")[0]
                             parts.append(types.Part(
@@ -159,9 +232,9 @@ def _parse_response(response) -> AIMessage:
 
     # Guard against safety blocks / empty candidates (content is None)
     if candidate.content is None or not candidate.content.parts:
-        # Try to surface a finish reason so it's visible in logs
         finish = getattr(candidate, "finish_reason", None)
         reason = str(finish) if finish else "unknown"
+        logger.warning(f"Gemini response blocked — finish_reason: {reason}")
         return AIMessage(content=f"[Response blocked — finish_reason: {reason}]")
 
     text_parts: list[str] = []
@@ -191,8 +264,9 @@ class GeminiVertexChat(BaseChatModel):
     LangChain BaseChatModel backed by google-genai SDK.
 
     Supports:
-      • Vertex AI / Google AI Studio API keys (AQ. prefix)
-      • Tool / function calling (bind_tools)
+      • Vertex AI (production — aiplatform.googleapis.com, no free-tier cap)
+      • Google AI Studio API keys (dev fallback)
+      • Tool / function calling via bind_tools()
       • Multimodal vision — remote URLs and base64 image_url blocks
     """
     model: str = GEMINI_MODEL
@@ -251,7 +325,7 @@ class GeminiVertexChat(BaseChatModel):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_gemini(temperature: float = 0.2) -> GeminiVertexChat:
-    """Gemini 2.0 Flash via google-genai SDK — vision + tool calls."""
+    """Gemini 2.5 Flash — Vertex AI (production) or Google AI Studio (dev fallback)."""
     return GeminiVertexChat(model=GEMINI_MODEL, temperature=temperature)
 
 
@@ -271,5 +345,5 @@ def get_llm_for_agent(agent_name: str) -> BaseChatModel:
 
 
 def get_llm() -> GeminiVertexChat:
-    """Default LLM — Gemini 2.0 Flash. Use get_llm_for_agent() in agent files."""
+    """Default LLM — Gemini 2.5 Flash."""
     return get_gemini()
