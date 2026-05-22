@@ -1095,3 +1095,111 @@ class PolicyDecision(Base):
     override_reason: Mapped[Optional[str]] = mapped_column(Text)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# USER ADDRESSES  (shipping / delivery addresses saved by a user)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class UserAddress(Base):
+    __tablename__ = "user_addresses"
+
+    id: Mapped[uuid.UUID]           = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID]      = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    label: Mapped[Optional[str]]    = mapped_column(String(80))          # "Home", "Work", etc.
+    address_line1: Mapped[str]      = mapped_column(String(255))
+    address_line2: Mapped[Optional[str]] = mapped_column(String(255))
+    city: Mapped[str]               = mapped_column(String(100))
+    state: Mapped[str]              = mapped_column(String(100))
+    pincode: Mapped[str]            = mapped_column(String(20))
+    country: Mapped[str]            = mapped_column(String(100), default="India")
+    is_default: Mapped[bool]        = mapped_column(Boolean, default=False)
+    latitude: Mapped[Optional[float]]
+    longitude: Mapped[Optional[float]]
+    created_at: Mapped[datetime]    = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped["User"] = relationship("User", back_populates="addresses")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FULFILLMENT ATTEMPT  (retry tracker for failed deliveries / pickups)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class FulfillmentAttempt(Base):
+    __tablename__ = "fulfillment_attempts"
+
+    id: Mapped[uuid.UUID]               = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    order_id: Mapped[uuid.UUID]         = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), index=True)
+    attempt_type: Mapped[Optional[str]] = mapped_column(String(50))   # "delivery" | "pickup"
+    status: Mapped[str]                 = mapped_column(String(50), default="pending")  # pending | resolved | failed
+    attempt_number: Mapped[int]         = mapped_column(Integer, default=0)
+    max_retries: Mapped[int]            = mapped_column(Integer, default=3)
+    last_error_message: Mapped[Optional[str]] = mapped_column(Text)
+    next_retry_at: Mapped[Optional[datetime]]  = mapped_column(DateTime(timezone=True))
+    agent_run_id: Mapped[Optional[uuid.UUID]]  = mapped_column(ForeignKey("agent_runs.id", ondelete="SET NULL"))
+    resolved_at: Mapped[Optional[datetime]]    = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime]        = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime]        = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    order: Mapped["Order"] = relationship("Order")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AGENT EVENT  (checkout / order lifecycle events logged by agents)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AgentEvent(Base):
+    __tablename__ = "agent_events"
+
+    id: Mapped[uuid.UUID]            = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    order_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("orders.id", ondelete="SET NULL"), index=True)
+    agent_name: Mapped[str]          = mapped_column(String(100))
+    event_type: Mapped[str]          = mapped_column(String(100))
+    payload: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
+    created_at: Mapped[datetime]     = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COUPON EMBEDDING  (pgvector embedding for semantic coupon search)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class CouponEmbedding(Base):
+    __tablename__ = "coupon_embeddings"
+
+    coupon_id: Mapped[uuid.UUID]     = mapped_column(ForeignKey("coupons.id", ondelete="CASCADE"), primary_key=True)
+    embedding: Mapped[Optional[Any]] = mapped_column(Vector(768))
+    created_at: Mapped[datetime]     = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime]     = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    coupon: Mapped["Coupon"] = relationship("Coupon")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PRODUCT PRICE SNAPSHOT  (historic price audit trail per variant)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ProductPriceSnapshot(Base):
+    __tablename__ = "product_price_snapshots"
+
+    id: Mapped[uuid.UUID]               = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    product_variant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("product_variants.id", ondelete="CASCADE"), index=True)
+    base_price: Mapped[float]           = mapped_column(Numeric(10, 2))
+    sale_price: Mapped[Optional[float]] = mapped_column(Numeric(10, 2))
+    computed_at: Mapped[datetime]       = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    variant: Mapped["ProductVariant"] = relationship("ProductVariant")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# USER PERSONALIZED OFFER EMBEDDING  (pgvector for offer recall)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class UserPersonalizedOfferEmbedding(Base):
+    __tablename__ = "user_personalized_offer_embeddings"
+
+    offer_id: Mapped[uuid.UUID]      = mapped_column(ForeignKey("user_personalized_offers.id", ondelete="CASCADE"), primary_key=True)
+    embedding: Mapped[Optional[Any]] = mapped_column(Vector(768))
+    created_at: Mapped[datetime]     = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime]     = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    offer: Mapped["UserPersonalizedOffer"] = relationship("UserPersonalizedOffer")

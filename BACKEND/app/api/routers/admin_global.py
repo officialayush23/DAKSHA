@@ -17,7 +17,6 @@ from typing import Optional, Dict, Any
 
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from psycopg_pool import AsyncConnectionPool
 
 from app.core.deps import get_current_user
 from app.core.config import settings
@@ -33,17 +32,7 @@ router = APIRouter(
 )
 
 # ---------------------------------------------------------
-# 1. SETUP POSTGRES CONNECTION POOL FOR LANGGRAPH MEMORY
-# ---------------------------------------------------------
-# This ensures the agent remembers the user across Web & Kiosk channels.
-pool = AsyncConnectionPool(
-    conninfo=settings.DATABASE_URL,
-    max_size=10,
-    kwargs={"autocommit": True, "prepare_threshold": 0},
-)
-
-# ---------------------------------------------------------
-# 2. SCHEMAS
+# 1. SCHEMAS
 # ---------------------------------------------------------
 class ChatRequest(BaseModel):
     message: str
@@ -426,7 +415,8 @@ async def admin_chat_resume(
     config = {"configurable": {"thread_id": request.session_id}}
     
     try:
-        async with AsyncPostgresSaver.from_conn_string(settings.DATABASE_URL) as checkpointer:
+        lg_url = settings.LANGGRAPH_DB_URL or settings.DATABASE_URL
+        async with AsyncPostgresSaver.from_conn_string(lg_url) as checkpointer:
             app_graph = agent_workflow.compile(checkpointer=checkpointer)
             
             state_update = {

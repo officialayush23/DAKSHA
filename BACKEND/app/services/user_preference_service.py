@@ -12,13 +12,8 @@ from app.core.config import settings
 from app.services.embedding_service import generate_text_embedding
 from app.models.models import UserPreferences
 
-# Use the Vertex-issued API key (AQ. prefix) if available, else fall back
 def _make_client():
-    api_key = (
-        settings.GEMINI_VERTEX_API_KEY
-        or settings.VERTEX_API_KEY
-        or settings.GEMINI_API_KEY
-    )
+    api_key = settings.GEMINI_VERTEX_API_KEY or settings.VERTEX_API_KEY
     return genai.Client(api_key=api_key)
 
 MODEL = "gemini-2.0-flash-001"

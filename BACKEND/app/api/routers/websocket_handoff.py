@@ -25,7 +25,7 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.deps import get_db
 from app.core.config import settings
 from app.core.auth import verify_token_ws          # you'll wire this below
 from app.models.models import AgentHandoff, HandoffMessage, UserSession, Conversation
