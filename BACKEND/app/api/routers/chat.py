@@ -21,6 +21,7 @@ from app.services.chat_session_service import (
     get_session,
     list_sessions,
     append_message,
+    get_messages,
     get_context_for_llm,
     generate_session_name,
     set_session_name,
@@ -53,6 +54,12 @@ class SessionListItem(BaseModel):
     channel: str
     last_message_at: Optional[str]
     updated_at: str
+
+class ChatMessageItem(BaseModel):
+    role: str
+    content: str
+    ui_data: Optional[Dict[str, Any]] = None
+    created_at: Optional[str] = None
 
 class AdminReplyRequest(BaseModel):
     session_id: str
@@ -90,6 +97,30 @@ def get_chat_sessions(
             updated_at=s.updated_at.isoformat(),
         )
         for s in sessions
+    ]
+
+
+@router.get("/sessions/{session_id}/messages", response_model=List[ChatMessageItem])
+def get_session_messages(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Load the message history for a specific chat session."""
+    chat_session = get_session(db, session_id, str(current_user.id))
+    if not chat_session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    msgs = get_messages(db, session_id)
+    return [
+        ChatMessageItem(
+            role=m.role,
+            content=m.content,
+            ui_data=m.ui_data,
+            created_at=m.created_at.isoformat() if m.created_at else None,
+        )
+        for m in msgs
+        if m.role in ("user", "assistant")   # skip raw tool messages
     ]
 
 
@@ -168,8 +199,8 @@ async def chat_with_agent(
             except Exception as parse_error:
                 print(f"⚠️ JSON Parse Error: {parse_error}")
 
-        # ── 6. Persist assistant message ──────────────────────────────────────
-        append_message(db, session_id_str, "assistant", response_text)
+        # ── 6. Persist assistant message (with ui_data so history re-renders cards)
+        append_message(db, session_id_str, "assistant", response_text, ui_data=ui_data)
 
         # ── 7. Background: name session after first message, refresh taste profile
         is_first_message = chat_session.name is None

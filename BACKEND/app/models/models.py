@@ -1235,6 +1235,7 @@ class ChatMessage(Base):
     role: Mapped[str]                   = mapped_column(String(20))   # user | assistant | tool
     content: Mapped[str]                = mapped_column(Text)
     tool_name: Mapped[Optional[str]]    = mapped_column(String(80))
+    ui_data: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True)  # product cards etc.
     created_at: Mapped[datetime]        = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     session: Mapped["ChatSession"] = relationship("ChatSession", back_populates="messages")

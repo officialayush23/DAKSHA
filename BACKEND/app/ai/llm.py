@@ -37,7 +37,7 @@ from google.genai import types
 from app.core.config import settings
 
 ModelRole = Literal["orchestrator", "reasoning", "fast"]
-GEMINI_MODEL = "gemini-2.0-flash-001"
+GEMINI_MODEL = "gemini-2.5-flash"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -152,7 +152,18 @@ def _tools_to_genai(tools: list) -> Optional[types.Tool]:
 
 def _parse_response(response) -> AIMessage:
     """google-genai GenerateContentResponse → LangChain AIMessage."""
+    if not response or not response.candidates:
+        return AIMessage(content="")
+
     candidate = response.candidates[0]
+
+    # Guard against safety blocks / empty candidates (content is None)
+    if candidate.content is None or not candidate.content.parts:
+        # Try to surface a finish reason so it's visible in logs
+        finish = getattr(candidate, "finish_reason", None)
+        reason = str(finish) if finish else "unknown"
+        return AIMessage(content=f"[Response blocked — finish_reason: {reason}]")
+
     text_parts: list[str] = []
     tool_calls: list[dict] = []
 

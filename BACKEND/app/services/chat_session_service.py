@@ -67,12 +67,14 @@ def append_message(
     role: str,
     content: str,
     tool_name: Optional[str] = None,
+    ui_data: Optional[dict] = None,
 ) -> ChatMessage:
     msg = ChatMessage(
         session_id=uuid.UUID(session_id),
         role=role,
         content=content,
         tool_name=tool_name,
+        ui_data=ui_data or None,
     )
     db.add(msg)
     db.commit()

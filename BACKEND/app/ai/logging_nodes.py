@@ -65,9 +65,12 @@ def make_logging_tool_node(tools: list, agent_name: str):
         # ToolNode returns {"messages": [ToolMessage, ...]}
         tool_messages = result.get("messages", [])
 
-        session_id_raw = state.get("session_id")
         user_id_raw    = state.get("user_id")
         per_call_ms    = total_latency_ms // max(len(tool_calls), 1)
+        # NOTE: state["session_id"] is a chat_sessions.id, NOT a sessions.id.
+        # agent_actions.session_id has FK → sessions (location tracking).
+        # Passing the chat session ID here would cause a FK violation.
+        # We leave it NULL; a future migration can add a proper chat_session_id column.
 
         try:
             with SessionLocal() as db:
@@ -97,7 +100,7 @@ def make_logging_tool_node(tools: list, agent_name: str):
                             error_msg = raw[:500]
 
                     action = AgentAction(
-                        session_id    = _safe_uuid(session_id_raw),
+                        session_id    = None,              # see note above
                         user_id       = _safe_uuid(user_id_raw),
                         agent_name    = agent_name,
                         tool_name     = tc.get("name", "unknown"),

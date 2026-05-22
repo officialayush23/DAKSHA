@@ -46,8 +46,24 @@ def _balance_key(user_id):
 # READ MODELS
 # -----------------------------
 
+def _redis_get(key: str):
+    """Redis GET with graceful fallback — returns None if Redis is unavailable."""
+    try:
+        return redis_client.get(key)
+    except Exception:
+        return None
+
+
+def _redis_setex(key: str, ttl: int, value) -> None:
+    """Redis SETEX with graceful fallback — silently no-ops if Redis is unavailable."""
+    try:
+        redis_client.setex(key, ttl, value)
+    except Exception:
+        pass
+
+
 def get_balance(db: Session, user_id: uuid.UUID) -> int:
-    cached = redis_client.get(_balance_key(user_id))
+    cached = _redis_get(_balance_key(user_id))
     if cached:
         return int(cached)
 
@@ -61,12 +77,12 @@ def get_balance(db: Session, user_id: uuid.UUID) -> int:
         .scalar()
     )
 
-    redis_client.setex(_balance_key(user_id), CACHE_TTL, balance)
+    _redis_setex(_balance_key(user_id), CACHE_TTL, balance)
     return balance
 
 
 def _update_cache(user_id: uuid.UUID, new_balance: int):
-    redis_client.setex(_balance_key(user_id), CACHE_TTL, new_balance)
+    _redis_setex(_balance_key(user_id), CACHE_TTL, new_balance)
 
 
 def get_lifetime_earned(db: Session, user_id: uuid.UUID) -> int:

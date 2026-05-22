@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card } from 'antd';
-import { Send, ShoppingBag, Sparkles, User, Bot, Mic, MicOff, Plus, MessageSquare } from 'lucide-react';
+import { Send, ShoppingBag, Sparkles, User, Bot, Mic, MicOff, Plus, MessageSquare, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../lib/api';
 import { toast } from 'sonner';
 
@@ -31,13 +31,20 @@ const WELCOME_MSG = {
 export default function ChatInterface() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // session_id lives in the URL (?sid=...) so it survives page refresh
+  const sidFromUrl = searchParams.get("sid");
+  const sidFromState = location.state?.sessionId ?? null;
+
+  // On first render, if navigated with router state, promote it into the URL
+  const [sessionId, setSessionId] = useState(sidFromUrl || sidFromState);
 
   const [messages, setMessages] = useState([WELCOME_MSG]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [currentAgent, setCurrentAgent] = useState("Unified Agent");
-  // Initialise from router state if navigated from ChatsPage
-  const [sessionId, setSessionId] = useState(location.state?.sessionId ?? null);
   const scrollRef = useRef(null);
 
   const [isListening, setIsListening] = useState(false);
@@ -72,13 +79,45 @@ export default function ChatInterface() {
   };
 
 
-  // When the user navigates here with a new sessionId in router state, reset the chat
+  // Sync router state → URL param (once, on navigate-with-state)
   useEffect(() => {
-    const incoming = location.state?.sessionId ?? null;
-    setSessionId(incoming);
-    setMessages([WELCOME_MSG]);
-    setCurrentAgent("Unified Agent");
-  }, [location.state?.sessionId]);
+    if (sidFromState && sidFromState !== sidFromUrl) {
+      setSearchParams({ sid: sidFromState }, { replace: true });
+      setSessionId(sidFromState);
+    }
+  }, [sidFromState]);
+
+  // Load message history whenever sessionId changes to a real value
+  useEffect(() => {
+    if (!sessionId) {
+      setMessages([WELCOME_MSG]);
+      return;
+    }
+    const load = async () => {
+      setLoadingHistory(true);
+      try {
+        const res = await api.get(`/chat/sessions/${sessionId}/messages`);
+        const history = res.data || [];
+        if (history.length > 0) {
+          setMessages(history.map(m => ({
+            role: m.role,
+            content: m.content,
+            // Restore product cards from persisted ui_data
+            products: m.ui_data
+              ? (m.ui_data.products || m.ui_data.trending_products || m.ui_data.items || [])
+              : [],
+          })));
+        } else {
+          setMessages([WELCOME_MSG]);
+        }
+      } catch {
+        setMessages([WELCOME_MSG]);
+      } finally {
+        setLoadingHistory(false);
+      }
+    };
+    load();
+  }, [sessionId]);
 
   // Auto-scroll to latest message
   useEffect(() => {
@@ -105,8 +144,10 @@ export default function ChatInterface() {
       const data = res.data || res;
 
       // Capture the session_id returned by backend (important on first message)
+      // Also write it to the URL so the conversation survives a page refresh
       if (data.session_id && !sessionId) {
         setSessionId(data.session_id);
+        setSearchParams({ sid: data.session_id }, { replace: true });
       }
 
       if (data.current_agent) {
@@ -139,7 +180,7 @@ export default function ChatInterface() {
     setMessages([WELCOME_MSG]);
     setCurrentAgent("Unified Agent");
     setInput("");
-    // Clear the router state so the useEffect doesn't re-trigger
+    // Clear URL param so a fresh session is created on the next message
     navigate('/dash/agent', { replace: true, state: {} });
   };
 
@@ -183,7 +224,12 @@ export default function ChatInterface() {
       </div>
 
       {/* --- CHAT HISTORY --- */}
-      <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-8 scrollbar-hide">
+      <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-8 scrollbar-hide relative">
+        {loadingHistory && (
+          <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10">
+            <Loader2 size={28} className="animate-spin text-zinc-400" />
+          </div>
+        )}
         <AnimatePresence initial={false}>
           {messages.map((m, i) => (
             <motion.div 
@@ -275,7 +321,7 @@ export default function ChatInterface() {
           </div>
         )}
         <div ref={scrollRef} />
-      </div>
+      </div> {/* end chat history */}
 
       {/* --- INPUT AREA --- */}
       <div className="p-6 md:p-8 bg-white border-t border-zinc-100 shrink-0">

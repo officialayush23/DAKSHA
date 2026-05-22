@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.core.database import SessionLocal
-from app.models.models import UserPreferenceSummary, ConversationSummary
+from app.models.models import UserPreferenceSummary, ChatSession, ChatMessage
 from app.services.embedding_service import generate_text_embedding
 
 logger = logging.getLogger(__name__)
@@ -31,8 +31,8 @@ _LOOKBACK_SUMMARIES = 5
 # ── Gemini distillation prompt
 _DISTIL_PROMPT = """
 You are a fashion taste-profile extractor for DAKSHA.
-Below are recent conversation summaries for a user.  
-Distil them into ONE tight paragraph (≤80 words) capturing:
+Below is a recent conversation between a user and the Daksha shopping concierge.
+Distil it into ONE tight paragraph (≤80 words) capturing:
   - preferred styles, categories, colours, occasions
   - price sensitivity
   - brands they like or dislike
@@ -40,7 +40,7 @@ Distil them into ONE tight paragraph (≤80 words) capturing:
 
 Output ONLY the paragraph — no headers, no bullet points.
 
-Summaries:
+Conversation:
 {summaries}
 """.strip()
 
@@ -61,21 +61,29 @@ async def refresh_user_preference_summary(
 
 
 async def _do_refresh(db: Session, user_id: str, session_id: Optional[str]) -> None:
-    # 1. Gather recent summaries
+    # 1. Pull the last N user+assistant messages across all of this user's chat sessions
     rows = (
-        db.query(ConversationSummary)
-        .filter(ConversationSummary.user_id == uuid.UUID(user_id))
-        .order_by(ConversationSummary.created_at.desc())
-        .limit(_LOOKBACK_SUMMARIES)
+        db.query(ChatMessage.role, ChatMessage.content, ChatMessage.created_at)
+        .join(ChatSession, ChatSession.id == ChatMessage.session_id)
+        .filter(
+            ChatSession.user_id == uuid.UUID(user_id),
+            ChatMessage.role.in_(["user", "assistant"]),
+        )
+        .order_by(ChatMessage.created_at.desc())
+        .limit(30)
         .all()
     )
 
     if not rows:
         return  # nothing to learn from yet
 
-    summaries_text = "\n---\n".join(
-        r.summary_text for r in rows if r.summary_text
-    )
+    # Format as a short conversation transcript (oldest first)
+    lines = [
+        f"{r.role.upper()}: {r.content[:300]}"
+        for r in reversed(rows)
+        if r.content
+    ]
+    summaries_text = "\n".join(lines)
     if not summaries_text.strip():
         return
 
@@ -120,20 +128,10 @@ async def _do_refresh(db: Session, user_id: str, session_id: Optional[str]) -> N
 async def _call_gemini_distil(summaries_text: str) -> Optional[str]:
     """Uses Gemini Flash (via Vertex AI) to produce a compact taste-profile paragraph."""
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
         from langchain_core.messages import HumanMessage
-        from app.core.config import settings
+        from app.ai.llm import get_gemini
 
-        api_key = settings.GEMINI_VERTEX_API_KEY or settings.VERTEX_API_KEY
-        if not api_key:
-            return None
-
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash-001",
-            temperature=0.2,
-            max_output_tokens=200,
-            google_api_key=api_key,
-        )
+        llm = get_gemini(temperature=0.2)
         prompt = _DISTIL_PROMPT.format(summaries=summaries_text[:3000])
         response = await llm.ainvoke([HumanMessage(content=prompt)])
         return response.content.strip() or None
