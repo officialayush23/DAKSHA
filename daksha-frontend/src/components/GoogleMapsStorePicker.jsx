@@ -247,7 +247,7 @@ export default function GoogleMapsStorePicker({ cartItems = [], onStoreSelect, o
     });
 
     mapRef.current = map;
-    return () => { map = null; mapRef.current = null; };
+    return () => { mapRef.current = null; };
   }, [gmapsReady, userCoords]);
 
   // ── Place store markers ──────────────────────────────────────────────────────

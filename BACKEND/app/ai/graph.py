@@ -182,8 +182,9 @@ def build_graph():
     # ── Handoff → END (AI is paused, human takes over via WebSocket) ─────────
     builder.add_edge("handoff", END)
 
-    return builder.compile()
+    return builder
 
 
-# Compiled graph — imported by the chat router
+# Uncompiled builder — routers call .compile(checkpointer=...) per-request
 agent_workflow = build_graph()
+
