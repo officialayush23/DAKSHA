@@ -13,7 +13,8 @@ import {
   LogOut,
   Wifi,
   Radio,
-  Heart // <-- Imported Heart for Wishlist
+  Heart,
+  MessageSquare
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -31,7 +32,8 @@ const DesktopSidebar = ({ user, signOut, cartCount, isAdmin, sessionInfo }) => {
   const navItems = [
     { title: "Shop", url: "/dash/shop", icon: ShoppingBag },
     { title: "Concierge", url: "/dash/agent", icon: Sparkles },
-    { title: "Wishlist", url: "/dash/wishlist", icon: Heart }, // <-- Added Wishlist
+    { title: "Conversations", url: "/dash/chats", icon: MessageSquare },
+    { title: "Wishlist", url: "/dash/wishlist", icon: Heart },
     { title: "My Bag", url: "/dash/cart", icon: ShoppingCart, badge: cartCount },
     { title: "Orders", url: "/dash/orders", icon: Package },
     { title: "Returns", url: "/dash/return", icon: User },
@@ -189,8 +191,8 @@ export default function UserLayout() {
   // --- MOBILE NAV (Added Wishlist) ---
   const mobileNavItems = [
     { title: 'Shop', url: '/dash/shop', icon: ShoppingBag },
-    { title: 'Wishlist', url: '/dash/wishlist', icon: Heart }, // <-- Added Wishlist
     { title: 'Agent', url: '/dash/agent', icon: Sparkles },
+    { title: 'Chats', url: '/dash/chats', icon: MessageSquare },
     { title: 'Bag', url: '/dash/cart', icon: ShoppingCart, badge: cartCount },
     { title: 'Profile', url: '/dash/profile', icon: User },
   ];

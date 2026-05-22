@@ -16,19 +16,20 @@ def generate_candidates(
     """
     Phase 1: HYBRID RECALL
 
-    Sources:
+    Sources (intent-based search uses STRICT semantic only):
     • semantic similarity (intent or preference)
-    • collaborative ML signals
-    • PDP seed similarity (NEW)
-    • trending fallback
+    • collaborative ML signals  — skipped when intent_text is set
+    • PDP seed similarity       — for product detail page "similar items"
+    • trending fallback         — skipped when intent_text is set
     """
 
     candidates = set()
+    has_intent = bool(intent_text and intent_text.strip())
 
     # --------------------------------------------------
     # 1️⃣ SEMANTIC RECALL (intent OR taste profile)
     # --------------------------------------------------
-    vec = generate_text_embedding(intent_text) if intent_text else None
+    vec = generate_text_embedding(intent_text) if has_intent else None
 
     if not vec and user_id:
         pref = db.execute(
@@ -42,20 +43,34 @@ def generate_candidates(
         vec = pref[0] if pref else None
 
     if vec:
-        rows = db.execute(text("""
-            SELECT product_variant_id
-            FROM product_multimodal_embeddings
-            WHERE modality = 'text'
-            ORDER BY embedding <=> CAST(:vec AS vector)
-            LIMIT 150
-        """), {"vec": vec}).fetchall()
+        if has_intent:
+            # Strict mode: apply cosine distance threshold (< 0.55 ≈ similarity > 0.45)
+            # This filters out semantically unrelated products from intent-based search
+            rows = db.execute(text("""
+                SELECT product_variant_id
+                FROM product_multimodal_embeddings
+                WHERE modality = 'text'
+                  AND embedding <=> CAST(:vec AS vector) < 0.55
+                ORDER BY embedding <=> CAST(:vec AS vector)
+                LIMIT 200
+            """), {"vec": vec}).fetchall()
+        else:
+            # Home feed: top-N without threshold (broader discovery)
+            rows = db.execute(text("""
+                SELECT product_variant_id
+                FROM product_multimodal_embeddings
+                WHERE modality = 'text'
+                ORDER BY embedding <=> CAST(:vec AS vector)
+                LIMIT 150
+            """), {"vec": vec}).fetchall()
 
         candidates.update(str(r[0]) for r in rows)
 
     # --------------------------------------------------
     # 2️⃣ COLLABORATIVE FILTERING (taste neighbors)
+    # Skip for intent search — collab dilutes precision
     # --------------------------------------------------
-    if user_id:
+    if user_id and not has_intent:
         try:
             from app.services.ml_service import get_collaborative_candidates  # lazy — torch optional
             collab_ids = get_collaborative_candidates(user_id, k=100)
@@ -64,7 +79,7 @@ def generate_candidates(
             pass
 
     # --------------------------------------------------
-    # 3️⃣ PDP SEED SIMILARITY (NEW)
+    # 3️⃣ PDP SEED SIMILARITY
     # enables: similar items on product page
     # --------------------------------------------------
     if seed_variant_id:
@@ -80,9 +95,10 @@ def generate_candidates(
 
     # --------------------------------------------------
     # 4️⃣ TRENDING SAFETY NET
-    # ensures feed never empty
+    # Ensures home feed is never empty.
+    # Skip for intent search — trending dilutes precision.
     # --------------------------------------------------
-    if len(candidates) < 60:
+    if not has_intent and len(candidates) < 60:
         rows = db.execute(text("""
             SELECT product_variant_id
             FROM trending_products

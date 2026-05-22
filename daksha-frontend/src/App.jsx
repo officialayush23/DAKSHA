@@ -29,6 +29,7 @@ import AttractScreen from './kiosk/pages/AttractScreen';
 import LoginScreen from './kiosk/pages/LoginScreen';
 import KioskSelectScreen from './kiosk/pages/KioskSelectScreen';
 import WishlistPage from './pages/WishListPage';
+import ChatsPage from './pages/ChatsPage';
 
 // --- ADMIN PAGES ---
 import Dashboard from './admin/pages/Dashboard';
@@ -145,6 +146,7 @@ export default function App() {
         <Route path="wishlist" element={<WishlistPage />} />
         <Route path="checkout" element={<CheckoutPage />} />
         <Route path="return" element={<ReturnsPage/>} />
+        <Route path="chats" element={<ChatsPage />} />
         <Route path="agent" element={
           <div className="h-full flex items-center justify-center">
             <div className="w-full max-w-4xl h-full">

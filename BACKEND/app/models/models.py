@@ -1203,3 +1203,38 @@ class UserPersonalizedOfferEmbedding(Base):
     updated_at: Mapped[datetime]     = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     offer: Mapped["UserPersonalizedOffer"] = relationship("UserPersonalizedOffer")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHAT SESSIONS  (ChatGPT-style persistent conversations)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[uuid.UUID]           = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID]      = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[Optional[str]]     = mapped_column(String(120))
+    channel: Mapped[str]            = mapped_column(String(20), default="web")
+    is_active: Mapped[bool]         = mapped_column(Boolean, default=True)
+    summary: Mapped[Optional[str]]  = mapped_column(Text)          # rolling summary of older msgs
+    summary_cursor: Mapped[int]     = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime]    = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime]    = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    last_message_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    messages: Mapped[List["ChatMessage"]] = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
+    user: Mapped["User"] = relationship("User")
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[uuid.UUID]               = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID]       = mapped_column(ForeignKey("chat_sessions.id", ondelete="CASCADE"), index=True)
+    role: Mapped[str]                   = mapped_column(String(20))   # user | assistant | tool
+    content: Mapped[str]                = mapped_column(Text)
+    tool_name: Mapped[Optional[str]]    = mapped_column(String(80))
+    created_at: Mapped[datetime]        = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    session: Mapped["ChatSession"] = relationship("ChatSession", back_populates="messages")

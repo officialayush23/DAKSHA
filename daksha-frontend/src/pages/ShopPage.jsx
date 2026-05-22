@@ -35,6 +35,7 @@ export default function ShopPage() {
   const [sessionId, setSessionId] = useState(null);
   
   const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);   // lightweight — keeps grid visible
   const [searchTerm, setSearchTerm] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
 
@@ -78,19 +79,20 @@ export default function ShopPage() {
       return;
     }
 
-    setLoading(true);
+    // Use the lightweight searching state so the grid stays visible
+    setSearching(true);
     try {
       await ProductService.search(searchTerm).catch(() => {});
       const res = await ProductService.getFeed(searchTerm);
-      
+
       setItems(getUniqueProducts(res?.data || res));
-      setRecommended([]); 
-      setTrending([]); 
+      setRecommended([]);
+      setTrending([]);
       setActiveCategory("All");
     } catch {
       toast.error("Search failed");
     } finally {
-      setLoading(false);
+      setSearching(false);
     }
   };
 
@@ -192,20 +194,24 @@ export default function ShopPage() {
         </div>
 
         <form onSubmit={handleSearch} className="relative w-full xl:w-[450px] z-10">
-          <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-400 w-5 h-5" />
+          {searching
+            ? <Loader2 className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-400 w-5 h-5 animate-spin" />
+            : <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-400 w-5 h-5" />
+          }
           <Input
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             placeholder="Search linen shirts, running shoes..."
             className="pl-14 py-7 rounded-full bg-white border border-zinc-200 focus-visible:ring-2 focus-visible:ring-black/5 focus-visible:border-zinc-400 transition-all text-base shadow-sm"
+            disabled={searching}
           />
           <AnimatePresence>
-            {searchTerm && (
-              <motion.button 
+            {searchTerm && !searching && (
+              <motion.button
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.8 }}
-                type="submit" 
+                type="submit"
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 bg-black text-white p-2.5 rounded-full hover:scale-105 hover:shadow-lg transition-all"
               >
                 <ArrowRight size={18} />

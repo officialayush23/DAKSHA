@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card } from 'antd';
-import { Send, ShoppingBag, MapPin, Sparkles, User, Bot, Mic, MicOff } from 'lucide-react';
+import { Send, ShoppingBag, Sparkles, User, Bot, Mic, MicOff, Plus, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import api, { SessionService } from '../lib/api';
+import { useLocation, useNavigate } from 'react-router-dom';
+import api from '../lib/api';
 import { toast } from 'sonner';
 
 // ── Recommendation outcome tracker ──────────────────────────────────────────
@@ -21,18 +22,22 @@ const logRecommendationOutcome = async (impressionId, outcomeType, rewardValue =
 
 const { Meta } = Card;
 
+const WELCOME_MSG = {
+  role: 'assistant',
+  content: "Welcome back. I am your Daksha Concierge. How may I assist your style journey today?",
+  current_agent: "Unified Agent"
+};
+
 export default function ChatInterface() {
-  const [messages, setMessages] = useState([
-    { 
-      role: 'assistant', 
-      content: "Welcome back. I am your Daksha Concierge. How may I assist your style journey today?",
-      current_agent: "Unified Agent" 
-    }
-  ]);
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const [messages, setMessages] = useState([WELCOME_MSG]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [currentAgent, setCurrentAgent] = useState("Unified Agent");
-  const [sessionId, setSessionId] = useState(null);
+  // Initialise from router state if navigated from ChatsPage
+  const [sessionId, setSessionId] = useState(location.state?.sessionId ?? null);
   const scrollRef = useRef(null);
 
   const [isListening, setIsListening] = useState(false);
@@ -67,21 +72,13 @@ export default function ChatInterface() {
   };
 
 
-  // Fetch the active session when the chat component mounts
+  // When the user navigates here with a new sessionId in router state, reset the chat
   useEffect(() => {
-    const fetchSession = async () => {
-      try {
-        const res = await SessionService.getActive();
-        const data = res?.data || res;
-        if (data?.session_id) {
-          setSessionId(data.session_id);
-        }
-      } catch (err) {
-        console.error("Failed to load session", err);
-      }
-    };
-    fetchSession();
-  }, []);
+    const incoming = location.state?.sessionId ?? null;
+    setSessionId(incoming);
+    setMessages([WELCOME_MSG]);
+    setCurrentAgent("Unified Agent");
+  }, [location.state?.sessionId]);
 
   // Auto-scroll to latest message
   useEffect(() => {
@@ -92,11 +89,6 @@ export default function ChatInterface() {
 
   const onAction = async (text) => {
     if (!text.trim()) return;
-    
-    if (!sessionId) {
-      toast.error("Waiting for secure session to initialize...");
-      return;
-    }
 
     // Add User Message
     const userMsg = { role: 'user', content: text };
@@ -105,17 +97,22 @@ export default function ChatInterface() {
     setIsTyping(true);
 
     try {
-      const res = await api.post('/chat/', { 
+      const res = await api.post('/chat/', {
         message: text,
-        session_id: sessionId
+        session_id: sessionId   // null on first message → backend creates new session
       });
-      
+
       const data = res.data || res;
+
+      // Capture the session_id returned by backend (important on first message)
+      if (data.session_id && !sessionId) {
+        setSessionId(data.session_id);
+      }
+
       if (data.current_agent) {
         setCurrentAgent(data.current_agent);
       }
 
-      // 👇 PARSING MAGIC: Fallback to multiple common JSON keys your backend might send
       const uiData = data.ui_data || {};
       const productsList = uiData.products || uiData.trending_products || uiData.items || [];
 
@@ -128,26 +125,35 @@ export default function ChatInterface() {
     } catch (err) {
       console.error("Agent Error:", err);
       toast.error("Connection lost. Please try again.");
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: "I apologize, I'm experiencing a brief interruption in my service." 
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: "I apologize, I'm experiencing a brief interruption in my service."
       }]);
     } finally {
       setIsTyping(false);
     }
   };
 
+  const startNewChat = () => {
+    setSessionId(null);
+    setMessages([WELCOME_MSG]);
+    setCurrentAgent("Unified Agent");
+    setInput("");
+    // Clear the router state so the useEffect doesn't re-trigger
+    navigate('/dash/agent', { replace: true, state: {} });
+  };
+
   return (
     <div className="flex flex-col h-[calc(100vh-140px)] max-w-5xl mx-auto bg-white rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.05)] overflow-hidden border border-zinc-100">
       
       {/* --- HEADER --- */}
-      <div className="px-8 py-6 bg-zinc-900 text-white flex justify-between items-center shrink-0">
+      <div className="px-6 py-5 bg-zinc-900 text-white flex justify-between items-center shrink-0">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-zinc-700 to-zinc-800 flex items-center justify-center border border-zinc-600">
-            <Sparkles size={22} className="text-zinc-200" />
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-zinc-700 to-zinc-800 flex items-center justify-center border border-zinc-600">
+            <Sparkles size={20} className="text-zinc-200" />
           </div>
           <div>
-            <h2 className="font-serif text-2xl tracking-tight">Daksha Agent</h2>
+            <h2 className="font-serif text-xl tracking-tight">Daksha Agent</h2>
             <div className="flex items-center gap-2 mt-0.5">
               <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
               <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-400 font-bold">
@@ -155,6 +161,24 @@ export default function ChatInterface() {
               </p>
             </div>
           </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate('/dash/chats')}
+            title="View all conversations"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white text-[11px] uppercase tracking-widest transition-all"
+          >
+            <MessageSquare size={13} />
+            <span className="hidden sm:inline">History</span>
+          </button>
+          <button
+            onClick={startNewChat}
+            title="Start a new conversation"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white text-[11px] uppercase tracking-widest transition-all"
+          >
+            <Plus size={13} />
+            <span className="hidden sm:inline">New Chat</span>
+          </button>
         </div>
       </div>
 

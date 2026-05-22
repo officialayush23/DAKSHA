@@ -2,6 +2,7 @@
 import uuid
 from sqlalchemy.orm import Session , joinedload
 from sqlalchemy import func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from geoalchemy2 import WKTElement
 from datetime import datetime, timedelta
 from app.models.models import UserLocation , LoyaltyLedger
@@ -200,29 +201,26 @@ def upsert_user_location(
     point = WKTElement(f"POINT({lng} {lat})", srid=4326)
     expiry = datetime.utcnow() + timedelta(minutes=LOCATION_TTL_MINUTES)
 
-    loc = (
-        db.query(UserLocation)
-        .filter(UserLocation.session_id == session_id)
-        .first()
-    )
-
-    if loc:
-        loc.location = point
-        loc.recorded_at = datetime.utcnow()
-        loc.expires_at = expiry
-        if user_id:
-            loc.user_id = user_id
-    else:
-        loc = UserLocation(
+    # Native PG upsert — race-condition safe (concurrent pings for same session)
+    stmt = (
+        pg_insert(UserLocation)
+        .values(
             session_id=session_id,
             user_id=user_id,
             location=point,
             expires_at=expiry,
         )
-        db.add(loc)
-
+        .on_conflict_do_update(
+            index_elements=["session_id"],
+            set_=dict(
+                location=point,
+                expires_at=expiry,
+                user_id=user_id,
+            ),
+        )
+    )
+    db.execute(stmt)
     db.commit()
-    return loc
 
 # ========== OFFERS & REWARDS ==========
 
@@ -278,7 +276,7 @@ def get_user_notifications(db: Session, user_id: uuid.UUID, limit: int = 50) -> 
             "message_type": m.message_type,
             "content": m.content,
             "status": m.status,
-            "sent_at": m.sent_at
+            "sent_at": m.sent_at.isoformat() if m.sent_at else None,
         }
         for m in messages
     ]

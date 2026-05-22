@@ -1,10 +1,9 @@
 # app/api/routers/chat.py
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
-import uuid
 import re
 import json
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -17,84 +16,131 @@ from sqlalchemy.orm import Session
 from app.ai.graph import agent_workflow
 from app.ai.context_loader import load_context
 from app.services.preference_service import refresh_user_preference_summary
+from app.services.chat_session_service import (
+    create_session,
+    get_session,
+    list_sessions,
+    append_message,
+    get_context_for_llm,
+    generate_session_name,
+    set_session_name,
+    update_rolling_summary,
+)
 
 router = APIRouter(prefix="/chat", tags=["Agentic Chat"])
 
-# ---------------------------------------------------------
-# SCHEMAS
-# ---------------------------------------------------------
+# ── Schemas ───────────────────────────────────────────────────────────────────
+
 class ChatRequest(BaseModel):
     message: str
-    session_id: str
+    session_id: Optional[str] = None   # None = start a new session
     channel: str = "web"
 
 class ChatResponse(BaseModel):
     response: str
+    session_id: str
+    session_name: Optional[str] = None
     current_agent: Optional[str] = "UnifiedAgent"
     human_takeover: bool = False
     ui_data: Optional[Dict[str, Any]] = None
+
+class NewSessionResponse(BaseModel):
+    session_id: str
+
+class SessionListItem(BaseModel):
+    session_id: str
+    name: Optional[str]
+    channel: str
+    last_message_at: Optional[str]
+    updated_at: str
 
 class AdminReplyRequest(BaseModel):
     session_id: str
     message: str
 
-# ---------------------------------------------------------
-# One-time checkpointer setup flag
-# setup() creates LangGraph checkpoint tables — only needs to run once per process
-# ---------------------------------------------------------
+# ── One-time checkpointer setup flag ─────────────────────────────────────────
 _checkpointer_setup_done = False
 
+# ── Endpoints ─────────────────────────────────────────────────────────────────
 
-async def _get_checkpointer(lg_url: str) -> AsyncPostgresSaver:
-    """
-    Build an AsyncPostgresSaver with:
-      • pipeline=False  — avoids psycopg AsyncPipeline SSL corruption on Supabase
-      • setup() called once per process lifetime
-    """
-    global _checkpointer_setup_done
-    # pipeline=False: use simple request/response mode instead of psycopg pipeline.
-    # Supabase's SSL layer drops the pipeline connection intermittently, causing
-    # "AsyncPipeline [BAD] / SSL error: bad length" errors.
-    saver = AsyncPostgresSaver.from_conn_string(lg_url, pipeline=False)
-    return saver
+@router.post("/sessions/new", response_model=NewSessionResponse)
+def new_chat_session(
+    channel: str = "web",
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a new chat session (called when user clicks 'New Chat')."""
+    session = create_session(db, str(current_user.id), channel)
+    return NewSessionResponse(session_id=str(session.id))
 
 
-# ---------------------------------------------------------
-# ENDPOINTS
-# ---------------------------------------------------------
+@router.get("/sessions", response_model=List[SessionListItem])
+def get_chat_sessions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List all chat sessions for the user (newest first)."""
+    sessions = list_sessions(db, str(current_user.id))
+    return [
+        SessionListItem(
+            session_id=str(s.id),
+            name=s.name,
+            channel=s.channel,
+            last_message_at=s.last_message_at.isoformat() if s.last_message_at else None,
+            updated_at=s.updated_at.isoformat(),
+        )
+        for s in sessions
+    ]
+
 
 @router.post("/", response_model=ChatResponse)
 async def chat_with_agent(
     request: ChatRequest,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     global _checkpointer_setup_done
     try:
         user_id_str = str(current_user.id)
 
-        # Load User & Conversation Context
-        context = load_context(db, user_id_str, request.session_id)
+        # ── 1. Resolve or create session ──────────────────────────────────────
+        if request.session_id:
+            chat_session = get_session(db, request.session_id, user_id_str)
+            if not chat_session:
+                raise HTTPException(status_code=404, detail="Session not found")
+        else:
+            chat_session = create_session(db, user_id_str, request.channel)
 
-        # Build State
+        session_id_str = str(chat_session.id)
+
+        # ── 2. Persist user message ───────────────────────────────────────────
+        append_message(db, session_id_str, "user", request.message)
+
+        # ── 3. Build context ──────────────────────────────────────────────────
+        context = load_context(db, user_id_str, session_id_str)
+        ctx_data = get_context_for_llm(db, session_id_str)
+
+        # Build summary context string for the agent
+        summary_context = context.get("user_summary", "")
+        if ctx_data.get("summary"):
+            summary_context += f"\n\nConversation summary so far:\n{ctx_data['summary']}"
+
         input_state = {
             "messages": [HumanMessage(content=request.message)],
             "user_id": user_id_str,
-            "session_id": request.session_id,
+            "session_id": session_id_str,
             "channel": request.channel,
-            "user_summary": context.get("user_summary"),
-            "conversation_summary": context.get("conversation_summary"),
+            "order_mode": "online",
+            "user_summary": summary_context,
+            "conversation_summary": ctx_data.get("summary"),
         }
 
-        config = {"configurable": {"thread_id": request.session_id}}
+        config = {"configurable": {"thread_id": session_id_str}}
 
-        # Run LangGraph with Postgres Checkpointer
-        # Session-pooler URL (port 5432) — supports prepared statements
-        # pipeline=False — avoids psycopg AsyncPipeline SSL drops on Supabase
+        # ── 4. Run LangGraph ──────────────────────────────────────────────────
         lg_url = settings.LANGGRAPH_DB_URL or settings.DATABASE_URL
         async with AsyncPostgresSaver.from_conn_string(lg_url, pipeline=False) as checkpointer:
-            # setup() is idempotent but runs DDL — skip after first call
             if not _checkpointer_setup_done:
                 await checkpointer.setup()
                 _checkpointer_setup_done = True
@@ -102,7 +148,7 @@ async def chat_with_agent(
             app_graph = agent_workflow.compile(checkpointer=checkpointer)
             final_state = await app_graph.ainvoke(input_state, config)
 
-        # Extract final LLM message
+        # ── 5. Extract response ───────────────────────────────────────────────
         last_msg = final_state["messages"][-1]
         is_human_takeover = final_state.get("pending_human_input", False)
         active_agent = final_state.get("current_agent", "UnifiedAgent")
@@ -112,7 +158,7 @@ async def chat_with_agent(
             else "I'm processing your request..."
         )
 
-        # Extract UI JSON payload from <UI_DATA>...</UI_DATA> tags
+        # Extract UI JSON payload
         ui_data = None
         match = re.search(r'<UI_DATA>(.*?)</UI_DATA>', response_text, re.DOTALL)
         if match:
@@ -122,39 +168,56 @@ async def chat_with_agent(
             except Exception as parse_error:
                 print(f"⚠️ JSON Parse Error: {parse_error}")
 
-        print("\n" + "="*50)
-        print(f"🤖 AGENT     : {active_agent}")
-        print(f"💬 TEXT ONLY : {response_text}")
-        print(f"📦 UI DATA   : {json.dumps(ui_data, indent=2) if ui_data else 'NONE'}")
-        print("="*50 + "\n")
+        # ── 6. Persist assistant message ──────────────────────────────────────
+        append_message(db, session_id_str, "assistant", response_text)
 
-        # Background: refresh user taste profile after every turn
+        # ── 7. Background: name session after first message, refresh taste profile
+        is_first_message = chat_session.name is None
+        if is_first_message:
+            background_tasks.add_task(
+                _name_session_async, db, session_id_str, request.message
+            )
+
         background_tasks.add_task(
             refresh_user_preference_summary,
             user_id_str,
-            request.session_id,
+            session_id_str,
         )
+
+        print(f"\n{'='*50}\n🤖 AGENT: {active_agent}\n💬 {response_text[:200]}\n{'='*50}\n")
 
         return ChatResponse(
             response=response_text,
+            session_id=session_id_str,
+            session_name=chat_session.name,
             current_agent=active_agent,
             human_takeover=is_human_takeover,
             ui_data=ui_data,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[CHAT ERROR]: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _name_session_async(db: Session, session_id: str, first_message: str):
+    """Background task: generate and save AI session name."""
+    try:
+        name = generate_session_name(first_message)
+        set_session_name(db, session_id, name)
+    except Exception as e:
+        print(f"[SESSION NAMING ERROR]: {e}")
+
+
 @router.post("/admin-reply")
 async def admin_chat_resume(
     request: AdminReplyRequest,
-    current_admin: User = Depends(get_current_user)
+    current_admin: User = Depends(get_current_user),
 ):
     """Injects admin message into the thread and resets human handoff."""
     config = {"configurable": {"thread_id": request.session_id}}
-
     try:
         lg_url = settings.LANGGRAPH_DB_URL or settings.DATABASE_URL
         async with AsyncPostgresSaver.from_conn_string(lg_url, pipeline=False) as checkpointer:
@@ -165,7 +228,6 @@ async def admin_chat_resume(
                 "failure_count": 0,
             }
             await app_graph.ainvoke(state_update, config)
-
         return {"status": "Message injected to thread successfully."}
     except Exception as e:
         print(f"[ADMIN REPLY ERROR]: {e}")
