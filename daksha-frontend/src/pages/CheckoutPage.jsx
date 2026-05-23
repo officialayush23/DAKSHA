@@ -20,7 +20,7 @@ import {
   Truck, Store, MapPin, CheckCircle2,
   ChevronRight, Loader2, Tag, CreditCard, ShoppingBag, Award
 } from 'lucide-react';
-import GoogleMapsStorePicker from '../components/GoogleMapsStorePicker';
+import MapboxStorePicker from '../components/MapboxStorePicker';
 
 export default function CheckoutPage() {
   const navigate = useNavigate();
@@ -387,7 +387,7 @@ export default function CheckoutPage() {
                       className="rounded-[1.5rem] overflow-hidden border border-zinc-200 shadow-sm"
                       style={{ height: 460 }}
                     >
-                      <GoogleMapsStorePicker
+                      <MapboxStorePicker
                         cartItems={
                           cart?.items?.map(i => ({
                             product_variant_id: i.product_variant_id || i.variant_id,

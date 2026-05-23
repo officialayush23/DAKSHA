@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 const NUMPAD = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', '✓'];
 
 export default function LoginScreen() {
-  const { kioskId, setUser } = useKiosk();
+  const { kioskId, setUser, setSessionId } = useKiosk();
   const navigate = useNavigate();
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
@@ -56,10 +56,15 @@ export default function LoginScreen() {
           phone: res.phone,
           store_id: res.store_id,
         });
-        toast.success(`Welcome, ${res.name || 'User'}!`);
+        // Persist the backend session_id in context
+        if (res.session_id && typeof setSessionId === 'function') {
+          setSessionId(res.session_id);
+        }
+        toast.success(`Welcome back, ${res.name || 'User'}!`);
+        navigate('/kiosk/shop');
+      } else {
+        toast.error("Phone number not found. Please register via the app first.");
       }
-      // FIX: was /kiosk/catalog, now /kiosk/shop
-      navigate('/kiosk/shop');
     } catch (error) {
       toast.error("Login failed. Please try again.");
     } finally {

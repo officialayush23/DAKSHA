@@ -1,10 +1,11 @@
 // src/admin/pages/Stores.jsx
-// Admin store management — Google Maps + Places autocomplete + geocoding
+// Admin store management — Google Places autocomplete + Mapbox GL map
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import mapboxgl from "mapbox-gl";
+import "mapbox-gl/dist/mapbox-gl.css";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -25,36 +26,21 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Plus, Store, MoreHorizontal, Search, Edit, Trash2, Download,
-  Loader2, CheckCircle, XCircle, AlertCircle, Building, Globe,
+  Loader2, CheckCircle, XCircle, AlertCircle, Globe,
   MapPin, RefreshCw, ShoppingBag, PackageCheck, Map, Crosshair,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 
-const API_BASE    = import.meta.env.VITE_API_URL || "http://localhost:8000";
-const GMAPS_KEY   = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
+const API_BASE      = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const MAPBOX_TOKEN  = import.meta.env.VITE_MAPBOX_TOKEN || "";
 
 // ── Auth header helper ─────────────────────────────────────────────────────
 const authHeaders = () => ({
   "Content-Type": "application/json",
   Authorization: `Bearer ${localStorage.getItem("token")}`,
 });
-
-// ── Load Google Maps once ─────────────────────────────────────────────────
-let _gmapsLoaded = false, _gmapsCbs = [];
-function loadGMaps() {
-  return new Promise((r) => {
-    if (window.google?.maps) { r(); return; }
-    if (_gmapsLoaded) { _gmapsCbs.push(r); return; }
-    _gmapsLoaded = true; _gmapsCbs.push(r);
-    window.__gmapsAdminReady = () => _gmapsCbs.forEach(fn => fn());
-    const s = document.createElement("script");
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&libraries=places,geometry&callback=__gmapsAdminReady`;
-    s.async = true; s.defer = true;
-    document.head.appendChild(s);
-  });
-}
 
 // ── API helpers ───────────────────────────────────────────────────────────
 async function apiFetch(path, opts = {}) {
@@ -132,12 +118,12 @@ function StorePickupsDialog({ store, open, onOpenChange }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ADDRESS AUTOCOMPLETE INPUT
+// ADDRESS AUTOCOMPLETE (Google Places via backend proxy)
 // ─────────────────────────────────────────────────────────────────────────────
 function AddressAutocomplete({ value, onChange, onPlaceSelect, placeholder }) {
   const [suggestions, setSuggestions] = useState([]);
-  const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [open, setOpen]               = useState(false);
+  const [loading, setLoading]         = useState(false);
   const sessionRef = useRef(crypto.randomUUID?.() || Math.random().toString(36));
   const debounceRef = useRef(null);
 
@@ -167,7 +153,6 @@ function AddressAutocomplete({ value, onChange, onPlaceSelect, placeholder }) {
         method: "POST",
         body: JSON.stringify({ place_id: suggestion.place_id, session_token: sessionRef.current }),
       });
-      // Rotate session token after a complete autocomplete session
       sessionRef.current = crypto.randomUUID?.() || Math.random().toString(36);
       onPlaceSelect(data);
     } catch (e) {
@@ -210,57 +195,62 @@ function AddressAutocomplete({ value, onChange, onPlaceSelect, placeholder }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MINI MAP (shows selected pin, draggable for fine-tuning)
+// MINI MAP — Mapbox GL JS, draggable marker
 // ─────────────────────────────────────────────────────────────────────────────
 function MiniMap({ lat, lng, onDragEnd }) {
   const containerRef = useRef(null);
   const mapRef       = useRef(null);
   const markerRef    = useRef(null);
-  const [gmapsReady, setGmapsReady] = useState(!!window.google?.maps);
 
+  // Init map once
   useEffect(() => {
-    if (window.google?.maps) { setGmapsReady(true); return; }
-    loadGMaps().then(() => setGmapsReady(true));
+    if (!containerRef.current || mapRef.current) return;
+    mapboxgl.accessToken = MAPBOX_TOKEN;
+
+    const map = new mapboxgl.Map({
+      container: containerRef.current,
+      style: "mapbox://styles/mapbox/dark-v11",
+      center: [lng || 78.9629, lat || 20.5937],
+      zoom: lat ? 14 : 4,
+    });
+
+    map.addControl(new mapboxgl.NavigationControl(), "top-right");
+    mapRef.current = map;
+
+    return () => {
+      map.remove();
+      mapRef.current  = null;
+      markerRef.current = null;
+    };
   }, []);
 
+  // Update marker when lat/lng changes
   useEffect(() => {
-    if (!gmapsReady || !containerRef.current) return;
-    if (!mapRef.current) {
-      mapRef.current = new window.google.maps.Map(containerRef.current, {
-        center: { lat: lat || 20.5937, lng: lng || 78.9629 },
-        zoom: lat ? 15 : 5,
-        mapTypeControl: false, streetViewControl: false,
-        fullscreenControl: false, zoomControl: true,
-        styles: [
-          { featureType: "poi", stylers: [{ visibility: "off" }] },
-          { featureType: "transit", stylers: [{ visibility: "off" }] },
-        ],
+    const map = mapRef.current;
+    if (!map || !lat || !lng) return;
+
+    const lngLat = [lng, lat];
+
+    // Create or move marker
+    if (!markerRef.current) {
+      const el = document.createElement("div");
+      el.innerHTML = `<div style="font-size:32px;line-height:1;cursor:grab">🏪</div>`;
+      el.style.cssText = "transform: translate(-50%,-100%);";
+
+      markerRef.current = new mapboxgl.Marker({ element: el, draggable: true })
+        .setLngLat(lngLat)
+        .addTo(map);
+
+      markerRef.current.on("dragend", () => {
+        const pos = markerRef.current.getLngLat();
+        onDragEnd({ lat: pos.lat, lng: pos.lng });
       });
+    } else {
+      markerRef.current.setLngLat(lngLat);
     }
-    if (lat && lng) {
-      const pos = { lat, lng };
-      mapRef.current.panTo(pos);
-      mapRef.current.setZoom(15);
-      if (!markerRef.current) {
-        markerRef.current = new window.google.maps.Marker({
-          map: mapRef.current,
-          position: pos,
-          draggable: true,
-          icon: {
-            url: `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44"><text y="38" font-size="36">🏪</text></svg>`,
-            scaledSize: new window.google.maps.Size(44, 44),
-            anchor: new window.google.maps.Point(22, 44),
-          },
-          title: "Store location — drag to fine-tune",
-        });
-        markerRef.current.addListener("dragend", (e) => {
-          onDragEnd({ lat: e.latLng.lat(), lng: e.latLng.lng() });
-        });
-      } else {
-        markerRef.current.setPosition(pos);
-      }
-    }
-  }, [gmapsReady, lat, lng]);
+
+    map.flyTo({ center: lngLat, zoom: 14, duration: 600 });
+  }, [lat, lng]);
 
   return (
     <div
@@ -275,28 +265,24 @@ function MiniMap({ lat, lng, onDragEnd }) {
 // MAIN PAGE
 // ─────────────────────────────────────────────────────────────────────────────
 export default function StoresPage() {
-  const [stores, setStores]         = useState([]);
-  const [loading, setLoading]       = useState(true);
+  const [stores, setStores]             = useState([]);
+  const [loading, setLoading]           = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedStore, setSelectedStore] = useState(null);
-  const [isEditing, setIsEditing]   = useState(false);
-  const [saving, setSaving]         = useState(false);
+  const [isEditing, setIsEditing]       = useState(false);
+  const [saving, setSaving]             = useState(false);
 
   const [isPickupsOpen, setIsPickupsOpen] = useState(false);
-  const [pickupStore, setPickupStore] = useState(null);
+  const [pickupStore, setPickupStore]     = useState(null);
 
-  // Form state
   const [formData, setFormData] = useState({
     name: "", address: "", city: "", state: "", active: true,
     latitude: null, longitude: null,
   });
   const [geocoding, setGeocoding] = useState(false);
-
-  // Filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  // ── Fetch stores ───────────────────────────────────────────────────────────
   const fetchStores = async () => {
     setLoading(true);
     try {
@@ -309,7 +295,6 @@ export default function StoresPage() {
 
   useEffect(() => { fetchStores(); }, []);
 
-  // ── Handle place selection (autocomplete → geocoded) ───────────────────────
   const handlePlaceSelect = (placeData) => {
     setFormData(prev => ({
       ...prev,
@@ -321,7 +306,6 @@ export default function StoresPage() {
     }));
   };
 
-  // ── Geocode manually typed address ─────────────────────────────────────────
   const handleManualGeocode = async () => {
     if (!formData.address) return;
     setGeocoding(true);
@@ -343,7 +327,6 @@ export default function StoresPage() {
     } finally { setGeocoding(false); }
   };
 
-  // ── Submit create / update ─────────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name.trim()) { toast.error("Store name is required"); return; }
@@ -361,14 +344,10 @@ export default function StoresPage() {
       };
 
       if (isEditing && selectedStore) {
-        await apiFetch(`/stores/admin/${selectedStore.id}`, {
-          method: "PUT", body: JSON.stringify(payload),
-        });
+        await apiFetch(`/stores/admin/${selectedStore.id}`, { method: "PUT", body: JSON.stringify(payload) });
         toast.success("Store updated");
       } else {
-        await apiFetch("/stores/admin/create", {
-          method: "POST", body: JSON.stringify(payload),
-        });
+        await apiFetch("/stores/admin/create", { method: "POST", body: JSON.stringify(payload) });
         toast.success("Store created");
       }
       resetForm();
@@ -409,11 +388,12 @@ export default function StoresPage() {
     setIsEditing(false);
   };
 
-  // ── Filters ────────────────────────────────────────────────────────────────
   const filtered = stores.filter(s => {
     const q = searchQuery.toLowerCase();
     const matchSearch = !q || s.name?.toLowerCase().includes(q) || s.city?.toLowerCase().includes(q) || s.address?.toLowerCase().includes(q);
-    const matchStatus = statusFilter === "all" || (statusFilter === "active" && s.active !== false) || (statusFilter === "inactive" && s.active === false);
+    const matchStatus = statusFilter === "all"
+      || (statusFilter === "active" && s.active !== false)
+      || (statusFilter === "inactive" && s.active === false);
     return matchSearch && matchStatus;
   });
 
@@ -425,12 +405,14 @@ export default function StoresPage() {
       ["Name", "City", "State", "Address", "Status", "Latitude", "Longitude"],
       ...filtered.map(s => [s.name, s.city || "", s.state || "", s.address || "", s.active !== false ? "Active" : "Inactive", s.latitude || "", s.longitude || ""]),
     ].map(r => r.join(",")).join("\n");
-    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([rows], { type: "text/csv" })), download: `stores_${Date.now()}.csv` });
+    const a = Object.assign(document.createElement("a"), {
+      href: URL.createObjectURL(new Blob([rows], { type: "text/csv" })),
+      download: `stores_${Date.now()}.csv`,
+    });
     a.click();
     toast.success("Exported");
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="p-6 space-y-6">
       <StorePickupsDialog store={pickupStore} open={isPickupsOpen} onOpenChange={setIsPickupsOpen} />
@@ -439,7 +421,7 @@ export default function StoresPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Store Management</h1>
-          <p className="text-muted-foreground">Manage physical store locations — powered by Google Maps</p>
+          <p className="text-muted-foreground">Manage physical store locations — Mapbox map + Google Places autocomplete</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={exportCSV} className="gap-2">
@@ -458,7 +440,9 @@ export default function StoresPage() {
               <DialogHeader>
                 <DialogTitle>{isEditing ? "Edit Store" : "Register New Store"}</DialogTitle>
                 <DialogDescription>
-                  {isEditing ? "Update store details — address is re-geocoded automatically." : "Type an address to auto-detect lat/lng via Google Maps."}
+                  {isEditing
+                    ? "Update store details — address auto-geocoded via Google Places."
+                    : "Type an address to auto-detect lat/lng. Map preview powered by Mapbox."}
                 </DialogDescription>
               </DialogHeader>
 
@@ -477,7 +461,7 @@ export default function StoresPage() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label>Address * (with Google Places autocomplete)</Label>
+                      <Label>Address * (Google Places autocomplete)</Label>
                       <AddressAutocomplete
                         value={formData.address}
                         onChange={v => setFormData(p => ({ ...p, address: v }))}
@@ -524,12 +508,8 @@ export default function StoresPage() {
                       </Label>
                       {formData.latitude ? (
                         <div className="grid grid-cols-2 gap-2">
-                          <div className="font-mono text-xs bg-background rounded p-2">
-                            Lat: {formData.latitude.toFixed(6)}
-                          </div>
-                          <div className="font-mono text-xs bg-background rounded p-2">
-                            Lng: {formData.longitude.toFixed(6)}
-                          </div>
+                          <div className="font-mono text-xs bg-background rounded p-2">Lat: {formData.latitude.toFixed(6)}</div>
+                          <div className="font-mono text-xs bg-background rounded p-2">Lng: {formData.longitude.toFixed(6)}</div>
                         </div>
                       ) : (
                         <p className="text-xs text-muted-foreground">
@@ -539,10 +519,10 @@ export default function StoresPage() {
                     </div>
                   </div>
 
-                  {/* RIGHT: Mini map */}
+                  {/* RIGHT: Mapbox map */}
                   <div className="space-y-2">
                     <Label className="flex items-center gap-1.5">
-                      <Map className="h-4 w-4" /> Live Map Preview
+                      <Map className="h-4 w-4" /> Live Map Preview (Mapbox)
                     </Label>
                     <div className="h-[380px] border rounded-lg overflow-hidden">
                       <MiniMap
@@ -556,7 +536,7 @@ export default function StoresPage() {
                     <Alert>
                       <AlertCircle className="h-4 w-4" />
                       <AlertDescription className="text-xs">
-                        Drag the 🏪 marker to fine-tune the store's exact location on the map.
+                        Drag the 🏪 marker to fine-tune the store's exact location.
                       </AlertDescription>
                     </Alert>
                   </div>

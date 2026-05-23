@@ -33,9 +33,16 @@ def get_or_create_user(db: Session, jwt_payload: dict) -> User:
     supabase_user_id = uuid.UUID(jwt_payload["sub"])
 
     email = jwt_payload.get("email")
-    raw_phone = jwt_payload.get("phone")
-    phone = raw_phone if raw_phone else None
-    name = jwt_payload.get("user_metadata", {}).get("name")
+
+    # Supabase phone-auth puts phone at top level; email-registration puts
+    # name/phone in user_metadata (options.data passed to signUp).
+    user_meta = jwt_payload.get("user_metadata") or {}
+    phone = jwt_payload.get("phone") or user_meta.get("phone") or None
+    name  = user_meta.get("name") or jwt_payload.get("name") or None
+
+    # Strip whitespace / empty strings to None
+    if phone: phone = phone.strip() or None
+    if name:  name  = name.strip()  or None
 
     user = db.query(User).filter(User.id == supabase_user_id).first()
 
@@ -51,9 +58,19 @@ def get_or_create_user(db: Session, jwt_payload: dict) -> User:
         db.commit()
         db.refresh(user)
     else:
-        # Only sync email — never overwrite phone/name set by user in-app
+        # Sync any fields that are missing or have been updated upstream
+        changed = False
         if email and user.email != email:
             user.email = email
+            changed = True
+        # Backfill phone/name if they were blank at first signup
+        if phone and not user.phone:
+            user.phone = phone
+            changed = True
+        if name and not user.name:
+            user.name = name
+            changed = True
+        if changed:
             db.commit()
             db.refresh(user)
 

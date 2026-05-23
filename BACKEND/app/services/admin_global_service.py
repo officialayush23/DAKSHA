@@ -232,21 +232,59 @@ def add_product_image(db, variant_id: uuid.UUID, image_url: str, admin_id: uuid.
 
 def get_inventory_kpis(db: Session):
     total_variants = db.query(func.count(ProductVariant.id)).scalar() or 0
-    
+
     # Total stock across the entire system
     global_stock = db.query(func.sum(GlobalInventory.total_stock)).scalar() or 0
-    
-    # Stock that is physically currently at stores
-    store_stock = db.query(func.sum(StoreInventory.in_stock)).scalar() or 0
-    
-    # Stock sitting in the global warehouse (reserved/unassigned to stores yet)
+
+    # Stock sitting in the global warehouse (reserved/pending assignment)
     warehouse_stock = db.query(func.sum(GlobalInventory.reserved_stock)).scalar() or 0
-    
+
+    # Available = total - reserved - assigned
+    # Low-stock threshold: available ≤ 5
+    LOW_STOCK_THRESHOLD = 5
+    all_inv = db.query(GlobalInventory).all()
+    low_stock_count = 0
+    for inv in all_inv:
+        assigned = getattr(inv, "assigned_stock", 0) or 0
+        available = (inv.total_stock or 0) - (inv.reserved_stock or 0) - assigned
+        if 0 < available <= LOW_STOCK_THRESHOLD:
+            low_stock_count += 1
+
+    # Build low-stock SKU detail list (up to 50 rows)
+    low_stock_variants = []
+    inv_rows = (
+        db.query(GlobalInventory)
+        .join(ProductVariant, ProductVariant.id == GlobalInventory.variant_id)
+        .join(Product, Product.id == ProductVariant.product_id)
+        .all()
+    )
+    for inv in inv_rows:
+        assigned = getattr(inv, "assigned_stock", 0) or 0
+        available = (inv.total_stock or 0) - (inv.reserved_stock or 0) - assigned
+        if available <= LOW_STOCK_THRESHOLD:
+            v = db.query(ProductVariant).get(inv.variant_id)
+            p = db.query(Product).get(v.product_id) if v else None
+            low_stock_variants.append({
+                "variant_id": str(inv.variant_id),
+                "sku": v.sku if v else None,
+                "name": p.name if p else "—",
+                "color": v.color if v else None,
+                "size": v.size if v else None,
+                "total_stock": inv.total_stock or 0,
+                "reserved_stock": inv.reserved_stock or 0,
+                "available_stock": available,
+            })
+        if len(low_stock_variants) >= 50:
+            break
+
     return {
-        "total_variants_tracked": total_variants,
-        "total_global_stock": global_stock,
-        "stock_at_stores": store_stock,
-        "stock_in_warehouse": warehouse_stock
+        # Field names matching Dashboard.jsx expectations
+        "total_stock": global_stock,
+        "reserved_stock": warehouse_stock,
+        "total_variants": total_variants,
+        "low_stock_count": low_stock_count,
+        # Extra detail for the SKU table
+        "low_stock_variants": low_stock_variants,
     }
     
 def update_variant(db: Session, variant_id, payload, admin_id, reason: str):

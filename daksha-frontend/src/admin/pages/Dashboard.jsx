@@ -4,64 +4,48 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { AdminService } from '@/lib/adminApi'; // Make sure RecommendationService is exported or use apiClient directly
-import { 
-  Package, 
-  Archive, 
-  TrendingUp, 
-  AlertTriangle,
-  Store,
-  MessageSquare,
-  Tag,
-  Loader2,
-  RefreshCw,
-  BarChart3,
-  AlertCircle,
-  MapPin,
-  DollarSign,
-  Shield,
-  BrainCircuit // Icon for ML Training
+import { AdminService } from '@/lib/adminApi';
+import {
+  Package, Archive, TrendingUp, AlertTriangle, Store, MessageSquare,
+  Tag, Loader2, RefreshCw, BarChart3, AlertCircle, MapPin, DollarSign,
+  Shield, BrainCircuit, Hash,
 } from 'lucide-react';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
 import { toast } from "sonner";
 
 export default function Dashboard() {
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]     = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [training, setTraining] = useState(false);
-  
+  const [training, setTraining]   = useState(false);
+
   const [stats, setStats] = useState({
     inventory: {
       total_stock: 0,
       reserved_stock: 0,
       total_variants: 0,
-      low_stock_count: 0
+      low_stock_count: 0,
+      low_stock_variants: [],
     },
     stores: [],
     complaints: [],
-    offers: []
+    offers: [],
   });
 
-  // Fetch all dashboard data
-  // Fetch all dashboard data
   const fetchDashboardData = async () => {
     try {
       const dashboardStats = await AdminService.getDashboardStats();
-      
-      // Helper to safely extract arrays if the backend wraps them in { success: true, data: [...] }
       const extractArray = (res) => Array.isArray(res) ? res : (res?.data || []);
 
       setStats({
         inventory: dashboardStats.inventory || {
-          total_stock: 0,
-          reserved_stock: 0,
-          total_variants: 0,
-          low_stock_count: 0
+          total_stock: 0, reserved_stock: 0,
+          total_variants: 0, low_stock_count: 0, low_stock_variants: [],
         },
-        // Safely extract the arrays
         stores: extractArray(dashboardStats.stores),
         complaints: extractArray(dashboardStats.complaints),
-        offers: extractArray(dashboardStats.offers)
+        offers: extractArray(dashboardStats.offers),
       });
     } catch (error) {
       console.error("Failed to fetch dashboard data:", error);
@@ -72,42 +56,30 @@ export default function Dashboard() {
     }
   };
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
+  useEffect(() => { fetchDashboardData(); }, []);
 
-  const handleRefresh = () => {
-    setRefreshing(true);
-    fetchDashboardData();
-  };
+  const handleRefresh = () => { setRefreshing(true); fetchDashboardData(); };
 
-  // --- TRAIN MODEL HANDLER ---
   const handleTrainModel = async () => {
     setTraining(true);
-    
     try {
-      // Use AdminService here since we added it above
-      await AdminService.trainModel(); 
-      
+      await AdminService.trainModel();
       toast.success("Training started successfully");
     } catch (error) {
-      console.error("Training failed:", error);
       toast.error("Failed to start model training");
     } finally {
       setTraining(false);
     }
   };
 
-  // Calculate stats
-  const totalStores = stats.stores.length;
-  const activeStores = stats.stores.filter(store => store.active).length;
-  const openComplaints = stats.complaints.filter(comp => comp.status === 'open').length;
-  const activeOffers = stats.offers.filter(offer => offer.active).length;
+  const totalStores    = stats.stores.length;
+  const activeStores   = stats.stores.filter(s => s.active).length;
+  const openComplaints = stats.complaints.filter(c => c.status === 'open').length;
+  const activeOffers   = stats.offers.filter(o => o.active).length;
+  const stockUtil      = stats.inventory.total_stock > 0
+    ? Math.min(100, (stats.inventory.reserved_stock / stats.inventory.total_stock) * 100) : 0;
 
-  // Stock utilization percentage
-  const stockUtilization = stats.inventory.total_stock > 0 
-    ? Math.min(100, (stats.inventory.reserved_stock / stats.inventory.total_stock) * 100)
-    : 0;
+  const lowSkus = stats.inventory.low_stock_variants || [];
 
   if (loading) {
     return (
@@ -129,56 +101,29 @@ export default function Dashboard() {
           <p className="text-muted-foreground">Overview of your store</p>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">
-          {/* Train Model Button */}
-          <Button 
-            variant="secondary" 
-            size="sm"
-            onClick={handleTrainModel}
-            disabled={training}
-            className="w-full sm:w-auto"
-          >
-            {training ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <BrainCircuit className="h-4 w-4 mr-2" />
-            )}
+          <Button variant="secondary" size="sm" onClick={handleTrainModel} disabled={training} className="w-full sm:w-auto">
+            {training ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <BrainCircuit className="h-4 w-4 mr-2" />}
             Train Model
           </Button>
-
-          <Button 
-            variant="outline" 
-            size="sm"
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="w-full sm:w-auto"
-          >
-            {refreshing ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
-            Refresh
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing} className="w-full sm:w-auto">
+            <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`} /> Refresh
           </Button>
         </div>
       </div>
 
-      {/* Stats Cards */}
+      {/* KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {/* Total Global Stock */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Global Stock</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Stock</CardTitle>
             <Package className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.inventory.total_stock?.toLocaleString() || 0}</div>
-            <p className="text-xs text-muted-foreground">
-              Units across all warehouses
-            </p>
+            <p className="text-xs text-muted-foreground">Units across all warehouses</p>
           </CardContent>
         </Card>
 
-        {/* Reserved Stock */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Reserved Stock</CardTitle>
@@ -189,14 +134,13 @@ export default function Dashboard() {
             <div className="mt-2 space-y-1">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Utilization</span>
-                <span className="font-medium">{stockUtilization.toFixed(1)}%</span>
+                <span className="font-medium">{stockUtil.toFixed(1)}%</span>
               </div>
-              <Progress value={stockUtilization} className="h-2" />
+              <Progress value={stockUtil} className="h-2" />
             </div>
           </CardContent>
         </Card>
 
-        {/* Active Variants */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Active Variants</CardTitle>
@@ -204,57 +148,102 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.inventory.total_variants?.toLocaleString() || 0}</div>
-            <p className="text-xs text-muted-foreground">
-              Distinct products in catalog
-            </p>
+            <p className="text-xs text-muted-foreground">Distinct SKUs in catalog</p>
           </CardContent>
         </Card>
 
-        {/* Low Stock Alerts */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Low Stock Alerts</CardTitle>
             <AlertTriangle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.inventory.low_stock_count || 0}</div>
-            <p className="text-xs text-muted-foreground">
-              Items needing replenishment
-            </p>
+            <div className="text-2xl font-bold text-amber-600">{stats.inventory.low_stock_count || 0}</div>
+            <p className="text-xs text-muted-foreground">Items needing replenishment</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Tabs Content */}
+      {/* SKU Low-Stock Table */}
+      {lowSkus.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Hash className="h-5 w-5 text-amber-500" />
+              Low Stock SKUs
+              <Badge variant="destructive" className="ml-2">{lowSkus.length}</Badge>
+            </CardTitle>
+            <CardDescription>Variants with ≤ 5 units available — replenish soon</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>SKU</TableHead>
+                    <TableHead>Product</TableHead>
+                    <TableHead>Variant</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead className="text-right">Reserved</TableHead>
+                    <TableHead className="text-right">Available</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {lowSkus.map((s) => (
+                    <TableRow key={s.variant_id}>
+                      <TableCell>
+                        <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">
+                          {s.sku || s.variant_id?.slice(0, 8) + '…'}
+                        </code>
+                      </TableCell>
+                      <TableCell className="font-medium text-sm max-w-[160px] truncate">{s.name}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {[s.color, s.size].filter(Boolean).join(' / ') || '—'}
+                      </TableCell>
+                      <TableCell className="text-right text-sm">{s.total_stock}</TableCell>
+                      <TableCell className="text-right text-sm text-muted-foreground">{s.reserved_stock}</TableCell>
+                      <TableCell className="text-right font-semibold text-sm">
+                        <span className={s.available_stock <= 0 ? 'text-red-600' : 'text-amber-600'}>
+                          {s.available_stock}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={s.available_stock <= 0 ? 'destructive' : 'secondary'} className="text-[10px]">
+                          {s.available_stock <= 0 ? 'Out of stock' : 'Low stock'}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Tabs */}
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="overview" className="flex items-center gap-2">
-            <BarChart3 className="h-4 w-4" />
-            Overview
+            <BarChart3 className="h-4 w-4" />Overview
           </TabsTrigger>
           <TabsTrigger value="stores" className="flex items-center gap-2">
-            <Store className="h-4 w-4" />
-            Stores ({totalStores})
+            <Store className="h-4 w-4" />Stores ({totalStores})
           </TabsTrigger>
           <TabsTrigger value="support" className="flex items-center gap-2">
-            <MessageSquare className="h-4 w-4" />
-            Support ({openComplaints})
+            <MessageSquare className="h-4 w-4" />Support ({openComplaints})
           </TabsTrigger>
           <TabsTrigger value="offers" className="flex items-center gap-2">
-            <Tag className="h-4 w-4" />
-            Offers ({activeOffers})
+            <Tag className="h-4 w-4" />Offers ({activeOffers})
           </TabsTrigger>
         </TabsList>
 
-        {/* Overview Tab */}
+        {/* Overview */}
         <TabsContent value="overview" className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
-            {/* Stores Summary */}
             <Card>
-              <CardHeader>
-                <CardTitle>Stores Summary</CardTitle>
-                <CardDescription>Physical store locations</CardDescription>
-              </CardHeader>
+              <CardHeader><CardTitle>Stores Summary</CardTitle><CardDescription>Physical store locations</CardDescription></CardHeader>
               <CardContent>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -263,21 +252,14 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium">Active Stores</span>
-                    <Badge variant={activeStores === totalStores ? "default" : "secondary"}>
-                      {activeStores}/{totalStores}
-                    </Badge>
+                    <Badge variant={activeStores === totalStores ? "default" : "secondary"}>{activeStores}/{totalStores}</Badge>
                   </div>
-                  <Progress value={(activeStores / totalStores) * 100} className="h-2" />
+                  <Progress value={totalStores ? (activeStores / totalStores) * 100 : 0} className="h-2" />
                 </div>
               </CardContent>
             </Card>
-
-            {/* Support Summary */}
             <Card>
-              <CardHeader>
-                <CardTitle>Support Summary</CardTitle>
-                <CardDescription>Customer complaints</CardDescription>
-              </CardHeader>
+              <CardHeader><CardTitle>Support Summary</CardTitle><CardDescription>Customer complaints</CardDescription></CardHeader>
               <CardContent>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -286,9 +268,7 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium">Open Complaints</span>
-                    <Badge variant={openComplaints === 0 ? "default" : "destructive"}>
-                      {openComplaints}
-                    </Badge>
+                    <Badge variant={openComplaints === 0 ? "default" : "destructive"}>{openComplaints}</Badge>
                   </div>
                   <Progress value={stats.complaints.length > 0 ? ((stats.complaints.length - openComplaints) / stats.complaints.length) * 100 : 100} className="h-2" />
                 </div>
@@ -297,13 +277,10 @@ export default function Dashboard() {
           </div>
         </TabsContent>
 
-        {/* Stores Tab */}
+        {/* Stores */}
         <TabsContent value="stores">
           <Card>
-            <CardHeader>
-              <CardTitle>Store Locations</CardTitle>
-              <CardDescription>All your physical stores</CardDescription>
-            </CardHeader>
+            <CardHeader><CardTitle>Store Locations</CardTitle><CardDescription>All your physical stores</CardDescription></CardHeader>
             <CardContent>
               {stats.stores.length > 0 ? (
                 <div className="space-y-3">
@@ -315,8 +292,7 @@ export default function Dashboard() {
                           <span className="font-medium">{store.name}</span>
                         </div>
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <MapPin className="h-3 w-3" />
-                          {store.city}, {store.state}
+                          <MapPin className="h-3 w-3" />{store.city}, {store.state}
                         </div>
                       </div>
                       <Badge variant={store.active ? "default" : "secondary"}>
@@ -335,13 +311,10 @@ export default function Dashboard() {
           </Card>
         </TabsContent>
 
-        {/* Support Tab */}
+        {/* Support */}
         <TabsContent value="support">
           <Card>
-            <CardHeader>
-              <CardTitle>Customer Complaints</CardTitle>
-              <CardDescription>All customer issues</CardDescription>
-            </CardHeader>
+            <CardHeader><CardTitle>Customer Complaints</CardTitle></CardHeader>
             <CardContent>
               {stats.complaints.length > 0 ? (
                 <Table>
@@ -353,18 +326,14 @@ export default function Dashboard() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {stats.complaints.map((complaint) => (
-                      <TableRow key={complaint.id}>
-                        <TableCell className="max-w-xs truncate">
-                          {complaint.description}
-                        </TableCell>
+                    {stats.complaints.map((c) => (
+                      <TableRow key={c.id}>
+                        <TableCell className="max-w-xs truncate">{c.description}</TableCell>
                         <TableCell>
-                          <Badge variant={complaint.status === 'open' ? 'destructive' : 'secondary'}>
-                            {complaint.status}
-                          </Badge>
+                          <Badge variant={c.status === 'open' ? 'destructive' : 'secondary'}>{c.status}</Badge>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {new Date(complaint.created_at).toLocaleDateString()}
+                          {new Date(c.created_at).toLocaleDateString()}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -380,13 +349,10 @@ export default function Dashboard() {
           </Card>
         </TabsContent>
 
-        {/* Offers Tab */}
+        {/* Offers */}
         <TabsContent value="offers">
           <Card>
-            <CardHeader>
-              <CardTitle>Promotional Offers</CardTitle>
-              <CardDescription>All active and inactive offers</CardDescription>
-            </CardHeader>
+            <CardHeader><CardTitle>Promotional Offers</CardTitle></CardHeader>
             <CardContent>
               {stats.offers.length > 0 ? (
                 <div className="space-y-3">
@@ -397,27 +363,15 @@ export default function Dashboard() {
                           <Tag className="h-4 w-4 text-muted-foreground" />
                           <span className="font-medium">{offer.name}</span>
                         </div>
-                        <Badge variant={offer.active ? "default" : "secondary"}>
-                          {offer.active ? "Active" : "Inactive"}
-                        </Badge>
+                        <Badge variant={offer.active ? "default" : "secondary"}>{offer.active ? "Active" : "Inactive"}</Badge>
                       </div>
                       <div className="space-y-1 text-sm">
                         <div className="flex items-center gap-2">
                           <DollarSign className="h-3 w-3" />
                           <span>{offer.discount_value}% off</span>
                         </div>
-                        {offer.eligible_category && (
-                          <div>
-                            <span className="text-muted-foreground">Category: </span>
-                            {offer.eligible_category}
-                          </div>
-                        )}
-                        {offer.min_cart_value > 0 && (
-                          <div>
-                            <span className="text-muted-foreground">Min cart: </span>
-                            ₹{offer.min_cart_value}
-                          </div>
-                        )}
+                        {offer.eligible_category && <div><span className="text-muted-foreground">Category: </span>{offer.eligible_category}</div>}
+                        {offer.min_cart_value > 0 && <div><span className="text-muted-foreground">Min cart: </span>₹{offer.min_cart_value}</div>}
                       </div>
                     </div>
                   ))}
@@ -435,37 +389,20 @@ export default function Dashboard() {
 
       {/* Quick Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="p-4 border rounded-lg">
-          <div className="flex items-center gap-2">
-            <Store className="h-4 w-4" />
-            <span className="text-sm font-medium">Total Stores</span>
+        {[
+          { icon: Store, label: "Total Stores", value: totalStores },
+          { icon: Tag, label: "Active Offers", value: activeOffers },
+          { icon: AlertCircle, label: "Open Issues", value: openComplaints },
+          { icon: Package, label: "Low Stock", value: stats.inventory.low_stock_count || 0 },
+        ].map(({ icon: Icon, label, value }) => (
+          <div key={label} className="p-4 border rounded-lg">
+            <div className="flex items-center gap-2">
+              <Icon className="h-4 w-4" />
+              <span className="text-sm font-medium">{label}</span>
+            </div>
+            <div className="text-xl font-bold mt-1">{value}</div>
           </div>
-          <div className="text-xl font-bold mt-1">{totalStores}</div>
-        </div>
-        
-        <div className="p-4 border rounded-lg">
-          <div className="flex items-center gap-2">
-            <Tag className="h-4 w-4" />
-            <span className="text-sm font-medium">Active Offers</span>
-          </div>
-          <div className="text-xl font-bold mt-1">{activeOffers}</div>
-        </div>
-        
-        <div className="p-4 border rounded-lg">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="h-4 w-4" />
-            <span className="text-sm font-medium">Open Issues</span>
-          </div>
-          <div className="text-xl font-bold mt-1">{openComplaints}</div>
-        </div>
-        
-        <div className="p-4 border rounded-lg">
-          <div className="flex items-center gap-2">
-            <Package className="h-4 w-4" />
-            <span className="text-sm font-medium">Low Stock</span>
-          </div>
-          <div className="text-xl font-bold mt-1">{stats.inventory.low_stock_count || 0}</div>
-        </div>
+        ))}
       </div>
     </div>
   );

@@ -50,7 +50,7 @@ export const KioskProvider = ({ children }) => {
       setLastActivity(Date.now());
       _setUser(null);
       setCartCount(0);
-      navigate('/kiosk/select');
+      navigate('/kiosk/login');
     } catch (error) {
       console.error("Failed to start session:", error);
       toast.error("Could not start session. Check connection.");
@@ -107,6 +107,7 @@ export const KioskProvider = ({ children }) => {
     setKioskId,
     sessionActive,
     sessionId,
+    setSessionId,
     user,
     setUser,
     cartCount,

@@ -80,13 +80,13 @@ class StoreResponse(BaseSchema):
         return serialize_point(v)
 class KioskLoginRequest(BaseSchema):
     phone: str
-    kiosk_id: UUID
+    kiosk_id: Optional[UUID] = None   # Optional — kiosk_id may be unknown
 
 class KioskLoginResponse(BaseSchema):
     user_id: UUID
     session_id: UUID
-    kiosk_id: UUID
-    store_id: UUID
+    kiosk_id: Optional[UUID] = None
+    store_id: Optional[UUID] = None
     primary_channel: ChannelEnum
     active_channel: ChannelEnum
     name: Optional[str] = None
