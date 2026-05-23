@@ -31,7 +31,8 @@ export const ProductService = {
   // Smart Feed (Recommendation Engine)
   getFeed: (intent = null) => api.get('/recommendations/feed', { params: { intent } }),
   getTrending: () => api.get('/recommendations/trending'),
-  
+  getDiscounted: (limit = 20) => api.get('/products/discounted', { params: { limit } }),
+
   // Standard Catalog with filters
   listProducts: (filters) => api.get('/products', { params: filters }),
   

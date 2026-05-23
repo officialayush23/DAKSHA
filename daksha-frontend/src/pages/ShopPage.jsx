@@ -8,9 +8,9 @@ import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 
-import { 
-  Search, Loader2, Sparkles, Flame, 
-  Heart, ShoppingBag, ArrowRight 
+import {
+  Search, Loader2, Sparkles, Flame, Tag,
+  Heart, ShoppingBag, ArrowRight
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -30,6 +30,7 @@ const getUniqueProducts = (items) => {
 export default function ShopPage() {
   const [recommended, setRecommended] = useState([]);
   const [trending, setTrending] = useState([]);
+  const [hotDeals, setHotDeals] = useState([]);
   const [items, setItems] = useState([]);
   const [wishlistIds, setWishlistIds] = useState(new Set());
   const [sessionId, setSessionId] = useState(null);
@@ -50,15 +51,17 @@ export default function ShopPage() {
       const activeSessionId = sessRes?.data?.session_id || sessRes?.session_id || null;
       setSessionId(activeSessionId);
 
-      const [feedRes, trendRes, listRes, wlRes] = await Promise.all([
+      const [feedRes, trendRes, listRes, wlRes, dealsRes] = await Promise.all([
         ProductService.getFeed().catch(() => ({ data: [] })),
         ProductService.getTrending().catch(() => ({ data: [] })),
         ProductService.listProducts({ limit: 100 }).catch(() => ({ data: [] })),
-        UserService.getWishlist().catch(() => ({ data: { items: [] } }))
+        UserService.getWishlist().catch(() => ({ data: { items: [] } })),
+        ProductService.getDiscounted(20).catch(() => ({ data: [] })),
       ]);
 
       setRecommended(getUniqueProducts(feedRes?.data || feedRes));
       setTrending(getUniqueProducts(trendRes?.data || trendRes));
+      setHotDeals(dealsRes?.data || dealsRes || []);
       setItems(getUniqueProducts(listRes?.data || listRes));
       
       const wlItems = wlRes?.data?.items || wlRes?.items || [];
@@ -88,6 +91,7 @@ export default function ShopPage() {
       setItems(getUniqueProducts(res?.data || res));
       setRecommended([]);
       setTrending([]);
+      setHotDeals([]);
       setActiveCategory("All");
     } catch {
       toast.error("Search failed");
@@ -282,6 +286,33 @@ export default function ShopPage() {
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-x-4 gap-y-10 sm:gap-x-6 sm:gap-y-12">
               {trending.slice(0, 5).map((item, i) => (
                 <ProductCard key={`trend-${item.product_id}`} item={item} index={i} wishlistIds={wishlistIds} onWishlist={handleToggleWishlist} onAddToCart={handleAddToCart} />
+              ))}
+            </div>
+          </motion.section>
+        )}
+      </AnimatePresence>
+
+      {/* --- HOT DEALS SECTION --- */}
+      <AnimatePresence>
+        {hotDeals.length > 0 && activeCategory === "All" && !searchTerm && (
+          <motion.section
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, height: 0 }}
+            className="space-y-6 pt-6"
+          >
+            <div className="flex items-center gap-3 border-b border-zinc-100 pb-4">
+              <div className="bg-gradient-to-br from-emerald-100 to-teal-100 p-2.5 rounded-xl text-emerald-600 shadow-inner">
+                <Tag size={20} />
+              </div>
+              <h2 className="text-2xl md:text-3xl font-serif font-bold tracking-tight text-zinc-900">Hot Deals</h2>
+              <span className="ml-auto text-[10px] font-bold uppercase tracking-widest text-emerald-600 bg-emerald-50 border border-emerald-100 px-3 py-1.5 rounded-full">
+                Up to {Math.max(...hotDeals.map(d => d.discount_percent || 0))}% off
+              </span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-x-4 gap-y-10 sm:gap-x-6 sm:gap-y-12">
+              {hotDeals.slice(0, 5).map((item, i) => (
+                <ProductCard key={`deal-${item.variant_id}`} item={item} index={i} wishlistIds={wishlistIds} onWishlist={handleToggleWishlist} onAddToCart={handleAddToCart} />
               ))}
             </div>
           </motion.section>

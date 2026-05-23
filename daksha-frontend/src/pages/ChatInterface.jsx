@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card } from 'antd';
-import { Send, ShoppingBag, Sparkles, User, Bot, Mic, MicOff, Plus, MessageSquare, Loader2 } from 'lucide-react';
+import { Send, ShoppingBag, Sparkles, User, Bot, Mic, MicOff, Plus, MessageSquare, Loader2, ImagePlus, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../lib/api';
 import { toast } from 'sonner';
+import { supabase } from '../lib/supabaseClient';
 
 // ── Recommendation outcome tracker ──────────────────────────────────────────
 const logRecommendationOutcome = async (impressionId, outcomeType, rewardValue = 0.1) => {
@@ -61,6 +62,52 @@ export default function ChatInterface() {
 
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef(null);
+
+  // Image upload state
+  const [pendingImage, setPendingImage] = useState(null); // { url: string, preview: string } | null
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const handleImageSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!fileInputRef.current) return;
+    fileInputRef.current.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Image must be under 10 MB.');
+      return;
+    }
+
+    const preview = URL.createObjectURL(file);
+    setUploadingImage(true);
+    try {
+      const ext = file.name.split('.').pop();
+      const fileName = `chat_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error } = await supabase.storage
+        .from('user_uploaded_image')
+        .upload(fileName, file, { cacheControl: '3600', upsert: false });
+      if (error) throw error;
+      const { data: urlData } = supabase.storage
+        .from('user_uploaded_image')
+        .getPublicUrl(fileName);
+      setPendingImage({ url: urlData.publicUrl, preview });
+    } catch (err) {
+      toast.error('Image upload failed — please try again.');
+      console.error('[IMAGE UPLOAD]', err);
+      URL.revokeObjectURL(preview);
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const clearPendingImage = () => {
+    if (pendingImage?.preview) URL.revokeObjectURL(pendingImage.preview);
+    setPendingImage(null);
+  };
 
   // Web Speech API mic handler
   const toggleMic = () => {
@@ -139,18 +186,23 @@ export default function ChatInterface() {
   }, [messages, isTyping]);
 
   const onAction = async (text) => {
-    if (!text.trim()) return;
+    if (!text.trim() && !pendingImage) return;
 
-    // Add User Message
-    const userMsg = { role: 'user', content: text };
+    const imageUrl = pendingImage?.url || null;
+    const messageText = text.trim() || (imageUrl ? "Find products similar to this image." : "");
+
+    // Add User Message (with optional image preview)
+    const userMsg = { role: 'user', content: messageText, image_url: imageUrl };
     setMessages(prev => [...prev, userMsg]);
     setInput("");
+    clearPendingImage();
     setIsTyping(true);
 
     try {
       const res = await api.post('/chat/', {
-        message: text,
-        session_id: sessionId   // null on first message → backend creates new session
+        message: messageText,
+        session_id: sessionId,   // null on first message → backend creates new session
+        image_url: imageUrl,
       });
 
       const data = res.data || res;
@@ -261,10 +313,19 @@ export default function ChatInterface() {
 
                 <div className={`space-y-4 ${m.role === 'user' ? 'items-end' : 'items-start'} overflow-hidden`}>
                   
+                  {/* Image preview (user uploaded) */}
+                  {m.image_url && (
+                    <img
+                      src={m.image_url}
+                      alt="Uploaded"
+                      className="max-w-[220px] rounded-2xl border border-zinc-200 shadow-sm object-cover"
+                    />
+                  )}
+
                   {/* Message Bubble */}
                   <div className={`p-5 rounded-2xl text-[15px] leading-relaxed shadow-sm transition-all inline-block ${
-                    m.role === 'user' 
-                      ? 'bg-zinc-900 text-white rounded-tr-none' 
+                    m.role === 'user'
+                      ? 'bg-zinc-900 text-white rounded-tr-none'
                       : 'bg-[#F9F9F9] text-zinc-800 border border-zinc-100 rounded-tl-none'
                   }`}>
                     {m.content}
@@ -343,35 +404,77 @@ export default function ChatInterface() {
 
       {/* --- INPUT AREA --- */}
       <div className="p-6 md:p-8 bg-white border-t border-zinc-100 shrink-0">
-        <div className="max-w-4xl mx-auto relative flex items-center gap-4">
-          <input 
-            className="flex-1 bg-zinc-50 border border-zinc-200 rounded-2xl px-6 py-4 outline-none font-sans text-sm focus:ring-2 focus:ring-black/5 focus:border-black transition-all"
-            placeholder={isListening ? "Listening…" : "Type or speak your request…"}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && onAction(input)}
-            disabled={isTyping}
-          />
-          {/* Mic button */}
-          <button
-            onClick={toggleMic}
-            disabled={isTyping}
-            title={isListening ? 'Stop listening' : 'Speak'}
-            className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all disabled:opacity-30 ${
-              isListening
-                ? 'bg-red-500 text-white animate-pulse'
-                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-            }`}
-          >
-            {isListening ? <MicOff size={20} /> : <Mic size={20} />}
-          </button>
-          <button 
-            onClick={() => onAction(input)}
-            disabled={!input.trim() || isTyping}
-            className="w-14 h-14 bg-black rounded-2xl flex items-center justify-center text-white hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:grayscale"
-          >
-            <Send size={20} />
-          </button>
+        <div className="max-w-4xl mx-auto space-y-3">
+          {/* Image preview strip */}
+          {pendingImage && (
+            <div className="flex items-center gap-3 px-1">
+              <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-zinc-200 shadow-sm shrink-0">
+                <img src={pendingImage.preview} alt="Pending" className="w-full h-full object-cover" />
+                <button
+                  onClick={clearPendingImage}
+                  className="absolute top-0.5 right-0.5 w-5 h-5 bg-zinc-900/70 rounded-full flex items-center justify-center text-white hover:bg-red-500 transition-colors"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+              <span className="text-xs text-zinc-500">Image ready — add a message or send to find similar products</span>
+            </div>
+          )}
+
+          <div className="relative flex items-center gap-3">
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleImageSelect}
+            />
+
+            {/* Image upload button */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isTyping || uploadingImage || !!pendingImage}
+              title="Attach image for visual search"
+              className="w-12 h-12 rounded-2xl flex items-center justify-center transition-all disabled:opacity-30 bg-zinc-100 text-zinc-600 hover:bg-zinc-200 shrink-0"
+            >
+              {uploadingImage
+                ? <Loader2 size={18} className="animate-spin" />
+                : <ImagePlus size={18} />
+              }
+            </button>
+
+            <input
+              className="flex-1 bg-zinc-50 border border-zinc-200 rounded-2xl px-6 py-4 outline-none font-sans text-sm focus:ring-2 focus:ring-black/5 focus:border-black transition-all"
+              placeholder={isListening ? "Listening…" : pendingImage ? "Describe what you're looking for (or just hit send)…" : "Type or speak your request…"}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && onAction(input)}
+              disabled={isTyping}
+            />
+
+            {/* Mic button */}
+            <button
+              onClick={toggleMic}
+              disabled={isTyping}
+              title={isListening ? 'Stop listening' : 'Speak'}
+              className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all disabled:opacity-30 shrink-0 ${
+                isListening
+                  ? 'bg-red-500 text-white animate-pulse'
+                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+              }`}
+            >
+              {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+            </button>
+
+            <button
+              onClick={() => onAction(input)}
+              disabled={(!input.trim() && !pendingImage) || isTyping || uploadingImage}
+              className="w-12 h-12 bg-black rounded-2xl flex items-center justify-center text-white hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:grayscale shrink-0"
+            >
+              <Send size={18} />
+            </button>
+          </div>
         </div>
       </div>
     </div>

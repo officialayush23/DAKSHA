@@ -77,6 +77,71 @@ def product_feed(
 
 
 # =========================
+# HOT DEALS — Variants with active discount rules
+# (must be defined BEFORE /{product_id} to avoid route shadowing)
+# =========================
+@router.get("/discounted")
+def discounted_products(
+    limit: int = 20,
+    db: Session = Depends(get_db),
+):
+    """Return active variants that currently have a discount applied (discount_percent > 0)."""
+    from datetime import datetime
+    from sqlalchemy import or_
+    from app.models.models import ProductDiscountRule
+
+    now = datetime.utcnow()
+
+    # Load active discount rules once
+    active_rules = db.query(ProductDiscountRule).filter(
+        ProductDiscountRule.active.is_(True),
+        ProductDiscountRule.valid_from <= now,
+        or_(
+            ProductDiscountRule.valid_to.is_(None),
+            ProductDiscountRule.valid_to >= now,
+        ),
+    ).all()
+
+    if not active_rules:
+        return []
+
+    # Fetch active variants
+    variants = (
+        db.query(ProductVariant)
+        .join(Product)
+        .options(
+            joinedload(ProductVariant.product),
+            joinedload(ProductVariant.images),
+        )
+        .filter(ProductVariant.active.is_(True), Product.active.is_(True))
+        .all()
+    )
+
+    deals = []
+    for v in variants:
+        price = resolve_variant_price(db, v, rules_cache=active_rules)
+        if price["discount_percent"] > 0:
+            deals.append({
+                "variant_id": v.id,
+                "product_id": v.product_id,
+                "brand": v.product.brand,
+                "category": v.product.category,
+                "name": v.product.name,
+                "gender": v.product.gender,
+                "size": v.size,
+                "color": v.color,
+                "image": v.images[0].image_url if v.images else None,
+                **price,
+            })
+        if len(deals) >= limit:
+            break
+
+    # Sort by highest discount first
+    deals.sort(key=lambda x: x["discount_percent"], reverse=True)
+    return deals
+
+
+# =========================
 # PRODUCT DETAIL (All variants)
 # =========================
 @router.get("/{product_id}")

@@ -18,15 +18,25 @@ from app.core.redis import redis_client
 POINTS_PER_100_CURRENCY = 1
 
 TIER_THRESHOLDS = {
-    "silver": 0,
-    "gold": 500,
+    "bronze":   0,
+    "silver":   100,
+    "gold":     500,
     "platinum": 2000,
 }
 
 TIER_MULTIPLIERS = {
-    "silver": 1.0,
-    "gold": 1.2,
+    "bronze":   1.0,
+    "silver":   1.1,
+    "gold":     1.25,
     "platinum": 1.5,
+}
+
+# Discount percentages for proactive wishlist offers
+TIER_WISHLIST_DISCOUNT = {
+    "bronze":   5,
+    "silver":   8,
+    "gold":     12,
+    "platinum": 18,
 }
 
 POINT_EXPIRY_DAYS = 365
@@ -98,11 +108,14 @@ def get_lifetime_earned(db: Session, user_id: uuid.UUID) -> int:
 
 
 def compute_tier(points: int) -> str:
+    """Return tier name based on lifetime earned points."""
     if points >= TIER_THRESHOLDS["platinum"]:
         return "platinum"
     if points >= TIER_THRESHOLDS["gold"]:
         return "gold"
-    return "silver"
+    if points >= TIER_THRESHOLDS["silver"]:
+        return "silver"
+    return "bronze"
 
 
 # -----------------------------

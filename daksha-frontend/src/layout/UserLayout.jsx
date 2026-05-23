@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Outlet, Link, useLocation } from 'react-router-dom';
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { apiRequest, UserService, SessionService, CartService } from '../lib/api';
 import { useQuery } from '@tanstack/react-query';
@@ -14,7 +14,8 @@ import {
   Wifi,
   Radio,
   Heart,
-  MessageSquare
+  MessageSquare,
+  MonitorSmartphone
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -28,6 +29,7 @@ import {
 // --- DESKTOP SIDEBAR ---
 const DesktopSidebar = ({ user, signOut, cartCount, isAdmin, sessionInfo }) => {
   const location = useLocation();
+  const navigate = useNavigate();
 
   const navItems = [
     { title: "Shop", url: "/dash/shop", icon: ShoppingBag },
@@ -89,6 +91,17 @@ const DesktopSidebar = ({ user, signOut, cartCount, isAdmin, sessionInfo }) => {
           );
         })}
       </nav>
+
+      {/* Kiosk Simulator CTA */}
+      <div className="px-4 pb-3">
+        <button
+          onClick={() => navigate('/kiosk')}
+          className="w-full flex items-center gap-3 px-5 py-3.5 rounded-2xl border border-dashed border-zinc-300 text-zinc-500 hover:border-zinc-800 hover:text-zinc-900 hover:bg-zinc-50 transition-all duration-300 group"
+        >
+          <MonitorSmartphone size={18} className="group-hover:scale-110 transition-transform duration-300 shrink-0" />
+          <span className="text-sm font-medium tracking-wide text-left">Simulate the kiosk experience</span>
+        </button>
+      </div>
 
       {/* Session Active Indicator */}
       {sessionInfo && (

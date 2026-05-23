@@ -36,6 +36,7 @@ class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None   # None = start a new session
     channel: str = "web"
+    image_url: Optional[str] = None    # Supabase public URL for image search
 
 class ChatResponse(BaseModel):
     response: str
@@ -157,8 +158,17 @@ async def chat_with_agent(
         if ctx_data.get("summary"):
             summary_context += f"\n\nConversation summary so far:\n{ctx_data['summary']}"
 
+        # Build HumanMessage — multimodal when image_url is attached
+        if request.image_url:
+            human_msg = HumanMessage(content=[
+                {"type": "text", "text": request.message},
+                {"type": "image_url", "image_url": {"url": request.image_url}},
+            ])
+        else:
+            human_msg = HumanMessage(content=request.message)
+
         input_state = {
-            "messages": [HumanMessage(content=request.message)],
+            "messages": [human_msg],
             "user_id": user_id_str,
             "session_id": session_id_str,
             "channel": request.channel,

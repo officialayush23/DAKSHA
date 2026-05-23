@@ -53,6 +53,7 @@ def get_or_create_user(db: Session, jwt_payload: dict) -> User:
             phone=phone,
             name=name,
             role="user",
+            loyalty_tier="bronze",   # everyone starts at Bronze (0–99 points)
         )
         db.add(user)
         db.commit()

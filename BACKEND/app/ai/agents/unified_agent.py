@@ -1,7 +1,9 @@
 # app/ai/agents/unified_agent.py
 """
 DAKSHA Unified Agent — single Gemini agent with ALL tools.
+LLM is lazily initialised on first call to avoid OOM on Render free tier.
 """
+import threading
 from langchain_core.messages import ToolMessage
 from app.ai.llm import get_gemini
 from app.ai.state import AgentState
@@ -54,6 +56,10 @@ SYSTEM_PROMPT = (
     "  - Process returns, exchanges, complaints\n"
     "  - View their profile, orders, saved addresses\n"
     "  - Escalate to a human agent when needed\n\n"
+    "IMAGE SEARCH:\n"
+    "  When the user sends an image (or an image_url is in the message), ALWAYS call\n"
+    "  find_similar_by_image with that URL to show visually similar products.\n"
+    "  Then ask if they want to refine by color, size, or price.\n\n"
     "PRODUCT vs VARIANT - CRITICAL:\n"
     "  Every item in this catalog is a ProductVariant, not just a Product.\n"
     "  A single product (e.g. 'Mid-Rise Straight Jeans') can have MULTIPLE variants,\n"
@@ -84,13 +90,24 @@ SYSTEM_PROMPT = (
     "User context: {user_summary}\n"
 )
 
-# Always use the tool-bound LLM. A separate text-only LLM causes UNEXPECTED_TOOL_CALL
-# because Gemini still wants tool declarations present in the context.
-_llm = get_gemini(temperature=0.2).bind_tools(ALL_TOOLS)
+# ── Lazy LLM singleton ─────────────────────────────────────────────────────────
+# _llm is NOT created at import time — avoids OOM on Render free tier (512MB).
+# It is initialised on the first chat request and cached for all subsequent calls.
+_llm = None
+_llm_lock = threading.Lock()
+
+
+def _get_llm():
+    global _llm
+    if _llm is None:
+        with _llm_lock:
+            if _llm is None:  # double-checked locking
+                _llm = get_gemini(temperature=0.2).bind_tools(ALL_TOOLS)
+    return _llm
 
 
 def unified_agent_node(state: AgentState) -> dict:
-    """Single agent node - replaces orchestrator + all specialist agents."""
+    """Single agent node — replaces orchestrator + all specialist agents."""
     from langchain_core.messages import SystemMessage
 
     messages = trim_messages_for_groq(state["messages"], keep_last=10)
@@ -104,7 +121,7 @@ def unified_agent_node(state: AgentState) -> dict:
     )
 
     full_messages = [SystemMessage(content=system_content)] + messages
-    response = _llm.invoke(full_messages)
+    response = _get_llm().invoke(full_messages)
 
     return {
         "messages": [response],

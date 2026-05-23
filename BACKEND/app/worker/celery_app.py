@@ -19,3 +19,19 @@ celery.conf.update(
 celery.conf.task_routes = {
     "app.worker.tasks.*": {"queue": "ai"}
 }
+
+# ── Beat schedule ─────────────────────────────────────────────────────────────
+from celery.schedules import crontab
+
+celery.conf.beat_schedule = {
+    # Release checkout reservations that expired — every 15 minutes
+    "release-expired-reservations": {
+        "task": "app.worker.tasks.release_expired_reservations",
+        "schedule": crontab(minute="*/15"),
+    },
+    # Proactive wishlist discount offers — every day at 10:00 AM UTC
+    "proactive-wishlist-offers": {
+        "task": "app.worker.tasks.send_proactive_wishlist_offers",
+        "schedule": crontab(hour=10, minute=0),
+    },
+}
