@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card } from 'antd';
-import { Send, ShoppingBag, Sparkles, User, Bot, Mic, MicOff, Plus, MessageSquare, Loader2, ImagePlus, X } from 'lucide-react';
+import { Send, ShoppingBag, Sparkles, User, Bot, Mic, MicOff, Plus, MessageSquare, Loader2, ImagePlus, X, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../lib/api';
@@ -64,28 +64,13 @@ export default function ChatInterface() {
   const recognitionRef = useRef(null);
 
   // Image upload state
-  const [pendingImage, setPendingImage] = useState(null); // { url: string, preview: string } | null
-  const [uploadingImage, setUploadingImage] = useState(false);
+  // { preview: string (blob URL), url: string|null (Supabase URL), status: 'uploading'|'ready'|'error', file: File }
+  const [pendingImage, setPendingImage] = useState(null);
   const fileInputRef = useRef(null);
 
-  const handleImageSelect = async (e) => {
-    const file = e.target.files?.[0];
-    if (!fileInputRef.current) return;
-    fileInputRef.current.value = '';
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      toast.error('Please select an image file.');
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error('Image must be under 10 MB.');
-      return;
-    }
-
-    const preview = URL.createObjectURL(file);
-    setUploadingImage(true);
+  const _doUpload = async (file, preview) => {
     try {
-      const ext = file.name.split('.').pop();
+      const ext = file.name.split('.').pop() || 'jpg';
       const fileName = `chat_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
       const { error } = await supabase.storage
         .from('user_uploaded_image')
@@ -94,14 +79,32 @@ export default function ChatInterface() {
       const { data: urlData } = supabase.storage
         .from('user_uploaded_image')
         .getPublicUrl(fileName);
-      setPendingImage({ url: urlData.publicUrl, preview });
+      setPendingImage({ preview, url: urlData.publicUrl, status: 'ready', file });
+      toast.success('Image ready — send it with your message!');
     } catch (err) {
-      toast.error('Image upload failed — please try again.');
       console.error('[IMAGE UPLOAD]', err);
-      URL.revokeObjectURL(preview);
-    } finally {
-      setUploadingImage(false);
+      setPendingImage({ preview, url: null, status: 'error', file });
+      toast.error('Upload failed — tap ↺ to retry');
     }
+  };
+
+  const handleImageSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { toast.error('Please select an image file.'); return; }
+    if (file.size > 10 * 1024 * 1024) { toast.error('Image must be under 10 MB.'); return; }
+
+    const preview = URL.createObjectURL(file);
+    // Show local preview IMMEDIATELY — don't wait for upload
+    setPendingImage({ preview, url: null, status: 'uploading', file });
+    await _doUpload(file, preview);
+  };
+
+  const retryUpload = async () => {
+    if (!pendingImage?.file || !pendingImage?.preview) return;
+    setPendingImage(prev => ({ ...prev, status: 'uploading' }));
+    await _doUpload(pendingImage.file, pendingImage.preview);
   };
 
   const clearPendingImage = () => {
@@ -186,16 +189,29 @@ export default function ChatInterface() {
   }, [messages, isTyping]);
 
   const onAction = async (text) => {
-    if (!text.trim() && !pendingImage) return;
+    // Block while image is uploading
+    if (pendingImage?.status === 'uploading') {
+      toast.error('Please wait — image is still uploading…');
+      return;
+    }
 
-    const imageUrl = pendingImage?.url || null;
-    const messageText = text.trim() || (imageUrl ? "Find products similar to this image." : "");
+    const imageUrl    = pendingImage?.status === 'ready' ? (pendingImage.url || null) : null;
+    const imgPreview  = pendingImage?.preview || null;   // blob URL for immediate in-chat render
+    const hasImage    = !!imageUrl;
+    const messageText = text.trim() || (hasImage ? "Find me products similar to this image." : "");
 
-    // Add User Message (with optional image preview)
-    const userMsg = { role: 'user', content: messageText, image_url: imageUrl };
+    if (!messageText) return;
+
+    // Snapshot the preview before clearing, then revoke after a short delay
+    // so the message component can render once with it
+    const capturedPreview = imgPreview;
+
+    const userMsg = { role: 'user', content: messageText, image_url: imageUrl, image_preview: capturedPreview };
     setMessages(prev => [...prev, userMsg]);
     setInput("");
-    clearPendingImage();
+    // Null out pending without revoking yet — give React one render cycle
+    setPendingImage(null);
+    if (capturedPreview) setTimeout(() => URL.revokeObjectURL(capturedPreview), 8000);
     setIsTyping(true);
 
     try {
@@ -313,13 +329,25 @@ export default function ChatInterface() {
 
                 <div className={`space-y-4 ${m.role === 'user' ? 'items-end' : 'items-start'} overflow-hidden`}>
                   
-                  {/* Image preview (user uploaded) */}
-                  {m.image_url && (
-                    <img
-                      src={m.image_url}
-                      alt="Uploaded"
-                      className="max-w-[220px] rounded-2xl border border-zinc-200 shadow-sm object-cover"
-                    />
+                  {/* ── Attached image (user messages) ─────────────── */}
+                  {(m.image_preview || m.image_url) && m.role === 'user' && (
+                    <div className="rounded-2xl overflow-hidden border border-zinc-700 shadow-md max-w-[260px] bg-zinc-800">
+                      <img
+                        src={m.image_preview || m.image_url}
+                        alt="Attached image"
+                        className="w-full max-h-[300px] object-cover block"
+                        onError={(e) => {
+                          // blob URL expired → fall back to Supabase URL
+                          if (m.image_url && e.target.src !== m.image_url) {
+                            e.target.src = m.image_url;
+                          }
+                        }}
+                      />
+                      <div className="px-3 py-1.5 flex items-center gap-1.5">
+                        <ImagePlus size={11} className="text-zinc-400" />
+                        <span className="text-[10px] text-zinc-400 font-medium uppercase tracking-wider">Image search</span>
+                      </div>
+                    </div>
                   )}
 
                   {/* Message Bubble */}
@@ -405,22 +433,93 @@ export default function ChatInterface() {
       {/* --- INPUT AREA --- */}
       <div className="p-6 md:p-8 bg-white border-t border-zinc-100 shrink-0">
         <div className="max-w-4xl mx-auto space-y-3">
-          {/* Image preview strip */}
-          {pendingImage && (
-            <div className="flex items-center gap-3 px-1">
-              <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-zinc-200 shadow-sm shrink-0">
-                <img src={pendingImage.preview} alt="Pending" className="w-full h-full object-cover" />
-                <button
-                  onClick={clearPendingImage}
-                  className="absolute top-0.5 right-0.5 w-5 h-5 bg-zinc-900/70 rounded-full flex items-center justify-center text-white hover:bg-red-500 transition-colors"
-                >
-                  <X size={10} />
-                </button>
-              </div>
-              <span className="text-xs text-zinc-500">Image ready — add a message or send to find similar products</span>
-            </div>
-          )}
 
+          {/* ── Image attachment preview strip ─────────────────────── */}
+          <AnimatePresence>
+            {pendingImage && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="flex items-center gap-4 px-1"
+              >
+                {/* Thumbnail with status overlay */}
+                <div className={`relative w-[72px] h-[72px] rounded-xl overflow-hidden shrink-0 border-2 transition-colors ${
+                  pendingImage.status === 'error'    ? 'border-red-400'
+                  : pendingImage.status === 'ready'  ? 'border-emerald-400'
+                  : 'border-zinc-300'
+                }`}>
+                  <img
+                    src={pendingImage.preview}
+                    alt="Attachment preview"
+                    className="w-full h-full object-cover"
+                  />
+
+                  {/* Uploading overlay */}
+                  {pendingImage.status === 'uploading' && (
+                    <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-1">
+                      <Loader2 size={18} className="animate-spin text-white" />
+                      <span className="text-[9px] text-white/80 font-bold uppercase tracking-wider">Uploading</span>
+                    </div>
+                  )}
+
+                  {/* Ready badge */}
+                  {pendingImage.status === 'ready' && (
+                    <div className="absolute bottom-1 right-1 bg-emerald-500 rounded-full p-0.5 shadow">
+                      <CheckCircle2 size={12} className="text-white" />
+                    </div>
+                  )}
+
+                  {/* Error badge */}
+                  {pendingImage.status === 'error' && (
+                    <div className="absolute inset-0 bg-red-900/50 flex items-center justify-center">
+                      <AlertCircle size={22} className="text-red-300" />
+                    </div>
+                  )}
+
+                  {/* Remove button — shown when not uploading */}
+                  {pendingImage.status !== 'uploading' && (
+                    <button
+                      onClick={clearPendingImage}
+                      className="absolute top-1 left-1 w-5 h-5 bg-zinc-900/70 rounded-full flex items-center justify-center text-white hover:bg-red-500 transition-colors"
+                    >
+                      <X size={9} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Status text */}
+                <div className="flex-1 min-w-0">
+                  {pendingImage.status === 'uploading' && (
+                    <p className="text-sm text-zinc-500 font-medium">Uploading image…</p>
+                  )}
+                  {pendingImage.status === 'ready' && (
+                    <>
+                      <p className="text-sm text-emerald-700 font-semibold flex items-center gap-1.5">
+                        <CheckCircle2 size={13} /> Image attached
+                      </p>
+                      <p className="text-xs text-zinc-400 mt-0.5">Add a message or hit send to find similar products</p>
+                    </>
+                  )}
+                  {pendingImage.status === 'error' && (
+                    <>
+                      <p className="text-sm text-red-600 font-semibold flex items-center gap-1.5">
+                        <AlertCircle size={13} /> Upload failed
+                      </p>
+                      <button
+                        onClick={retryUpload}
+                        className="mt-1 flex items-center gap-1 text-xs text-zinc-600 hover:text-black font-medium underline underline-offset-2"
+                      >
+                        <RefreshCw size={11} /> Retry upload
+                      </button>
+                    </>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* ── Text input row ──────────────────────────────────────── */}
           <div className="relative flex items-center gap-3">
             {/* Hidden file input */}
             <input
@@ -431,22 +530,28 @@ export default function ChatInterface() {
               onChange={handleImageSelect}
             />
 
-            {/* Image upload button */}
+            {/* Image attach button — disabled while another image is uploading */}
             <button
               onClick={() => fileInputRef.current?.click()}
-              disabled={isTyping || uploadingImage || !!pendingImage}
+              disabled={isTyping || pendingImage?.status === 'uploading'}
               title="Attach image for visual search"
-              className="w-12 h-12 rounded-2xl flex items-center justify-center transition-all disabled:opacity-30 bg-zinc-100 text-zinc-600 hover:bg-zinc-200 shrink-0"
+              className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all shrink-0 ${
+                pendingImage?.status === 'ready'
+                  ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
+                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+              } disabled:opacity-30`}
             >
-              {uploadingImage
-                ? <Loader2 size={18} className="animate-spin" />
-                : <ImagePlus size={18} />
-              }
+              <ImagePlus size={18} />
             </button>
 
             <input
               className="flex-1 bg-zinc-50 border border-zinc-200 rounded-2xl px-6 py-4 outline-none font-sans text-sm focus:ring-2 focus:ring-black/5 focus:border-black transition-all"
-              placeholder={isListening ? "Listening…" : pendingImage ? "Describe what you're looking for (or just hit send)…" : "Type or speak your request…"}
+              placeholder={
+                isListening          ? "Listening…"
+                : pendingImage?.status === 'uploading' ? "Uploading image, one moment…"
+                : pendingImage?.status === 'ready'     ? "Describe what you're looking for (or just hit send)…"
+                : "Type or speak your request…"
+              }
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && onAction(input)}
@@ -459,17 +564,20 @@ export default function ChatInterface() {
               disabled={isTyping}
               title={isListening ? 'Stop listening' : 'Speak'}
               className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all disabled:opacity-30 shrink-0 ${
-                isListening
-                  ? 'bg-red-500 text-white animate-pulse'
-                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
               }`}
             >
               {isListening ? <MicOff size={18} /> : <Mic size={18} />}
             </button>
 
+            {/* Send button — disabled while uploading or no content */}
             <button
               onClick={() => onAction(input)}
-              disabled={(!input.trim() && !pendingImage) || isTyping || uploadingImage}
+              disabled={
+                isTyping ||
+                pendingImage?.status === 'uploading' ||
+                (!input.trim() && pendingImage?.status !== 'ready')
+              }
               className="w-12 h-12 bg-black rounded-2xl flex items-center justify-center text-white hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:grayscale shrink-0"
             >
               <Send size={18} />
