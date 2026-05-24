@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import MapboxStorePicker from '../components/MapboxStorePicker';
 
-export default function CheckoutPage() {
+export default function CheckoutPage({ basePath = '/dash' }) {
   const navigate = useNavigate();
   const { user } = useAuth();
 
@@ -75,7 +75,7 @@ export default function CheckoutPage() {
         let cartData = cartRes?.data || cartRes || { items: [] };
         if (!cartData.items || cartData.items.length === 0) {
           toast.error("Your cart is empty.");
-          navigate('/dash/shop');
+          navigate(`${basePath}/shop`);
           return;
         }
 
@@ -138,7 +138,7 @@ export default function CheckoutPage() {
 
       } catch (error) {
         toast.error("Failed to load checkout data.");
-        navigate('/dash/cart');
+        navigate(`${basePath}/cart`);
       } finally {
         setLoading(false);
       }
@@ -267,7 +267,7 @@ export default function CheckoutPage() {
       } else {
         toast.success("Order confirmed successfully! 🎉");
       }
-      navigate('/dash/orders');
+      navigate(`${basePath}/orders`);
     } catch (error) {
       toast.error(error?.response?.data?.detail || "Failed to finalize order.");
     } finally {

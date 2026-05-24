@@ -1,6 +1,7 @@
 // src/pages/ChatsPage.jsx — Chat history / tickets page
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useBasePath } from '../hooks/useBasePath';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquare, Plus, Clock, ChevronRight, Loader2 } from 'lucide-react';
 import api from '../lib/api';
@@ -19,6 +20,7 @@ function timeAgo(iso) {
 
 export default function ChatsPage() {
   const navigate = useNavigate();
+  const { basePath } = useBasePath();
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -43,7 +45,7 @@ export default function ChatsPage() {
     try {
       const res = await api.post('/chat/sessions/new');
       const { session_id } = res.data;
-      navigate('/dash/agent', { state: { sessionId: session_id } });
+      navigate(`${basePath}/agent`, { state: { sessionId: session_id } });
     } catch {
       toast.error('Failed to start new chat');
     } finally {
@@ -52,7 +54,7 @@ export default function ChatsPage() {
   };
 
   const continueChat = (sessionId) => {
-    navigate('/dash/agent', { state: { sessionId } });
+    navigate(`${basePath}/agent`, { state: { sessionId } });
   };
 
   return (

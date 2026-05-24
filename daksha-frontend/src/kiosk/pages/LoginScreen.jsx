@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { KioskService } from '@/lib/kioskApi';
 import { useKiosk } from '../context/KioskSessionContext';
@@ -9,46 +9,20 @@ import { toast } from 'sonner';
 const NUMPAD = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', '✓'];
 
 export default function LoginScreen() {
-  const { kioskId, setUser, setSessionId } = useKiosk();
+  const { kioskId, setUser, setSessionId, resetIdleTimer } = useKiosk();
   const navigate = useNavigate();
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleNumpad = (val) => {
-    if (loading) return;
-    if (val === '⌫') {
-      setPhone(prev => prev.slice(0, -1));
-    } else if (val === '✓') {
-      handleLogin();
-    } else {
-      if (phone.length < 10) setPhone(prev => prev + val);
-    }
-  };
-
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (loading) return;
-      if (e.key >= '0' && e.key <= '9') {
-        if (phone.length < 10) setPhone(prev => prev + e.key);
-      } else if (e.key === 'Backspace') {
-        setPhone(prev => prev.slice(0, -1));
-      } else if (e.key === 'Enter') {
-        handleLogin();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [phone, loading]);
-
-  const handleLogin = async () => {
-    console.log("Exact phone being sent:", JSON.stringify(phone));
-    if (phone.length !== 10) {
+  const handleLogin = useCallback(async (currentPhone) => {
+    const digits = currentPhone ?? phone;
+    if (digits.length !== 10) {
       toast.error("Please enter a valid 10-digit number");
       return;
     }
     setLoading(true);
     try {
-      const res = await KioskService.login(phone, kioskId);
+      const res = await KioskService.login(digits, kioskId);
       if (res?.user_id) {
         setUser({
           id: res.user_id,
@@ -56,21 +30,54 @@ export default function LoginScreen() {
           phone: res.phone,
           store_id: res.store_id,
         });
-        // Persist the backend session_id in context
         if (res.session_id && typeof setSessionId === 'function') {
           setSessionId(res.session_id);
         }
         toast.success(`Welcome back, ${res.name || 'User'}!`);
-        navigate('/kiosk/shop');
+        navigate('/kiosk/chat');
       } else {
         toast.error("Phone number not found. Please register via the app first.");
       }
-    } catch (error) {
+    } catch {
       toast.error("Login failed. Please try again.");
     } finally {
       setLoading(false);
     }
+  }, [phone, kioskId, setUser, setSessionId, navigate]);
+
+  const handleNumpad = (val) => {
+    if (loading) return;
+    resetIdleTimer();
+    if (val === '⌫') {
+      setPhone(prev => prev.slice(0, -1));
+    } else if (val === '✓') {
+      handleLogin();
+    } else {
+      setPhone(prev => prev.length < 10 ? prev + val : prev);
+    }
   };
+
+  // Physical keyboard support — uses a ref-based approach to avoid stale closures
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (loading) return;
+      resetIdleTimer();
+      if (e.key >= '0' && e.key <= '9') {
+        setPhone(prev => prev.length < 10 ? prev + e.key : prev);
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        setPhone(prev => prev.slice(0, -1));
+      } else if (e.key === 'Enter') {
+        // Read phone via functional update so the value is always fresh
+        setPhone(prev => {
+          if (prev.length === 10) handleLogin(prev);
+          return prev;
+        });
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [loading, resetIdleTimer, handleLogin]);
 
   const handleSkip = () => {
     toast.info("Browsing as Guest");
@@ -96,22 +103,23 @@ export default function LoginScreen() {
         </div>
 
         <div className="space-y-6">
-          <div className="flex items-center gap-4 text-xl text-slate-700">
-            <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">1</div>
-            <span>Enter your registered phone number</span>
-          </div>
-          <div className="flex items-center gap-4 text-xl text-slate-700">
-            <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">2</div>
-            <span>Access your profile & loyalty points</span>
-          </div>
-          <div className="flex items-center gap-4 text-xl text-slate-700">
-            <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">3</div>
-            <span>Sync your mobile cart & wishlist</span>
-          </div>
+          {[
+            "Enter your registered phone number",
+            "Access your profile & loyalty points",
+            "Sync your mobile cart & wishlist",
+          ].map((step, i) => (
+            <div key={i} className="flex items-center gap-4 text-xl text-slate-700">
+              <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold shrink-0">
+                {i + 1}
+              </div>
+              <span>{step}</span>
+            </div>
+          ))}
         </div>
 
         <div className="pt-8">
           <Button
+            type="button"
             variant="ghost"
             size="lg"
             onClick={handleSkip}
@@ -132,24 +140,30 @@ export default function LoginScreen() {
           </div>
           <div className={`
             h-24 w-full rounded-2xl border-2 flex items-center justify-center text-4xl font-bold tracking-widest transition-all
-            ${phone.length === 10 ? 'border-green-400 bg-green-50 text-green-800' : 'border-slate-200 bg-slate-50 text-slate-900'}
+            ${phone.length === 10
+              ? 'border-green-400 bg-green-50 text-green-800'
+              : 'border-slate-200 bg-slate-50 text-slate-900'}
           `}>
-            {formattedPhone || <span className="text-slate-300 text-3xl">_ _ _ _ _ _ _ _ _ _</span>}
+            {formattedPhone || (
+              <span className="text-slate-300 text-3xl">_ _ _ _ _ _ _ _ _ _</span>
+            )}
           </div>
         </div>
 
-        {/* Numpad Grid */}
+        {/* Numpad Grid — all buttons are type="button" to prevent any form submission */}
         <div className="grid grid-cols-3 gap-4 w-full max-w-sm">
           {NUMPAD.map((key) => {
             const isConfirm = key === '✓';
-            const isDelete = key === '⌫';
+            const isDelete  = key === '⌫';
             return (
               <button
                 key={key}
+                type="button"
                 onClick={() => handleNumpad(key)}
                 disabled={loading}
                 className={`
-                  h-20 rounded-2xl text-2xl font-bold flex items-center justify-center transition-all duration-150 active:scale-95
+                  h-20 rounded-2xl text-2xl font-bold flex items-center justify-center
+                  transition-all duration-150 active:scale-95 select-none
                   ${isConfirm
                     ? 'bg-green-600 text-white hover:bg-green-700 shadow-lg shadow-green-200'
                     : isDelete
@@ -173,9 +187,10 @@ export default function LoginScreen() {
 
         {/* Login Button */}
         <Button
+          type="button"
           size="lg"
           className="w-full max-w-sm h-16 text-xl rounded-2xl shadow-xl"
-          onClick={handleLogin}
+          onClick={() => handleLogin()}
           disabled={phone.length !== 10 || loading}
         >
           {loading ? (

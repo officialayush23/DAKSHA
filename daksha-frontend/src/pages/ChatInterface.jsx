@@ -1,11 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card } from 'antd';
-import { Send, ShoppingBag, Sparkles, User, Bot, Mic, MicOff, Plus, MessageSquare, Loader2, ImagePlus, X, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
+import {
+  Send, ShoppingBag, Sparkles, User, Bot, Mic, MicOff,
+  Plus, MessageSquare, Loader2, ImagePlus, X,
+  CheckCircle2, AlertCircle, RefreshCw,
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useBasePath } from '../hooks/useBasePath';
 import api from '../lib/api';
 import { toast } from 'sonner';
-import { supabase } from '../lib/supabaseClient';
+// Image uploads go through the backend (/chat/upload-image) to bypass Supabase RLS
 
 // ── Recommendation outcome tracker ──────────────────────────────────────────
 const logRecommendationOutcome = async (impressionId, outcomeType, rewardValue = 0.1) => {
@@ -16,9 +21,7 @@ const logRecommendationOutcome = async (impressionId, outcomeType, rewardValue =
       outcome_type: outcomeType,
       reward_value: rewardValue,
     });
-  } catch (_) {
-    // Fire-and-forget — never surface errors to user
-  }
+  } catch (_) {}
 };
 
 // ── Direct cart add (no AI needed) ──────────────────────────────────────────
@@ -26,7 +29,7 @@ const directAddToCart = async (variantId, impressionId, productName, toastFn) =>
   logRecommendationOutcome(impressionId, 'cart', 0.5);
   try {
     await api.post('/cart/quick-add', { variant_id: variantId, quantity: 1 });
-    toastFn?.success(`Added to cart!`);
+    toastFn?.success('Added to cart!');
   } catch (err) {
     const detail = err?.response?.data?.detail || 'Could not add to cart';
     toastFn?.error(detail);
@@ -37,50 +40,46 @@ const { Meta } = Card;
 
 const WELCOME_MSG = {
   role: 'assistant',
-  content: "Welcome back. I am your Daksha Concierge. How may I assist your style journey today?",
-  current_agent: "Unified Agent"
+  content: 'Welcome back. I am your Daksha Concierge. How may I assist your style journey today?',
+  current_agent: 'Unified Agent',
 };
 
 export default function ChatInterface() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { basePath } = useBasePath();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // session_id lives in the URL (?sid=...) so it survives page refresh
-  const sidFromUrl = searchParams.get("sid");
+  const sidFromUrl   = searchParams.get('sid');
   const sidFromState = location.state?.sessionId ?? null;
 
-  // On first render, if navigated with router state, promote it into the URL
-  const [sessionId, setSessionId] = useState(sidFromUrl || sidFromState);
-
-  const [messages, setMessages] = useState([WELCOME_MSG]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
-  const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
-  const [currentAgent, setCurrentAgent] = useState("Unified Agent");
+  const [sessionId,     setSessionId]     = useState(sidFromUrl || sidFromState);
+  const [messages,      setMessages]      = useState([WELCOME_MSG]);
+  const [loadingHistory,setLoadingHistory] = useState(false);
+  const [input,         setInput]         = useState('');
+  const [isTyping,      setIsTyping]      = useState(false);
+  const [currentAgent,  setCurrentAgent]  = useState('Unified Agent');
   const scrollRef = useRef(null);
 
-  const [isListening, setIsListening] = useState(false);
+  const [isListening,   setIsListening]   = useState(false);
   const recognitionRef = useRef(null);
 
-  // Image upload state
-  // { preview: string (blob URL), url: string|null (Supabase URL), status: 'uploading'|'ready'|'error', file: File }
+  // ── Image upload state ───────────────────────────────────────────────────
+  // { preview: blobURL, url: supabaseURL|null, status: 'uploading'|'ready'|'error', file: File }
   const [pendingImage, setPendingImage] = useState(null);
   const fileInputRef = useRef(null);
 
   const _doUpload = async (file, preview) => {
     try {
-      const ext = file.name.split('.').pop() || 'jpg';
-      const fileName = `chat_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error } = await supabase.storage
-        .from('user_uploaded_image')
-        .upload(fileName, file, { cacheControl: '3600', upsert: false });
-      if (error) throw error;
-      const { data: urlData } = supabase.storage
-        .from('user_uploaded_image')
-        .getPublicUrl(fileName);
-      setPendingImage({ preview, url: urlData.publicUrl, status: 'ready', file });
-      toast.success('Image ready — send it with your message!');
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await api.post('/chat/upload-image', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const publicUrl = res.data?.url || res.url;
+      if (!publicUrl) throw new Error('No URL returned from server');
+      setPendingImage({ preview, url: publicUrl, status: 'ready', file });
+      toast.success('Image ready to send!');
     } catch (err) {
       console.error('[IMAGE UPLOAD]', err);
       setPendingImage({ preview, url: null, status: 'error', file });
@@ -96,7 +95,6 @@ export default function ChatInterface() {
     if (file.size > 10 * 1024 * 1024) { toast.error('Image must be under 10 MB.'); return; }
 
     const preview = URL.createObjectURL(file);
-    // Show local preview IMMEDIATELY — don't wait for upload
     setPendingImage({ preview, url: null, status: 'uploading', file });
     await _doUpload(file, preview);
   };
@@ -112,7 +110,7 @@ export default function ChatInterface() {
     setPendingImage(null);
   };
 
-  // Web Speech API mic handler
+  // ── Web Speech API ───────────────────────────────────────────────────────
   const toggleMic = () => {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
       toast.error('Speech recognition not supported in this browser.');
@@ -134,14 +132,13 @@ export default function ChatInterface() {
       setIsListening(false);
     };
     recognition.onerror = () => { setIsListening(false); toast.error('Mic error — try again'); };
-    recognition.onend  = () => setIsListening(false);
+    recognition.onend   = () => setIsListening(false);
     recognition.start();
     recognitionRef.current = recognition;
     setIsListening(true);
   };
 
-
-  // Sync router state → URL param (once, on navigate-with-state)
+  // ── Sync router state → URL param ────────────────────────────────────────
   useEffect(() => {
     if (sidFromState && sidFromState !== sidFromUrl) {
       setSearchParams({ sid: sidFromState }, { replace: true });
@@ -149,12 +146,9 @@ export default function ChatInterface() {
     }
   }, [sidFromState]);
 
-  // Load message history whenever sessionId changes to a real value
+  // ── Load message history when sessionId changes ───────────────────────────
   useEffect(() => {
-    if (!sessionId) {
-      setMessages([WELCOME_MSG]);
-      return;
-    }
+    if (!sessionId) { setMessages([WELCOME_MSG]); return; }
     const load = async () => {
       setLoadingHistory(true);
       try {
@@ -164,7 +158,6 @@ export default function ChatInterface() {
           setMessages(history.map(m => ({
             role: m.role,
             content: m.content,
-            // Restore product cards from persisted ui_data
             products: m.ui_data
               ? (m.ui_data.products || m.ui_data.trending_products || m.ui_data.items || [])
               : [],
@@ -181,74 +174,55 @@ export default function ChatInterface() {
     load();
   }, [sessionId]);
 
-  // Auto-scroll to latest message
+  // ── Auto-scroll ───────────────────────────────────────────────────────────
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollIntoView({ behavior: "smooth" });
-    }
+    scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
+  // ── Send message ──────────────────────────────────────────────────────────
   const onAction = async (text) => {
-    // Block while image is uploading
     if (pendingImage?.status === 'uploading') {
       toast.error('Please wait — image is still uploading…');
       return;
     }
 
-    const imageUrl    = pendingImage?.status === 'ready' ? (pendingImage.url || null) : null;
-    const imgPreview  = pendingImage?.preview || null;   // blob URL for immediate in-chat render
-    const hasImage    = !!imageUrl;
-    const messageText = text.trim() || (hasImage ? "Find me products similar to this image." : "");
-
+    const imageUrl   = pendingImage?.status === 'ready' ? (pendingImage.url || null) : null;
+    const imgPreview = pendingImage?.preview || null;
+    const messageText = text.trim() || (imageUrl ? 'Find me products similar to this image.' : '');
     if (!messageText) return;
 
-    // Snapshot the preview before clearing, then revoke after a short delay
-    // so the message component can render once with it
     const capturedPreview = imgPreview;
-
     const userMsg = { role: 'user', content: messageText, image_url: imageUrl, image_preview: capturedPreview };
     setMessages(prev => [...prev, userMsg]);
-    setInput("");
-    // Null out pending without revoking yet — give React one render cycle
+    setInput('');
     setPendingImage(null);
     if (capturedPreview) setTimeout(() => URL.revokeObjectURL(capturedPreview), 8000);
     setIsTyping(true);
 
     try {
-      const res = await api.post('/chat/', {
-        message: messageText,
-        session_id: sessionId,   // null on first message → backend creates new session
-        image_url: imageUrl,
-      });
-
+      const res  = await api.post('/chat/', { message: messageText, session_id: sessionId, image_url: imageUrl });
       const data = res.data || res;
 
-      // Capture the session_id returned by backend (important on first message)
-      // Also write it to the URL so the conversation survives a page refresh
       if (data.session_id && !sessionId) {
         setSessionId(data.session_id);
         setSearchParams({ sid: data.session_id }, { replace: true });
       }
-
-      if (data.current_agent) {
-        setCurrentAgent(data.current_agent);
-      }
+      if (data.current_agent) setCurrentAgent(data.current_agent);
 
       const uiData = data.ui_data || {};
       const productsList = uiData.products || uiData.trending_products || uiData.items || [];
 
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: data.response || "I have processed your request.",
-        products: productsList
+        content: data.response || 'I have processed your request.',
+        products: productsList,
       }]);
-
     } catch (err) {
-      console.error("Agent Error:", err);
-      toast.error("Connection lost. Please try again.");
+      console.error('Agent Error:', err);
+      toast.error('Connection lost. Please try again.');
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: "I apologize, I'm experiencing a brief interruption in my service."
+        content: 'I apologize, I\'m experiencing a brief interruption in my service.',
       }]);
     } finally {
       setIsTyping(false);
@@ -258,16 +232,16 @@ export default function ChatInterface() {
   const startNewChat = () => {
     setSessionId(null);
     setMessages([WELCOME_MSG]);
-    setCurrentAgent("Unified Agent");
-    setInput("");
-    // Clear URL param so a fresh session is created on the next message
-    navigate('/dash/agent', { replace: true, state: {} });
+    setCurrentAgent('Unified Agent');
+    setInput('');
+    navigate(`${basePath}/agent`, { replace: true, state: {} });
   };
 
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-[calc(100vh-140px)] max-w-5xl mx-auto bg-white rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.05)] overflow-hidden border border-zinc-100">
-      
-      {/* --- HEADER --- */}
+
+      {/* HEADER */}
       <div className="px-6 py-5 bg-zinc-900 text-white flex justify-between items-center shrink-0">
         <div className="flex items-center gap-4">
           <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-zinc-700 to-zinc-800 flex items-center justify-center border border-zinc-600">
@@ -285,7 +259,7 @@ export default function ChatInterface() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => navigate('/dash/chats')}
+            onClick={() => navigate(`${basePath}/chats`)}
             title="View all conversations"
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white text-[11px] uppercase tracking-widest transition-all"
           >
@@ -303,41 +277,41 @@ export default function ChatInterface() {
         </div>
       </div>
 
-      {/* --- CHAT HISTORY --- */}
+      {/* CHAT HISTORY */}
       <div className="flex-1 overflow-y-auto p-6 md:p-10 space-y-8 scrollbar-hide relative">
         {loadingHistory && (
           <div className="absolute inset-0 flex items-center justify-center bg-white/70 z-10">
             <Loader2 size={28} className="animate-spin text-zinc-400" />
           </div>
         )}
+
         <AnimatePresence initial={false}>
           {messages.map((m, i) => (
-            <motion.div 
+            <motion.div
               key={i}
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
               className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div className={`flex gap-4 max-w-[90%] md:max-w-[80%] ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                
-                {/* Avatar Icons */}
+
+                {/* Avatar */}
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border ${
                   m.role === 'user' ? 'bg-zinc-100 border-zinc-200' : 'bg-black border-black text-white'
                 }`}>
                   {m.role === 'user' ? <User size={14} /> : <Bot size={14} />}
                 </div>
 
-                <div className={`space-y-4 ${m.role === 'user' ? 'items-end' : 'items-start'} overflow-hidden`}>
-                  
-                  {/* ── Attached image (user messages) ─────────────── */}
+                <div className={`space-y-3 ${m.role === 'user' ? 'items-end' : 'items-start'} overflow-hidden flex flex-col`}>
+
+                  {/* Attached image — user messages only */}
                   {(m.image_preview || m.image_url) && m.role === 'user' && (
-                    <div className="rounded-2xl overflow-hidden border border-zinc-700 shadow-md max-w-[260px] bg-zinc-800">
+                    <div className="rounded-2xl overflow-hidden border border-zinc-700 shadow-md max-w-[260px] bg-zinc-800 self-end">
                       <img
                         src={m.image_preview || m.image_url}
                         alt="Attached image"
                         className="w-full max-h-[300px] object-cover block"
                         onError={(e) => {
-                          // blob URL expired → fall back to Supabase URL
                           if (m.image_url && e.target.src !== m.image_url) {
                             e.target.src = m.image_url;
                           }
@@ -350,16 +324,16 @@ export default function ChatInterface() {
                     </div>
                   )}
 
-                  {/* Message Bubble */}
+                  {/* Text bubble */}
                   <div className={`p-5 rounded-2xl text-[15px] leading-relaxed shadow-sm transition-all inline-block ${
                     m.role === 'user'
-                      ? 'bg-zinc-900 text-white rounded-tr-none'
+                      ? 'bg-zinc-900 text-white rounded-tr-none self-end'
                       : 'bg-[#F9F9F9] text-zinc-800 border border-zinc-100 rounded-tl-none'
                   }`}>
                     {m.content}
                   </div>
 
-                  {/* 👇 HORIZONTAL INFINITE SCROLL GRID FOR PRODUCTS 👇 */}
+                  {/* Product cards */}
                   {m.products?.length > 0 && (
                     <div className="flex overflow-x-auto gap-4 pb-4 pt-2 snap-x scrollbar-hide w-full max-w-[300px] sm:max-w-[450px] md:max-w-[600px]">
                       {m.products.map((p, idx) => (
@@ -371,11 +345,10 @@ export default function ChatInterface() {
                             onClick={() => logRecommendationOutcome(p.impression_id, 'click', 0.1)}
                             cover={
                               <div className="h-40 w-full bg-zinc-100 overflow-hidden">
-                                <img 
-                                  // Defensively handle different image key names from backend
-                                  src={p.image || p.image_url || "https://via.placeholder.com/200"} 
+                                <img
+                                  src={p.image || p.image_url || 'https://via.placeholder.com/200'}
                                   alt={p.name}
-                                  className="w-full h-full object-cover" 
+                                  className="w-full h-full object-cover"
                                 />
                               </div>
                             }
@@ -388,7 +361,7 @@ export default function ChatInterface() {
                                   e.stopPropagation();
                                   directAddToCart(p.variant_id, p.impression_id, p.name, toast);
                                 }}
-                              />
+                              />,
                             ]}
                           >
                             <Meta
@@ -417,7 +390,7 @@ export default function ChatInterface() {
           ))}
         </AnimatePresence>
 
-        {/* Typing State */}
+        {/* Typing indicator */}
         {isTyping && (
           <div className="flex gap-4 items-center pl-12">
             <div className="flex gap-1">
@@ -428,34 +401,29 @@ export default function ChatInterface() {
           </div>
         )}
         <div ref={scrollRef} />
-      </div> {/* end chat history */}
+      </div>
 
-      {/* --- INPUT AREA --- */}
+      {/* INPUT AREA */}
       <div className="p-6 md:p-8 bg-white border-t border-zinc-100 shrink-0">
         <div className="max-w-4xl mx-auto space-y-3">
 
-          {/* ── Image attachment preview strip ─────────────────────── */}
+          {/* Image attachment preview strip */}
           <AnimatePresence>
             {pendingImage && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="flex items-center gap-4 px-1"
+                className="flex items-center gap-4 px-1 overflow-hidden"
               >
-                {/* Thumbnail with status overlay */}
+                {/* Thumbnail */}
                 <div className={`relative w-[72px] h-[72px] rounded-xl overflow-hidden shrink-0 border-2 transition-colors ${
-                  pendingImage.status === 'error'    ? 'border-red-400'
-                  : pendingImage.status === 'ready'  ? 'border-emerald-400'
+                  pendingImage.status === 'error'   ? 'border-red-400'
+                  : pendingImage.status === 'ready' ? 'border-emerald-400'
                   : 'border-zinc-300'
                 }`}>
-                  <img
-                    src={pendingImage.preview}
-                    alt="Attachment preview"
-                    className="w-full h-full object-cover"
-                  />
+                  <img src={pendingImage.preview} alt="Attachment preview" className="w-full h-full object-cover" />
 
-                  {/* Uploading overlay */}
                   {pendingImage.status === 'uploading' && (
                     <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-1">
                       <Loader2 size={18} className="animate-spin text-white" />
@@ -463,21 +431,18 @@ export default function ChatInterface() {
                     </div>
                   )}
 
-                  {/* Ready badge */}
                   {pendingImage.status === 'ready' && (
                     <div className="absolute bottom-1 right-1 bg-emerald-500 rounded-full p-0.5 shadow">
                       <CheckCircle2 size={12} className="text-white" />
                     </div>
                   )}
 
-                  {/* Error badge */}
                   {pendingImage.status === 'error' && (
                     <div className="absolute inset-0 bg-red-900/50 flex items-center justify-center">
                       <AlertCircle size={22} className="text-red-300" />
                     </div>
                   )}
 
-                  {/* Remove button — shown when not uploading */}
                   {pendingImage.status !== 'uploading' && (
                     <button
                       onClick={clearPendingImage}
@@ -519,9 +484,8 @@ export default function ChatInterface() {
             )}
           </AnimatePresence>
 
-          {/* ── Text input row ──────────────────────────────────────── */}
+          {/* Text input row */}
           <div className="relative flex items-center gap-3">
-            {/* Hidden file input */}
             <input
               ref={fileInputRef}
               type="file"
@@ -530,16 +494,16 @@ export default function ChatInterface() {
               onChange={handleImageSelect}
             />
 
-            {/* Image attach button — disabled while another image is uploading */}
+            {/* Image attach button */}
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={isTyping || pendingImage?.status === 'uploading'}
               title="Attach image for visual search"
-              className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all shrink-0 ${
+              className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all shrink-0 disabled:opacity-30 ${
                 pendingImage?.status === 'ready'
                   ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
                   : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-              } disabled:opacity-30`}
+              }`}
             >
               <ImagePlus size={18} />
             </button>
@@ -547,10 +511,10 @@ export default function ChatInterface() {
             <input
               className="flex-1 bg-zinc-50 border border-zinc-200 rounded-2xl px-6 py-4 outline-none font-sans text-sm focus:ring-2 focus:ring-black/5 focus:border-black transition-all"
               placeholder={
-                isListening          ? "Listening…"
-                : pendingImage?.status === 'uploading' ? "Uploading image, one moment…"
-                : pendingImage?.status === 'ready'     ? "Describe what you're looking for (or just hit send)…"
-                : "Type or speak your request…"
+                isListening                            ? 'Listening…'
+                : pendingImage?.status === 'uploading' ? 'Uploading image, one moment…'
+                : pendingImage?.status === 'ready'     ? 'Describe what you\'re looking for (or just hit send)…'
+                : 'Type or speak your request…'
               }
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -558,7 +522,7 @@ export default function ChatInterface() {
               disabled={isTyping}
             />
 
-            {/* Mic button */}
+            {/* Mic */}
             <button
               onClick={toggleMic}
               disabled={isTyping}
@@ -570,7 +534,7 @@ export default function ChatInterface() {
               {isListening ? <MicOff size={18} /> : <Mic size={18} />}
             </button>
 
-            {/* Send button — disabled while uploading or no content */}
+            {/* Send */}
             <button
               onClick={() => onAction(input)}
               disabled={

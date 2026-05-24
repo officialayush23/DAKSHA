@@ -28,6 +28,9 @@ import CheckoutPage from './pages/CheckoutPage';
 import AttractScreen from './kiosk/pages/AttractScreen';
 import LoginScreen from './kiosk/pages/LoginScreen';
 import KioskSelectScreen from './kiosk/pages/KioskSelectScreen';
+import KioskCatalog from './kiosk/pages/Catalog';
+import KioskProductDetail from './kiosk/pages/ProductDetail';
+import KioskCartPage from './kiosk/pages/KioskCartPage';
 import WishlistPage from './pages/WishListPage';
 import ChatsPage from './pages/ChatsPage';
 
@@ -176,13 +179,16 @@ export default function App() {
             </KioskProtectedRoute>
           }
         >
-          <Route path="shop" element={<ShopPage />} />
-          <Route path="product/:id" element={<ProductDetail />} />
-          <Route path="cart" element={<CartPage />} />
-          <Route path="checkout" element={<CheckoutPage />} />
+          <Route path="shop" element={<KioskCatalog />} />
+          <Route path="product/:id" element={<KioskProductDetail />} />
+          <Route path="cart" element={<KioskCartPage />} />
+          <Route path="checkout" element={<CheckoutPage basePath="/kiosk" />} />
           <Route path="orders" element={<OrdersPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="chat" element={<ChatInterface />} />
+          {/* agent = alias so basePath+/agent from ChatInterface/ChatsPage resolves correctly */}
+          <Route path="agent" element={<ChatInterface />} />
+          <Route path="chats" element={<ChatsPage />} />
           <Route path="*" element={<ErrorPage />} />
         </Route>
 

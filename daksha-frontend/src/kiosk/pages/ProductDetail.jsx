@@ -1,209 +1,285 @@
-// import React, { useEffect, useState } from 'react';
-// import { useParams, useNavigate } from 'react-router-dom';
-// import { useKiosk } from '../context/KioskSessionContext';
-// import { KioskService } from '@/lib/kioskApi';
-// import { Button } from "@/components/ui/button";
-// import { Badge } from "@/components/ui/badge";
-// import {
-//   ArrowLeft,
-//   ShoppingBag,
-//   Loader2
-// } from 'lucide-react';
-// import { toast } from 'sonner';
+import React, { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useKiosk } from '../context/KioskSessionContext';
+import api from '@/lib/api';
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { ArrowLeft, ShoppingBag, Loader2, Sparkles, Check } from 'lucide-react';
+import { toast } from 'sonner';
+import { motion } from 'framer-motion';
 
-// export default function ProductDetail() {
-//   const { id } = useParams();
-//   const navigate = useNavigate();
-//   const { refreshCart, sessionId } = useKiosk(); // FIX: sessionId from context
+export default function KioskProductDetail() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { refreshCart, resetIdleTimer } = useKiosk();
 
-//   const [product, setProduct] = useState(null);
-//   const [variants, setVariants] = useState([]);
-//   const [loading, setLoading] = useState(true);
-//   const [adding, setAdding] = useState(false);
+  const [product,         setProduct]         = useState(null);
+  const [variants,        setVariants]         = useState([]);
+  const [loading,         setLoading]          = useState(true);
+  const [adding,          setAdding]           = useState(false);
+  const [addedVariantId,  setAddedVariantId]   = useState(null);
+  const [selectedColor,   setSelectedColor]    = useState(null);
+  const [selectedSize,    setSelectedSize]     = useState(null);
+  const [selectedVariant, setSelectedVariant]  = useState(null);
+  const [activeImage,     setActiveImage]      = useState(0);
 
-//   const [selectedColor, setSelectedColor] = useState(null);
-//   const [selectedSize, setSelectedSize] = useState(null);
-//   const [selectedVariant, setSelectedVariant] = useState(null);
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        const res = await api.get(`/products/${id}`);
+        const data = res.data || res;
+        setProduct(data);
+        const vlist = data.variants || [];
+        setVariants(vlist);
+        const firstColor = vlist.find(v => v.color)?.color || null;
+        setSelectedColor(firstColor);
+      } catch {
+        toast.error('Could not load product');
+        navigate('/kiosk/shop');
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [id, navigate]);
 
-//   useEffect(() => {
-//     const fetchData = async () => {
-//       setLoading(true);
-//       try {
-//         // FIX: getProductDetail returns { product + variants[] } together
-//         // no separate listVariants call needed
-//         const productData = await KioskService.getProductDetail(id);
-//         setProduct(productData);
+  // Derive available sizes from selected color
+  const colors = [...new Set(variants.map(v => v.color).filter(Boolean))];
+  const availableSizes = variants
+    .filter(v => v.color === selectedColor)
+    .map(v => v.size)
+    .filter(Boolean);
 
-//         const variantsData = productData?.variants || [];
-//         setVariants(variantsData);
+  // Resolve selected variant
+  useEffect(() => {
+    if (selectedColor && selectedSize) {
+      setSelectedVariant(
+        variants.find(v => v.color === selectedColor && v.size === selectedSize) || null
+      );
+    } else {
+      setSelectedVariant(null);
+    }
+  }, [selectedColor, selectedSize, variants]);
 
-//         const firstColor = variantsData.find(v => v.color)?.color;
-//         if (firstColor) setSelectedColor(firstColor);
-//       } catch (error) {
-//         console.error("Failed to load product", error);
-//         toast.error("Could not load product details");
-//         navigate('/kiosk/catalog');
-//       } finally {
-//         setLoading(false);
-//       }
-//     };
-//     fetchData();
-//   }, [id, navigate]);
+  // Active images for the selected color
+  const images = variants
+    .filter(v => v.color === selectedColor)
+    .flatMap(v => v.images || [])
+    .filter(Boolean)
+    .filter((url, i, arr) => arr.indexOf(url) === i);
 
-//   const colors = [...new Set(variants.map(v => v.color).filter(Boolean))];
+  const handleAddToCart = async () => {
+    if (!selectedVariant) return;
+    setAdding(true);
+    resetIdleTimer();
+    try {
+      const variantId = selectedVariant.variant_id || selectedVariant.id;
+      await api.post('/cart/quick-add', { variant_id: variantId, quantity: 1 });
+      await refreshCart();
+      setAddedVariantId(variantId);
+      toast.success('Added to cart!', { position: 'top-center' });
+      setTimeout(() => setAddedVariantId(null), 2000);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Failed to add to cart');
+    } finally {
+      setAdding(false);
+    }
+  };
 
-//   const availableSizes = variants
-//     .filter(v => v.color === selectedColor)
-//     .map(v => v.size)
-//     .filter(Boolean);
+  if (loading) {
+    return (
+      <div className="h-full flex items-center justify-center bg-white">
+        <Loader2 className="w-16 h-16 animate-spin text-slate-300" />
+      </div>
+    );
+  }
+  if (!product) return null;
 
-//   useEffect(() => {
-//     if (selectedColor && selectedSize) {
-//       const found = variants.find(v => v.color === selectedColor && v.size === selectedSize);
-//       setSelectedVariant(found || null);
-//     } else {
-//       setSelectedVariant(null);
-//     }
-//   }, [selectedColor, selectedSize, variants]);
+  const displayPrice = selectedVariant?.final_price || selectedVariant?.base_price
+    || variants[0]?.final_price || variants[0]?.base_price || 0;
+  const originalPrice = selectedVariant?.original_price || variants[0]?.original_price;
+  const discountPct = selectedVariant?.discount_percent || variants[0]?.discount_percent || 0;
 
-//   const handleAddToCart = async () => {
-//     if (!selectedVariant) return;
-//     setAdding(true);
-//     try {
-//       // FIX: backend returns variant_id field in variants array, pass sessionId
-//       const variantId = selectedVariant.variant_id || selectedVariant.id;
-//       await KioskService.addToCart(variantId, 1, sessionId);
-//       await refreshCart();
-//       toast.success("Added to cart", {
-//         position: 'top-center',
-//         style: { fontSize: '1.2rem', padding: '1rem' }
-//       });
-//       navigate('/kiosk/catalog');
-//     } catch (error) {
-//       toast.error("Failed to add to cart");
-//     } finally {
-//       setAdding(false);
-//     }
-//   };
+  return (
+    <div className="flex h-[calc(100vh-80px)] bg-white overflow-hidden">
 
-//   if (loading) {
-//     return (
-//       <div className="h-full flex items-center justify-center">
-//         <Loader2 className="w-16 h-16 animate-spin text-slate-300" />
-//       </div>
-//     );
-//   }
+      {/* ── LEFT: Image panel ─── */}
+      <div className="w-[55%] bg-slate-50 relative flex flex-col">
+        {/* Back button */}
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="absolute top-6 left-6 z-10 h-14 w-14 rounded-full bg-white shadow-md flex items-center justify-center hover:bg-slate-100 transition-colors"
+        >
+          <ArrowLeft className="h-7 w-7 text-slate-700" />
+        </button>
 
-//   if (!product) return null;
+        {/* Main image */}
+        <div className="flex-1 flex items-center justify-center p-12">
+          <motion.img
+            key={images[activeImage] || 'placeholder'}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3 }}
+            src={images[activeImage] || 'https://via.placeholder.com/600x800'}
+            alt={product.name}
+            className="max-h-full max-w-full object-contain drop-shadow-2xl"
+          />
+        </div>
 
-//   return (
-//     <div className="flex h-[calc(100vh-80px)] bg-white overflow-hidden">
+        {/* Thumbnail strip */}
+        {images.length > 1 && (
+          <div className="flex gap-3 justify-center pb-6 px-6">
+            {images.slice(0, 5).map((img, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setActiveImage(i)}
+                className={`w-16 h-16 rounded-xl overflow-hidden border-2 transition-all ${
+                  activeImage === i ? 'border-slate-900 scale-105' : 'border-transparent opacity-60'
+                }`}
+              >
+                <img src={img} alt="" className="w-full h-full object-cover" />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
-//       {/* Left: Image */}
-//       <div className="w-1/2 bg-slate-100 p-12 flex items-center justify-center relative">
-//         <Button
-//           variant="ghost"
-//           size="icon"
-//           className="absolute top-8 left-8 h-16 w-16 rounded-full bg-white/80 hover:bg-white shadow-lg z-10"
-//           onClick={() => navigate(-1)}
-//         >
-//           <ArrowLeft className="h-8 w-8 text-slate-900" />
-//         </Button>
+      {/* ── RIGHT: Details panel ─── */}
+      <div className="w-[45%] flex flex-col border-l overflow-y-auto">
+        <div className="flex-1 p-10 space-y-8">
 
-//         <img
-//           src={selectedVariant?.images?.[0] || variants[0]?.images?.[0] || "https://placehold.co/600x800"}
-//           alt={product.name}
-//           className="max-h-full max-w-full object-contain drop-shadow-2xl hover:scale-105 transition-transform duration-500"
-//         />
-//       </div>
+          {/* Brand + name + price */}
+          <div className="space-y-3">
+            {product.brand && (
+              <p className="text-sm font-bold tracking-widest text-slate-400 uppercase">{product.brand}</p>
+            )}
+            <h1 className="text-4xl font-bold text-slate-900 leading-tight">{product.name}</h1>
+            <div className="flex items-baseline gap-3 pt-1">
+              <span className="text-4xl font-bold text-slate-900">
+                ₹{displayPrice.toLocaleString('en-IN')}
+              </span>
+              {discountPct > 0 && originalPrice && (
+                <>
+                  <span className="text-2xl text-slate-400 line-through">
+                    ₹{originalPrice.toLocaleString('en-IN')}
+                  </span>
+                  <Badge className="bg-green-100 text-green-700 text-base px-3 py-1">
+                    {discountPct}% off
+                  </Badge>
+                </>
+              )}
+            </div>
+          </div>
 
-//       {/* Right: Details */}
-//       <div className="w-1/2 p-12 overflow-y-auto flex flex-col">
-//         <div className="space-y-4 mb-8">
-//           <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 px-4 py-1 text-base">
-//             {product.brand}
-//           </Badge>
-//           <h1 className="text-5xl font-extrabold text-slate-900 leading-tight">
-//             {product.name}
-//           </h1>
-//           <div className="text-4xl font-bold text-primary">
-//             ₹{selectedVariant ? selectedVariant.base_price : (variants[0]?.base_price || 0)}
-//           </div>
-//         </div>
+          {/* Description */}
+          {product.description && (
+            <p className="text-lg text-slate-500 leading-relaxed">{product.description}</p>
+          )}
 
-//         <p className="text-xl text-slate-500 leading-relaxed mb-12">
-//           {product.description}
-//         </p>
+          {/* Fabric / Occasion */}
+          {(product.fabric_type || product.occasion) && (
+            <div className="flex gap-3 flex-wrap">
+              {product.fabric_type && (
+                <Badge variant="outline" className="text-base px-3 py-1">{product.fabric_type}</Badge>
+              )}
+              {product.occasion && (
+                <Badge variant="outline" className="text-base px-3 py-1">{product.occasion}</Badge>
+              )}
+            </div>
+          )}
 
-//         <div className="space-y-10 mb-12">
-//           {colors.length > 0 && (
-//             <div className="space-y-4">
-//               <h3 className="text-xl font-semibold text-slate-900">Select Color</h3>
-//               <div className="flex gap-4 flex-wrap">
-//                 {colors.map(color => (
-//                   <button
-//                     key={color}
-//                     onClick={() => { setSelectedColor(color); setSelectedSize(null); }}
-//                     className={`
-//                       h-20 px-8 rounded-2xl border-2 text-xl font-medium transition-all
-//                       ${selectedColor === color
-//                         ? 'border-primary bg-primary/5 text-primary ring-2 ring-primary/20'
-//                         : 'border-slate-200 text-slate-600 hover:border-slate-400'}
-//                     `}
-//                   >
-//                     {color}
-//                   </button>
-//                 ))}
-//               </div>
-//             </div>
-//           )}
+          {/* Color selector */}
+          {colors.length > 0 && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-slate-800">
+                Color — <span className="font-normal text-slate-500">{selectedColor}</span>
+              </h3>
+              <div className="flex gap-3 flex-wrap">
+                {colors.map(color => (
+                  <button
+                    key={color}
+                    type="button"
+                    onClick={() => { resetIdleTimer(); setSelectedColor(color); setSelectedSize(null); }}
+                    className={`
+                      h-16 px-6 rounded-2xl border-2 text-lg font-medium transition-all
+                      ${selectedColor === color
+                        ? 'border-slate-900 bg-slate-900 text-white'
+                        : 'border-slate-200 text-slate-600 hover:border-slate-400'}
+                    `}
+                  >
+                    {color}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
-//           {selectedColor && (
-//             <div className="space-y-4">
-//               <h3 className="text-xl font-semibold text-slate-900">Select Size</h3>
-//               <div className="flex flex-wrap gap-4">
-//                 {['XS', 'S', 'M', 'L', 'XL', 'XXL'].map(size => {
-//                   const isAvailable = availableSizes.includes(size);
-//                   return (
-//                     <button
-//                       key={size}
-//                       disabled={!isAvailable}
-//                       onClick={() => setSelectedSize(size)}
-//                       className={`
-//                         w-20 h-20 rounded-full border-2 text-2xl font-bold flex items-center justify-center transition-all
-//                         ${!isAvailable ? 'opacity-30 cursor-not-allowed bg-slate-50 border-slate-100' :
-//                           selectedSize === size
-//                             ? 'border-primary bg-primary text-white shadow-xl scale-110'
-//                             : 'border-slate-200 text-slate-700 hover:border-slate-400'}
-//                       `}
-//                     >
-//                       {size}
-//                     </button>
-//                   );
-//                 })}
-//               </div>
-//             </div>
-//           )}
-//         </div>
+          {/* Size selector */}
+          {selectedColor && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-slate-800">Size</h3>
+              <div className="flex flex-wrap gap-3">
+                {['XS', 'S', 'M', 'L', 'XL', 'XXL', '28', '30', '32', '34', '36', '38', '40', '42']
+                  .filter(s => availableSizes.includes(s))
+                  .concat(availableSizes.filter(s => !['XS', 'S', 'M', 'L', 'XL', 'XXL', '28', '30', '32', '34', '36', '38', '40', '42'].includes(s)))
+                  .filter((s, i, arr) => arr.indexOf(s) === i)
+                  .map(size => (
+                    <button
+                      key={size}
+                      type="button"
+                      onClick={() => { resetIdleTimer(); setSelectedSize(size); }}
+                      className={`
+                        w-20 h-16 rounded-2xl border-2 text-xl font-bold transition-all
+                        ${selectedSize === size
+                          ? 'border-slate-900 bg-slate-900 text-white scale-105 shadow-lg'
+                          : 'border-slate-200 text-slate-700 hover:border-slate-400'}
+                      `}
+                    >
+                      {size}
+                    </button>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
 
-//         <div className="mt-auto pt-8 border-t flex gap-6">
-//           <Button
-//             size="lg"
-//             className="flex-1 h-24 text-2xl rounded-2xl shadow-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50"
-//             disabled={!selectedVariant || adding}
-//             onClick={handleAddToCart}
-//           >
-//             {adding ? (
-//               <Loader2 className="w-8 h-8 animate-spin" />
-//             ) : (
-//               <>
-//                 <ShoppingBag className="w-8 h-8 mr-4" />
-//                 Add to Cart
-//               </>
-//             )}
-//           </Button>
-//         </div>
-//       </div>
-//     </div>
-//   );
-// }
+        {/* ── Sticky CTA bar ─── */}
+        <div className="p-6 border-t bg-white space-y-3">
+          <Button
+            type="button"
+            size="lg"
+            disabled={!selectedVariant || adding}
+            onClick={handleAddToCart}
+            className={`w-full h-20 text-2xl rounded-2xl gap-3 font-semibold transition-all ${
+              addedVariantId
+                ? 'bg-green-600 hover:bg-green-600'
+                : 'bg-slate-900 hover:bg-slate-700'
+            }`}
+          >
+            {adding ? (
+              <Loader2 className="w-7 h-7 animate-spin" />
+            ) : addedVariantId ? (
+              <><Check className="w-7 h-7" /> Added!</>
+            ) : (
+              <><ShoppingBag className="w-7 h-7" /> Add to Cart</>
+            )}
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            className="w-full h-16 text-xl rounded-2xl gap-3 text-slate-600 border-slate-200"
+            onClick={() => navigate('/kiosk/chat')}
+          >
+            <Sparkles className="w-5 h-5" />
+            Ask Daksha AI about this
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}

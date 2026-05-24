@@ -1,8 +1,9 @@
 # app/api/routers/chat.py
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, File
 from pydantic import BaseModel
 import re
 import json
+import base64
 from typing import Optional, Dict, Any, List
 
 from langchain_core.messages import HumanMessage, AIMessage
@@ -29,6 +30,88 @@ from app.services.chat_session_service import (
 )
 
 router = APIRouter(prefix="/chat", tags=["Agentic Chat"])
+
+
+# ── Image similarity search helper ────────────────────────────────────────────
+def _image_similarity_search(db: Session, image_url: str, limit: int = 12) -> list[dict]:
+    """
+    Download the image via the Supabase service-role SDK, generate a Nomic
+    vision embedding, run pgvector similarity search against
+    product_multimodal_embeddings (modality='image'), and return hydrated
+    product card dicts ready for UI rendering.
+    """
+    from app.services.catalog_semantic_service import search_similar_by_image
+    from app.services.pricing_service import resolve_variant_price
+    from app.models.models import ProductVariant
+    import uuid as _uuid
+
+    from app.models.models import GlobalInventory
+
+    variant_ids = search_similar_by_image(db, image_url, limit=limit * 2)  # fetch extra to account for filtered-out
+    if not variant_ids:
+        return []
+
+    cards = []
+    for vid_str in variant_ids:
+        if len(cards) >= limit:
+            break
+        try:
+            vid = _uuid.UUID(vid_str)
+            v = db.get(ProductVariant, vid)
+            if not v or not v.product:
+                continue
+
+            # Only include variants that have inventory assigned (so quick-add works)
+            inv = db.get(GlobalInventory, vid)
+            available = 0
+            if inv:
+                available = (inv.total_stock or 0) - (inv.reserved_stock or 0) - (inv.assigned_stock or 0)
+            if available <= 0:
+                continue
+
+            price = resolve_variant_price(db, v)
+            cards.append({
+                "variant_id": str(v.id),
+                "product_id": str(v.product_id),
+                "name":       v.product.name,
+                "brand":      v.product.brand,
+                "category":   v.product.category,
+                "color":      v.color,
+                "size":       v.size,
+                "image":      v.images[0].image_url if v.images else None,
+                **price,
+            })
+        except Exception:
+            continue
+    return cards
+
+# ── Image upload endpoint (bypasses Supabase RLS via service-role key) ────────
+@router.post("/upload-image")
+async def upload_chat_image(
+    file: UploadFile = File(...),
+    current_user: "User" = Depends(get_current_user),
+):
+    """Receive an image from the frontend and store it in Supabase Storage
+    using the service-role key (which is exempt from RLS).
+    Returns { url: string } — the public Supabase URL."""
+    from app.services.storage_service import upload_chat_image as _upload
+
+    ALLOWED = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/heic"}
+    MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+
+    if file.content_type not in ALLOWED:
+        raise HTTPException(status_code=415, detail="Unsupported image type")
+
+    data = await file.read()
+    if len(data) > MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Image must be under 10 MB")
+
+    try:
+        public_url = _upload(data, file.content_type, file.filename or "image.jpg")
+        return {"url": public_url}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {e}")
+
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -68,6 +151,49 @@ class AdminReplyRequest(BaseModel):
 
 # ── One-time checkpointer setup flag ─────────────────────────────────────────
 _checkpointer_setup_done = False
+
+
+# ── Image inlining helper ─────────────────────────────────────────────────────
+async def _inline_image(url: str) -> str:
+    """
+    Download a Supabase storage image and return a base64 data URL
+    (data:<mime>;base64,...) so Gemini always receives raw image bytes.
+
+    Uses the Supabase service-role SDK client (.download()) instead of raw
+    HTTP — this bypasses any bucket-level RLS and avoids the 400 that Supabase
+    returns when auth headers are sent to a /object/public/ endpoint.
+    """
+    import mimetypes
+    from app.services.storage_service import supabase as _sb_admin
+
+    # Only handle Supabase storage URLs we know how to parse
+    _MARKER = "/storage/v1/object/public/"
+    if _MARKER not in url:
+        # Not a recognisable Supabase storage URL — return as-is
+        return url
+
+    try:
+        # Extract bucket + file path from the URL
+        # URL shape: https://<project>.supabase.co/storage/v1/object/public/<bucket>/<path>
+        tail = url.split(_MARKER, 1)[1]          # "user_uploaded_image/chat_xxx.png"
+        bucket, _, file_path = tail.partition("/")
+        file_path = file_path.split("?")[0]       # strip any query params
+
+        # SDK download uses the service-role key — no HTTP-level auth needed
+        file_bytes = _sb_admin.storage.from_(bucket).download(file_path)
+
+        # Infer MIME type from file extension
+        mime, _ = mimetypes.guess_type(file_path)
+        if not mime or mime in ("application/json", "text/html", "text/plain"):
+            mime = "image/jpeg"
+
+        b64 = base64.b64encode(file_bytes).decode()
+        print(f"[IMAGE INLINE] Inlined {bucket}/{file_path} as {mime} ({len(file_bytes)} bytes)")
+        return f"data:{mime};base64,{b64}"
+
+    except Exception as exc:
+        print(f"[IMAGE INLINE] SDK download failed for {url}: {exc}")
+        return url  # last-resort fall-back
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
@@ -149,7 +275,41 @@ async def chat_with_agent(
         # ── 2. Persist user message ───────────────────────────────────────────
         append_message(db, session_id_str, "user", request.message)
 
-        # ── 3. Build context ──────────────────────────────────────────────────
+        # ── 3a. IMAGE SEARCH — short-circuit: skip LangGraph entirely ───────────
+        # When the user uploads an image we generate a Nomic vision embedding
+        # and run pgvector similarity search against product image embeddings.
+        # This is faster, more accurate, and avoids Gemini vision entirely.
+        if request.image_url:
+            cards = _image_similarity_search(db, request.image_url)
+            if cards:
+                ui_data = {"type": "products", "products": cards}
+                response_text = (
+                    f"Here are {len(cards)} visually similar products I found based on your image:"
+                    if not request.message or request.message.strip() in ("", "Image search")
+                    else f"Based on your image, here are the most visually similar products:"
+                )
+            else:
+                ui_data = None
+                response_text = "I couldn't find any visually similar products. Could you describe what you're looking for?"
+
+            append_message(db, session_id_str, "assistant", response_text, ui_data=ui_data)
+
+            is_first_message = chat_session.name is None
+            if is_first_message:
+                background_tasks.add_task(_name_session_async, db, session_id_str, request.message or "Image search")
+            background_tasks.add_task(refresh_user_preference_summary, user_id_str, session_id_str)
+
+            print(f"\n{'='*50}\n📷 IMAGE SEARCH: found {len(cards)} similar products\n{'='*50}\n")
+            return ChatResponse(
+                response=response_text,
+                session_id=session_id_str,
+                session_name=chat_session.name,
+                current_agent="ImageSearch",
+                human_takeover=False,
+                ui_data=ui_data,
+            )
+
+        # ── 3b. Build context for text agent ─────────────────────────────────
         context = load_context(db, user_id_str, session_id_str)
         ctx_data = get_context_for_llm(db, session_id_str)
 
@@ -158,14 +318,7 @@ async def chat_with_agent(
         if ctx_data.get("summary"):
             summary_context += f"\n\nConversation summary so far:\n{ctx_data['summary']}"
 
-        # Build HumanMessage — multimodal when image_url is attached
-        if request.image_url:
-            human_msg = HumanMessage(content=[
-                {"type": "text", "text": request.message},
-                {"type": "image_url", "image_url": {"url": request.image_url}},
-            ])
-        else:
-            human_msg = HumanMessage(content=request.message)
+        human_msg = HumanMessage(content=request.message)
 
         input_state = {
             "messages": [human_msg],

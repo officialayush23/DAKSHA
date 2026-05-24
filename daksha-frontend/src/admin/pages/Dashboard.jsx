@@ -75,7 +75,8 @@ export default function Dashboard() {
   const totalStores    = stats.stores.length;
   const activeStores   = stats.stores.filter(s => s.active).length;
   const openComplaints = stats.complaints.filter(c => c.status === 'open').length;
-  const activeOffers   = stats.offers.filter(o => o.active).length;
+  // Coupon model uses status: 'active' | 'expired' | 'disabled' (not a boolean .active)
+  const activeOffers   = stats.offers.filter(o => o.status === 'active' || o.active === true).length;
   const stockUtil      = stats.inventory.total_stock > 0
     ? Math.min(100, (stats.inventory.reserved_stock / stats.inventory.total_stock) * 100) : 0;
 

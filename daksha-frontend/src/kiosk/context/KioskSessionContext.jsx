@@ -86,9 +86,10 @@ export const KioskProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    // ✅ FIX: Only run idle timer when on a /kiosk route, and skip the attract screen
+    // Only run idle timer on active shopping screens — skip attract, login, and select
     if (!isKioskRoute) return;
-    if (location.pathname === '/kiosk' || location.pathname === '/kiosk/') return;
+    const IDLE_EXEMPT = ['/kiosk', '/kiosk/', '/kiosk/login', '/kiosk/select'];
+    if (IDLE_EXEMPT.includes(location.pathname)) return;
 
     const timeoutMs = KIOSK_CONFIG?.IDLE_TIMEOUT_MS || 60000;
     const checkInactivity = () => {

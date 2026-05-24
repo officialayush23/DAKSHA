@@ -254,7 +254,7 @@ def get_inventory_kpis(db: Session):
     low_stock_variants = []
     inv_rows = (
         db.query(GlobalInventory)
-        .join(ProductVariant, ProductVariant.id == GlobalInventory.variant_id)
+        .join(ProductVariant, ProductVariant.id == GlobalInventory.product_variant_id)
         .join(Product, Product.id == ProductVariant.product_id)
         .all()
     )
@@ -262,10 +262,10 @@ def get_inventory_kpis(db: Session):
         assigned = getattr(inv, "assigned_stock", 0) or 0
         available = (inv.total_stock or 0) - (inv.reserved_stock or 0) - assigned
         if available <= LOW_STOCK_THRESHOLD:
-            v = db.query(ProductVariant).get(inv.variant_id)
+            v = db.query(ProductVariant).get(inv.product_variant_id)
             p = db.query(Product).get(v.product_id) if v else None
             low_stock_variants.append({
-                "variant_id": str(inv.variant_id),
+                "variant_id": str(inv.product_variant_id),
                 "sku": v.sku if v else None,
                 "name": p.name if p else "—",
                 "color": v.color if v else None,
@@ -418,10 +418,13 @@ def assign_store_inventory(db: Session, payload, admin_id, reason: str):
 def serialize_store(store):
     geojson = None
     if store.location:
-        geojson = mapping(to_shape(store.location))
+        try:
+            geojson = mapping(to_shape(store.location))
+        except Exception:
+            geojson = None
 
     return {
-        "id": store.id,
+        "id": str(store.id),
         "name": store.name,
         "city": store.city,
         "state": store.state,

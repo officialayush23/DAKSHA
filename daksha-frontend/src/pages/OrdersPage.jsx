@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useBasePath } from '../hooks/useBasePath';
 import { OrderService, ProductService, SupportService } from "../lib/api";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -37,6 +38,8 @@ const getStatusConfig = (status) => {
 };
 
 export default function OrdersPage() {
+  const navigate = useNavigate();
+  const { basePath } = useBasePath();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -170,10 +173,11 @@ export default function OrdersPage() {
         </div>
         <h1 className="text-4xl md:text-5xl font-serif font-bold text-zinc-900 mb-4 tracking-tight">No Orders Yet</h1>
         <p className="text-zinc-500 mb-10 text-lg max-w-md">Looks like you haven't placed any orders. Discover our latest collection!</p>
-        <Button asChild className="rounded-full px-10 py-7 text-lg bg-zinc-900 hover:bg-black text-white shadow-xl hover:scale-105 transition-all">
-          <Link to="/dash/shop">
-            Start Shopping <ChevronRight className="ml-2" />
-          </Link>
+        <Button
+          onClick={() => navigate(`${basePath}/shop`)}
+          className="rounded-full px-10 py-7 text-lg bg-zinc-900 hover:bg-black text-white shadow-xl hover:scale-105 transition-all"
+        >
+          Start Shopping <ChevronRight className="ml-2" />
         </Button>
       </div>
     );
@@ -184,9 +188,12 @@ export default function OrdersPage() {
       
       {/* Top Nav */}
       <div className="mb-10">
-        <Link to="/dash/profile" className="group flex items-center text-sm font-semibold uppercase tracking-widest text-zinc-400 hover:text-black transition-colors w-fit">
+        <button
+          onClick={() => navigate(`${basePath}/profile`)}
+          className="group flex items-center text-sm font-semibold uppercase tracking-widest text-zinc-400 hover:text-black transition-colors w-fit"
+        >
           <ArrowLeft size={18} className="mr-2 group-hover:-translate-x-1 transition-transform" /> Back to Profile
-        </Link>
+        </button>
       </div>
 
       <div className="flex items-baseline justify-between mb-10">
