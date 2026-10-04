@@ -1,345 +1,221 @@
 # app/api/routers/websocket_handoff.py
 """
-WebSocket-based Human Handoff System
-══════════════════════════════════════════════════════════════════════════
-Two WebSocket endpoints:
-  WS /ws/customer/{session_id}  — customer's chat UI connects here
-  WS /ws/admin/{handoff_id}     — admin panel connects here
+Human handoff over WebSockets.
 
-When an agent calls request_human_handoff:
-  1. AgentHandoff record created (REST, already exists)
-  2. Customer's WS is already open → they see a "connecting to human" message
-  3. Admin opens Handoffs page → connects to WS /ws/admin/{handoff_id}
-  4. Both ends joined to the same Redis pub/sub channel: ws:room:{session_id}
-  5. Any message from either end → saved to handoff_messages + pub/sub → other end
-  6. Admin clicks Resolve → handoff.status = resolved → AI resumes
-══════════════════════════════════════════════════════════════════════════
+  WS /ws/customer/{chat_session_id}?token=...   customer side (Supabase or kiosk token, must own the chat)
+  WS /ws/admin/lobby?token=...                   staff dashboard: new handoffs + approval requests appear live
+  WS /ws/admin/{handoff_id}?token=...            staff side of one conversation (admin role required)
+  GET /ws/admin/handoffs/open                    open handoffs (admin)
+
+When the graph escalates (customer asks for a person, repeated failures, or
+a critical complaint), an agent_handoffs row is opened for the chat thread.
+While it is open, /chat/ relays customer messages here instead of running the
+agents. Resolving the handoff hands the thread back to the agents, which see
+the whole human exchange in the chat history.
+
+Connections are tracked in-process (fine for one instance). Messages are
+persisted to handoff_messages and chat_messages, so nothing is lost if a
+socket drops.
 """
-import json
-import uuid
 import asyncio
+import uuid
 from datetime import datetime, timezone
-from typing import Dict, Set
+from typing import Dict, Optional, Set
 
-import redis.asyncio as aioredis
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
+from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db
-from app.core.config import settings
-from app.core.auth import verify_token_ws          # you'll wire this below
-from app.models.models import AgentHandoff, HandoffMessage, UserSession, Conversation
-from app.enums.db_enums import ComplaintStatusEnum, ChannelEnum
+from app.core.auth import verify_token_ws
+from app.core.database import SessionLocal
+from app.core.deps import get_current_admin, get_db
 
 router = APIRouter(prefix="/ws", tags=["websocket-handoff"])
 
-# ── Redis pub/sub helper ───────────────────────────────────────────────────────
-
-def _room_channel(session_id: str) -> str:
-    return f"ws:room:{session_id}"
-
-
-async def get_redis() -> aioredis.Redis:
-    return await aioredis.from_url(settings.REDIS_URL, decode_responses=True)
-
-
-# ── In-memory connection registry (per process — fine for single-instance) ────
-# For multi-instance: replace with Redis pub/sub subscriber per connection
 
 class ConnectionManager:
     def __init__(self):
-        # session_id → set of customer WebSocket connections
-        self._customer_connections: Dict[str, Set[WebSocket]] = {}
-        # handoff_id → set of admin WebSocket connections
-        self._admin_connections: Dict[str, Set[WebSocket]] = {}
+        self.customers: Dict[str, Set[WebSocket]] = {}
+        self.admins: Dict[str, Set[WebSocket]] = {}
+        self.lobby: Set[WebSocket] = set()
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
 
-    # ── Customer ──────────────────────────────────────────────────────────────
-    def add_customer(self, session_id: str, ws: WebSocket):
-        self._customer_connections.setdefault(session_id, set()).add(ws)
-
-    def remove_customer(self, session_id: str, ws: WebSocket):
-        if session_id in self._customer_connections:
-            self._customer_connections[session_id].discard(ws)
-
-    async def send_to_customer(self, session_id: str, payload: dict):
-        for ws in list(self._customer_connections.get(session_id, [])):
+    async def _send(self, conns: Set[WebSocket], payload: dict):
+        for ws in list(conns):
             try:
                 await ws.send_json(payload)
             except Exception:
-                self._customer_connections[session_id].discard(ws)
+                conns.discard(ws)
 
-    # ── Admin ─────────────────────────────────────────────────────────────────
-    def add_admin(self, handoff_id: str, ws: WebSocket):
-        self._admin_connections.setdefault(handoff_id, set()).add(ws)
+    async def to_customer(self, chat_id: str, payload: dict):
+        await self._send(self.customers.get(chat_id, set()), payload)
 
-    def remove_admin(self, handoff_id: str, ws: WebSocket):
-        if handoff_id in self._admin_connections:
-            self._admin_connections[handoff_id].discard(ws)
+    async def to_admins(self, handoff_id: str, payload: dict):
+        await self._send(self.admins.get(handoff_id, set()), payload)
 
-    async def send_to_admins(self, handoff_id: str, payload: dict):
-        for ws in list(self._admin_connections.get(handoff_id, [])):
-            try:
-                await ws.send_json(payload)
-            except Exception:
-                self._admin_connections[handoff_id].discard(ws)
+    async def to_lobby(self, payload: dict):
+        await self._send(self.lobby, payload)
+
+    def broadcast_lobby_threadsafe(self, payload: dict):
+        """Called from worker threads (graph nodes) to ping the staff dashboard."""
+        if self.loop and self.loop.is_running():
+            asyncio.run_coroutine_threadsafe(self.to_lobby(payload), self.loop)
 
 
 manager = ConnectionManager()
 
 
-# ── DB helpers ────────────────────────────────────────────────────────────────
+def _now():
+    return datetime.now(timezone.utc).isoformat()
 
-def _save_handoff_message(
-    db: Session,
-    handoff_id: uuid.UUID,
-    session_id: uuid.UUID,
-    speaker: str,
-    message: str,
-    admin_id: uuid.UUID | None = None,
-) -> "HandoffMessage":
-    msg = HandoffMessage(
-        handoff_id=handoff_id,
-        session_id=session_id,
-        speaker=speaker,
-        message=message,
-        admin_id=admin_id,
-    )
-    db.add(msg)
-    # Also persist to conversations table for AI context after handoff resolves
-    conv = Conversation(
-        session_id=session_id,
-        channel=ChannelEnum.web,
-        speaker=speaker,
-        message=message,
-        intent="human_handoff",
-    )
-    db.add(conv)
+
+def _persist(db: Session, handoff_id: str, chat_id: str, speaker: str, message: str, admin_id: Optional[str] = None):
+    db.execute(text("""INSERT INTO handoff_messages (id, handoff_id, speaker, message, admin_id)
+                       VALUES (:id, :h, :sp, :m, :a)"""),
+               {"id": str(uuid.uuid4()), "h": handoff_id, "sp": speaker, "m": message, "a": admin_id})
+    if speaker == "admin":
+        db.execute(text("""INSERT INTO chat_messages (id, session_id, role, content, created_at)
+                           VALUES (:id, :s, 'staff', :m, now())"""), {"id": str(uuid.uuid4()), "s": chat_id, "m": message})
     db.commit()
-    db.refresh(msg)
-    return msg
 
 
-def _get_handoff_history(db: Session, handoff_id: uuid.UUID) -> list:
-    msgs = (
-        db.query(HandoffMessage)
-        .filter(HandoffMessage.handoff_id == handoff_id)
-        .order_by(HandoffMessage.created_at.asc())
-        .all()
-    )
-    return [
-        {
-            "id": str(m.id),
-            "speaker": m.speaker,
-            "message": m.message,
-            "created_at": m.created_at.isoformat(),
-        }
-        for m in msgs
-    ]
+def notify_admins_new_handoff(handoff_id: str):
+    manager.broadcast_lobby_threadsafe({"type": "handoff_opened", "handoff_id": handoff_id, "at": _now()})
 
 
-# ── Customer WebSocket ─────────────────────────────────────────────────────────
+def notify_admins_new_approval(approval_id: str, summary: str):
+    manager.broadcast_lobby_threadsafe({"type": "approval_requested", "approval_id": approval_id, "summary": summary, "at": _now()})
 
-@router.websocket("/customer/{session_id}")
-async def customer_ws(
-    websocket: WebSocket,
-    session_id: str,
-    db: Session = Depends(get_db),
-):
-    """
-    Customer connects here. If a handoff is active for their session,
-    messages are relayed to the admin. Otherwise messages are ignored
-    (the AI handles them via the REST /chat endpoint).
-    """
+
+async def relay_customer_message(db: Session, handoff_id: str, chat_id: str, message: str):
+    """Customer typed in /chat/ while a human owns the thread (chat_messages row already written)."""
+    db.execute(text("""INSERT INTO handoff_messages (id, handoff_id, speaker, message) VALUES (:id, :h, 'user', :m)"""),
+               {"id": str(uuid.uuid4()), "h": handoff_id, "m": message})
+    db.commit()
+    await manager.to_admins(handoff_id, {"type": "message", "speaker": "user", "message": message, "timestamp": _now()})
+
+
+async def relay_admin_message(db: Session, handoff_id: str, chat_id: str, message: str, admin_id: str):
+    _persist(db, handoff_id, chat_id, "admin", message, admin_id)
+    payload = {"type": "message", "speaker": "admin", "message": message, "timestamp": _now()}
+    await manager.to_customer(chat_id, payload)
+    await manager.to_admins(handoff_id, payload)
+
+
+def _is_admin(db: Session, claims: Optional[dict]) -> Optional[str]:
+    if not claims or claims.get("aud") != "authenticated":
+        return None
+    row = db.execute(text("SELECT id, role FROM users WHERE id = :u"), {"u": claims.get("sub")}).first()
+    return str(row.id) if row and row.role == "admin" else None
+
+
+# ── Customer ──────────────────────────────────────────────────────────────────
+
+@router.websocket("/customer/{chat_session_id}")
+async def customer_ws(websocket: WebSocket, chat_session_id: str, token: Optional[str] = Query(default=None)):
+    claims = await verify_token_ws(websocket, token)
+    with SessionLocal() as db:
+        owner = db.execute(text("SELECT user_id FROM chat_sessions WHERE id = :s"), {"s": chat_session_id}).first() if claims else None
+    if not claims or not owner or str(owner.user_id) != claims.get("sub"):
+        await websocket.close(code=4401)
+        return
+    manager.loop = asyncio.get_running_loop()
     await websocket.accept()
-    manager.add_customer(session_id, websocket)
-
-    # Find active handoff for this session
-    session = db.query(UserSession).filter(
-        UserSession.id == uuid.UUID(session_id)
-    ).first()
-
+    manager.customers.setdefault(chat_session_id, set()).add(websocket)
     try:
         while True:
             data = await websocket.receive_json()
-            message_text = data.get("message", "").strip()
-            if not message_text:
+            msg = (data.get("message") or "").strip()
+            if not msg:
                 continue
-
-            # Only relay if handoff is active
-            if session and session.active_handoff_id:
-                handoff_id = str(session.active_handoff_id)
-                _save_handoff_message(
-                    db,
-                    handoff_id=session.active_handoff_id,
-                    session_id=uuid.UUID(session_id),
-                    speaker="user",
-                    message=message_text,
-                )
-                payload = {
-                    "type": "message",
-                    "speaker": "user",
-                    "message": message_text,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "session_id": session_id,
-                }
-                await manager.send_to_admins(handoff_id, payload)
-                # Echo back to customer (acknowledge receipt)
-                await websocket.send_json({
-                    "type": "ack",
-                    "message": message_text,
-                    "timestamp": payload["timestamp"],
-                })
+            with SessionLocal() as db:
+                h = db.execute(text("""SELECT id FROM agent_handoffs WHERE chat_session_id = :s
+                                       AND status IN ('open','in_progress') LIMIT 1"""), {"s": chat_session_id}).first()
+                if not h:
+                    await websocket.send_json({"type": "info", "message": "No human is on this chat right now; send it through the assistant."})
+                    continue
+                db.execute(text("""INSERT INTO chat_messages (id, session_id, role, content, created_at)
+                                   VALUES (:id, :s, 'user', :m, now())"""), {"id": str(uuid.uuid4()), "s": chat_session_id, "m": msg})
+                db.commit()
+                await relay_customer_message(db, str(h.id), chat_session_id, msg)
+            await websocket.send_json({"type": "ack", "message": msg, "timestamp": _now()})
     except WebSocketDisconnect:
-        manager.remove_customer(session_id, websocket)
+        manager.customers.get(chat_session_id, set()).discard(websocket)
 
 
-# ── Admin WebSocket ────────────────────────────────────────────────────────────
+# ── Staff ─────────────────────────────────────────────────────────────────────
+
+@router.websocket("/admin/lobby")
+async def admin_lobby(websocket: WebSocket, token: Optional[str] = Query(default=None)):
+    claims = await verify_token_ws(websocket, token)
+    with SessionLocal() as db:
+        if not _is_admin(db, claims):
+            await websocket.close(code=4403)
+            return
+    manager.loop = asyncio.get_running_loop()
+    await websocket.accept()
+    manager.lobby.add(websocket)
+    try:
+        while True:
+            await websocket.receive_text()   # keepalive pings
+    except WebSocketDisconnect:
+        manager.lobby.discard(websocket)
+
 
 @router.websocket("/admin/{handoff_id}")
-async def admin_ws(
-    websocket: WebSocket,
-    handoff_id: str,
-    db: Session = Depends(get_db),
-):
-    """
-    Admin connects here to handle a specific handoff.
-    On connect: sends full conversation history.
-    On message: relays to the customer.
-    On resolve event: marks handoff resolved, AI resumes.
-    """
-    await websocket.accept()
-    manager.add_admin(handoff_id, websocket)
-
-    handoff = db.query(AgentHandoff).filter(
-        AgentHandoff.id == uuid.UUID(handoff_id)
-    ).first()
-
-    if not handoff:
-        await websocket.send_json({"type": "error", "message": "Handoff not found."})
-        await websocket.close()
+async def admin_ws(websocket: WebSocket, handoff_id: str, token: Optional[str] = Query(default=None)):
+    claims = await verify_token_ws(websocket, token)
+    with SessionLocal() as db:
+        admin_id = _is_admin(db, claims)
+        h = db.execute(text("SELECT * FROM agent_handoffs WHERE id = :h"), {"h": handoff_id}).mappings().first() if admin_id else None
+    if not admin_id or not h:
+        await websocket.close(code=4403)
         return
-
-    session_id = str(handoff.session_id) if handoff.session_id else None
-
-    # Send full history on connect
-    history = _get_handoff_history(db, uuid.UUID(handoff_id))
+    manager.loop = asyncio.get_running_loop()
+    await websocket.accept()
+    manager.admins.setdefault(handoff_id, set()).add(websocket)
+    chat_id = str(h["chat_session_id"]) if h["chat_session_id"] else None
+    with SessionLocal() as db:
+        hist = db.execute(text("""SELECT role, content, created_at FROM chat_messages WHERE session_id = :s
+                                  ORDER BY created_at"""), {"s": chat_id}).fetchall() if chat_id else []
     await websocket.send_json({
-        "type": "history",
-        "handoff_id": handoff_id,
-        "session_id": session_id,
-        "user_id": str(handoff.user_id) if handoff.user_id else None,
-        "reason": handoff.reason,
-        "summary": handoff.summary,
-        "messages": history,
+        "type": "history", "handoff_id": handoff_id, "session_id": chat_id, "user_id": str(h["user_id"]) if h["user_id"] else None,
+        "reason": h["reason"], "summary": h["summary"],
+        "messages": [{"speaker": {"assistant": "ai", "staff": "admin"}.get(r.role, r.role), "message": r.content,
+                      "created_at": r.created_at.isoformat() if r.created_at else None} for r in hist],
     })
-
     try:
         while True:
             data = await websocket.receive_json()
-            event_type = data.get("type", "message")
-
-            # ── Admin sends a chat message ─────────────────────────────────
-            if event_type == "message":
-                message_text = data.get("message", "").strip()
-                admin_id_str = data.get("admin_id")
-                if not message_text:
-                    continue
-
-                admin_id = uuid.UUID(admin_id_str) if admin_id_str else None
-                _save_handoff_message(
-                    db,
-                    handoff_id=uuid.UUID(handoff_id),
-                    session_id=uuid.UUID(session_id) if session_id else None,
-                    speaker="admin",
-                    message=message_text,
-                    admin_id=admin_id,
-                )
-                payload = {
-                    "type": "message",
-                    "speaker": "admin",
-                    "message": message_text,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-                # Send to customer
-                if session_id:
-                    await manager.send_to_customer(session_id, payload)
-                # Echo to all admin tabs watching this handoff
-                await manager.send_to_admins(handoff_id, payload)
-
-            # ── Admin resolves the handoff ─────────────────────────────────
-            elif event_type == "resolve":
-                admin_id_str = data.get("admin_id")
-                note = data.get("note", "")
-
-                handoff.status = ComplaintStatusEnum.resolved
-                handoff.resolved_at = datetime.now(timezone.utc)
-                handoff.resolved_by = uuid.UUID(admin_id_str) if admin_id_str else None
-                handoff.resolution_note = note
-
-                # Clear pending_human_input on the session
-                if session_id:
-                    session = db.query(UserSession).filter(
-                        UserSession.id == uuid.UUID(session_id)
-                    ).first()
-                    if session:
-                        session.active_handoff_id = None
-                        ctx = dict(session.context or {})
-                        ctx["pending_human_input"] = False
-                        session.context = ctx
-
-                db.commit()
-
-                # Notify customer that AI is resuming
-                if session_id:
-                    await manager.send_to_customer(session_id, {
-                        "type": "handoff_resolved",
-                        "message": "Our support team has resolved your query. I'll take it from here! How can I help you?",
-                    })
-                # Notify admin
-                await manager.send_to_admins(handoff_id, {
-                    "type": "handoff_resolved",
-                    "message": f"Handoff resolved by admin.",
-                })
-
-            # ── Admin assigns the handoff ──────────────────────────────────
-            elif event_type == "assign":
-                admin_id_str = data.get("admin_id")
-                if admin_id_str:
-                    handoff.assigned_to_admin_id = uuid.UUID(admin_id_str)
-                    handoff.status = ComplaintStatusEnum.in_progress
+            kind = data.get("type", "message")
+            with SessionLocal() as db:
+                if kind == "message" and (data.get("message") or "").strip() and chat_id:
+                    await relay_admin_message(db, handoff_id, chat_id, data["message"].strip(), admin_id)
+                elif kind == "assign":
+                    db.execute(text("UPDATE agent_handoffs SET assigned_to_admin_id = :a, status = 'in_progress' WHERE id = :h"),
+                               {"a": admin_id, "h": handoff_id})
                     db.commit()
-                    await manager.send_to_admins(handoff_id, {
-                        "type": "assigned",
-                        "admin_id": admin_id_str,
-                    })
-
+                    await manager.to_admins(handoff_id, {"type": "assigned", "admin_id": admin_id})
+                elif kind == "resolve":
+                    db.execute(text("""UPDATE agent_handoffs SET status = 'resolved', resolved_at = now(), resolved_by = :a,
+                                       resolution_note = :n WHERE id = :h"""), {"a": admin_id, "n": data.get("note", ""), "h": handoff_id})
+                    db.commit()
+                    msg = "Our team has wrapped up. I'm back to help with anything else."
+                    if chat_id:
+                        db.execute(text("""INSERT INTO chat_messages (id, session_id, role, content, created_at)
+                                           VALUES (:id, :s, 'assistant', :m, now())"""), {"id": str(uuid.uuid4()), "s": chat_id, "m": msg})
+                        db.commit()
+                        await manager.to_customer(chat_id, {"type": "handoff_resolved", "message": msg})
+                    await manager.to_admins(handoff_id, {"type": "handoff_resolved", "message": "Resolved. The assistant has the conversation again."})
     except WebSocketDisconnect:
-        manager.remove_admin(handoff_id, websocket)
+        manager.admins.get(handoff_id, set()).discard(websocket)
 
-
-# ── REST: Get open handoffs list (for admin panel polling on load) ────────────
 
 @router.get("/admin/handoffs/open")
-def get_open_handoffs(db: Session = Depends(get_db)):
-    """Returns all open/in-progress handoffs for the admin panel."""
-    handoffs = (
-        db.query(AgentHandoff)
-        .filter(AgentHandoff.status.in_(["open", "in_progress"]))
-        .order_by(AgentHandoff.created_at.desc())
-        .limit(50)
-        .all()
-    )
-    return [
-        {
-            "id": str(h.id),
-            "session_id": str(h.session_id) if h.session_id else None,
-            "user_id": str(h.user_id) if h.user_id else None,
-            "from_agent_name": h.from_agent_name,
-            "reason": h.reason,
-            "summary": h.summary,
-            "status": h.status.value if h.status else "open",
-            "escalation_level": h.escalation_level,
-            "created_at": h.created_at.isoformat() if h.created_at else None,
-        }
-        for h in handoffs
-    ]
+def get_open_handoffs(db: Session = Depends(get_db), admin=Depends(get_current_admin)):
+    rows = db.execute(text("""SELECT id, session_id, chat_session_id, user_id, from_agent_name, reason, summary, status,
+                                     escalation_level, created_at FROM agent_handoffs
+                              WHERE status IN ('open','in_progress') ORDER BY created_at DESC LIMIT 50""")).mappings().fetchall()
+    return [{**{k: (str(v) if k.endswith("id") and v else v) for k, v in r.items()},
+             "session_id": str(r["chat_session_id"] or r["session_id"] or "") or None,
+             "created_at": r["created_at"].isoformat() if r["created_at"] else None} for r in rows]

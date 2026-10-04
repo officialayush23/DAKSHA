@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient'; 
+import { getAccessToken } from './authToken';
 
 // --- Base API Client ---
 export const apiClient = async (endpoint, method = 'GET', data = null, params = {}) => {
@@ -18,8 +18,8 @@ export const apiClient = async (endpoint, method = 'GET', data = null, params = 
     },
   };
 
-  const { data: sessionData } = await supabase.auth.getSession();
-  const token = sessionData?.session?.access_token;
+  const token = await getAccessToken();
+  options.headers['X-Channel'] = 'kiosk';
   if (token) {
     options.headers.Authorization = `Bearer ${token}`;
   }
@@ -56,11 +56,11 @@ export const KioskService = {
   startSession: (channel = 'kiosk') =>
     apiClient('/session/start', 'POST', null, { channel }),
 
-  // FIX: Phone login — replaces QR flow. POST /kiosk/login
-  login: (phone, kiosk_id) => {
-  console.log("Login payload:", { phone, kiosk_id });
-  return apiClient('/kiosk/login', 'POST', { phone, kiosk_id });
-},
+  // Phone login, step 1: sends a one-time code to the customer's email / Telegram / inbox
+  login: (phone, kiosk_id) => apiClient('/kiosk/login', 'POST', { phone, kiosk_id }),
+
+  // Step 2: verify the code -> short-lived kiosk token
+  verify: (challenge_id, otp) => apiClient('/kiosk/verify', 'POST', { challenge_id, otp }),
 
 listStores: () =>
   apiClient('/kiosk/stores', 'GET'),

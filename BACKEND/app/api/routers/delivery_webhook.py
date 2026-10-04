@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, get_current_admin
+from app.core.deps import get_db, get_current_admin, get_current_user
 from app.core.config import settings
 from app.models.models import DeliveryTracking, Shipment, Order
 from app.enums.db_enums import ShipmentStatusEnum, OrderStatusEnum
@@ -92,7 +92,7 @@ async def _process_push(db: Session, order_id: UUID, push: CourierPush) -> dict:
     shipment = (
         db.query(Shipment)
         .filter(Shipment.order_id == order_id)
-        .order_by(Shipment.created_at.desc())
+        .order_by(Shipment.updated_at.desc())
         .first()
     )
 
@@ -159,8 +159,12 @@ async def simulate_delivery_push(
 def get_delivery_tracking(
     order_id: UUID,
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
 ):
-    """Returns the full delivery timeline for an order (latest first)."""
+    """Returns the full delivery timeline for an order (latest first). Owner or admin only."""
+    order = db.get(Order, order_id)
+    if not order or (order.user_id != user.id and getattr(user.role, "value", user.role) != "admin"):
+        raise HTTPException(status_code=404, detail="Order not found")
     events = (
         db.query(DeliveryTracking)
         .filter(DeliveryTracking.order_id == order_id)

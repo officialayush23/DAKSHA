@@ -11,7 +11,8 @@ def rank_candidates(
     user_id: str,
     candidate_ids: list,
     intent_text: str = None,
-    limit: int = 100
+    limit: int = 100,
+    intent_vec: list = None,
 ):
     """
     Phase 2: RANK
@@ -23,11 +24,10 @@ def rank_candidates(
         return []
 
     # ✅ compute embedding once
-    intent_vec = (
-    str(generate_text_embedding(intent_text))
-    if intent_text
-    else None
-)
+    if intent_text:
+        intent_vec = str(list(intent_vec) if intent_vec else generate_text_embedding(intent_text, task_type="search_query"))
+    else:
+        intent_vec = None
 
     sql = text("""
     WITH user_pref AS (

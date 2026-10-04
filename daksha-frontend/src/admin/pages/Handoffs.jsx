@@ -1,5 +1,6 @@
 // src/admin/pages/Handoffs.jsx — Live WebSocket human handoff panel
 import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { getAccessToken } from '@/lib/authToken';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -58,7 +59,8 @@ export default function Handoffs() {
   const fetchHandoffs = useCallback(async () => {
     setLoading(true);
     try {
-      const res  = await fetch(`${API_BASE}/ws/admin/handoffs/open`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      const token = await getAccessToken();
+      const res  = await fetch(`${API_BASE}/ws/admin/handoffs/open`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       setHandoffs(Array.isArray(data) ? data : []);
     } catch { toast.error('Could not load handoffs'); }
@@ -73,10 +75,11 @@ export default function Handoffs() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  const openHandoff = useCallback((h) => {
+  const openHandoff = useCallback(async (h) => {
     wsRef.current?.close();
     setSelected(h); setMessages([]); setWsStatus('connecting');
-    const ws = new WebSocket(`${WS_BASE}/ws/admin/${h.id}`);
+    const token = await getAccessToken();
+    const ws = new WebSocket(`${WS_BASE}/ws/admin/${h.id}?token=${encodeURIComponent(token || '')}`);
     wsRef.current = ws;
     ws.onopen = () => setWsStatus('connected');
     ws.onmessage = (e) => {

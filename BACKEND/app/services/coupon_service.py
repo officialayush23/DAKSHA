@@ -1,6 +1,6 @@
 # app/services/coupon_service.py
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, func
 from datetime import datetime, timezone
 from uuid import UUID
 from typing import List, Dict
@@ -63,27 +63,44 @@ def get_eligible_coupons(db: Session, user_id, cart_total: float, category_set: 
         "system": eligible,
     }
 
+def _clean(v):
+    if isinstance(v, str):
+        v = v.strip()
+        if v.lower() in ("", "null", "undefined", "none"):
+            return None
+    return v
+
+
+def _aware(dt):
+    return dt if (dt is None or dt.tzinfo) else dt.replace(tzinfo=timezone.utc)
+
+
 def apply_coupon(
     db: Session,
     checkout_id,
     coupon_code: str | None = None,
     personal_offer_id=None,
-    cart_total: float = 0,
+    cart_total: float | None = None,   # ignored: kept for old callers; the server price is used
+    user_id=None,
 ):
+    """
+    Apply a coupon OR a personalised offer to a checkout.
+
+    The discount is always computed from checkout.locked_price, which the
+    server locked when stock was reserved. A caller (UI or agent) cannot
+    inflate the base by passing its own cart_total.
+    """
     checkout = db.get(CheckoutSession, checkout_id)
-    if not checkout:
+    if not checkout or (user_id is not None and str(checkout.user_id) != str(user_id)):
         raise ValueError("Checkout session not found.")
+    if getattr(checkout.state, "value", checkout.state) in ("ORDER_CONFIRMED", "CANCELLED", "ROLLED_BACK"):
+        raise ValueError("This checkout is closed. Start a new checkout to use a coupon.")
 
-    # 🛡️ Clean inputs: React often sends "null", "undefined", or "" instead of a true None
-    if isinstance(personal_offer_id, str) and personal_offer_id.strip().lower() in ("", "null", "undefined", "none"):
-        personal_offer_id = None
-        
-    if isinstance(coupon_code, str):
-        coupon_code = coupon_code.strip()
-        if coupon_code.lower() in ("", "null", "undefined", "none"):
-            coupon_code = None
+    base = float(checkout.locked_price or 0)
+    personal_offer_id = _clean(personal_offer_id)
+    coupon_code = _clean(coupon_code)
+    now = datetime.now(timezone.utc)
 
-    # Handle explicit clearing of coupons
     if not personal_offer_id and not coupon_code:
         checkout.applied_personal_offer_id = None
         checkout.applied_coupon_id = None
@@ -92,57 +109,58 @@ def apply_coupon(
         return 0
 
     if personal_offer_id:
-        # Validate UUID format before querying
         try:
             valid_uuid = UUID(str(personal_offer_id))
         except ValueError:
             raise ValueError("Invalid personalized offer ID format.")
-
         offer = db.get(UserPersonalizedOffer, valid_uuid)
-        
-        # 🛡️ STRICT SAFETY CHECKS
         if not offer:
             raise ValueError("Personalized offer not found.")
         if offer.user_id != checkout.user_id:
             raise ValueError("This offer belongs to a different user.")
         if offer.is_redeemed:
             raise ValueError("This offer has already been redeemed.")
-        if offer.expires_at and offer.expires_at < datetime.now(timezone.utc):
+        if offer.expires_at and _aware(offer.expires_at) < now:
             raise ValueError("This offer has expired.")
-
-        discount = (
-            cart_total * float(offer.discount_value) / 100
-            if getattr(offer.discount_type, 'value', offer.discount_type) == "percentage"
-            else float(offer.discount_value)
-        )
-
-        # Apply to checkout, but do NOT mark as redeemed yet!
+        pct = getattr(offer.discount_type, "value", offer.discount_type) == "percentage"
+        discount = base * float(offer.discount_value) / 100 if pct else float(offer.discount_value)
         checkout.applied_personal_offer_id = offer.id
-        checkout.applied_coupon_id = None # Clear standard coupon
-        checkout.discount_amount = discount
-
-    elif coupon_code:
-        coupon = db.query(Coupon).filter_by(code=coupon_code).first()
-        
-        if not coupon or getattr(coupon.status, 'value', coupon.status) != "active":
+        checkout.applied_coupon_id = None
+    else:
+        coupon = db.query(Coupon).filter(func.upper(Coupon.code) == coupon_code.upper()).first()
+        if not coupon or getattr(coupon.status, "value", coupon.status) != "active":
             raise ValueError(f"Coupon code '{coupon_code}' is invalid or inactive.")
-
-        discount = (
-            cart_total * float(coupon.value) / 100
-            if getattr(coupon.coupon_type, 'value', coupon.coupon_type) == "percentage"
-            else float(coupon.value)
-        )
-
+        if coupon.valid_from and _aware(coupon.valid_from) > now:
+            raise ValueError("This coupon is not active yet.")
+        if coupon.valid_to and _aware(coupon.valid_to) < now:
+            raise ValueError("This coupon has expired.")
+        if coupon.min_order_value and base < float(coupon.min_order_value):
+            raise ValueError(f"This coupon needs a minimum order of {float(coupon.min_order_value):.0f}.")
+        used = db.query(func.count(CouponRedemption.id)).filter(CouponRedemption.coupon_id == coupon.id).scalar() or 0
+        if coupon.usage_limit and used >= coupon.usage_limit:
+            raise ValueError("This coupon has reached its usage limit.")
+        mine = (db.query(func.count(CouponRedemption.id))
+                .filter(CouponRedemption.coupon_id == coupon.id, CouponRedemption.user_id == checkout.user_id).scalar() or 0)
+        if coupon.per_user_limit and mine >= coupon.per_user_limit:
+            raise ValueError("You've already used this coupon.")
+        scope = getattr(coupon.scope, "value", coupon.scope)
+        if scope == "category" and coupon.scope_value:
+            hit = db.execute(text("""SELECT 1 FROM cart_items ci JOIN product_variants pv ON pv.id = ci.product_variant_id
+                                     JOIN products p ON p.id = pv.product_id
+                                     WHERE ci.cart_id = :c AND (lower(p.category) = lower(:v) OR lower(p.brand) = lower(:v)) LIMIT 1"""),
+                             {"c": str(checkout.cart_id), "v": coupon.scope_value}).first()
+            if not hit:
+                raise ValueError(f"'{coupon.code}' only applies to {coupon.scope_value} items.")
+        pct = getattr(coupon.coupon_type, "value", coupon.coupon_type) == "percentage"
+        discount = base * float(coupon.value) / 100 if pct else float(coupon.value)
         if coupon.max_discount:
             discount = min(discount, float(coupon.max_discount))
-
-        # Apply to checkout
         checkout.applied_coupon_id = coupon.id
-        checkout.applied_personal_offer_id = None # Clear personal offer
-        checkout.discount_amount = discount
+        checkout.applied_personal_offer_id = None
 
+    checkout.discount_amount = round(max(0.0, min(discount, base)), 2)
     db.commit()
-    return checkout.discount_amount
+    return float(checkout.discount_amount)
 
 
 def finalize_coupon_redemption(db: Session, checkout_id, order_id):

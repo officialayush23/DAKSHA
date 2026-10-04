@@ -9,6 +9,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useBasePath } from '../hooks/useBasePath';
 import api from '../lib/api';
+import { detectChannel, getAccessToken, wsBase } from '../lib/authToken';
+import { PlanTrace, ApprovalCard, UiCard, agentLabel } from '../components/agent/AgentExtras';
 import { toast } from 'sonner';
 // Image uploads go through the backend (/chat/upload-image) to bypass Supabase RLS
 
@@ -41,8 +43,10 @@ const { Meta } = Card;
 const WELCOME_MSG = {
   role: 'assistant',
   content: 'Welcome back. I am your Daksha Concierge. How may I assist your style journey today?',
-  current_agent: 'Unified Agent',
+  current_agent: 'orchestrator',
 };
+
+const productsOf = (ui) => (ui ? (ui.products || ui.trending_products || (ui.type === 'products' ? ui.items : null) || []) : []);
 
 export default function ChatInterface() {
   const location = useLocation();
@@ -58,7 +62,9 @@ export default function ChatInterface() {
   const [loadingHistory,setLoadingHistory] = useState(false);
   const [input,         setInput]         = useState('');
   const [isTyping,      setIsTyping]      = useState(false);
-  const [currentAgent,  setCurrentAgent]  = useState('Unified Agent');
+  const [currentAgent,  setCurrentAgent]  = useState('Orchestrator');
+  const [humanMode,     setHumanMode]     = useState(false);
+  const wsRef = useRef(null);
   const scrollRef = useRef(null);
 
   const [isListening,   setIsListening]   = useState(false);
@@ -156,11 +162,11 @@ export default function ChatInterface() {
         const history = res.data || [];
         if (history.length > 0) {
           setMessages(history.map(m => ({
-            role: m.role,
+            role: m.role === 'staff' ? 'staff' : m.role,
             content: m.content,
-            products: m.ui_data
-              ? (m.ui_data.products || m.ui_data.trending_products || m.ui_data.items || [])
-              : [],
+            products: productsOf(m.ui_data),
+            ui: m.ui_data && m.ui_data.type !== 'products' ? m.ui_data : null,
+            plan: m.ui_data?._agentic?.plan || [],
           })));
         } else {
           setMessages([WELCOME_MSG]);
@@ -200,23 +206,16 @@ export default function ChatInterface() {
     setIsTyping(true);
 
     try {
-      const res  = await api.post('/chat/', { message: messageText, session_id: sessionId, image_url: imageUrl });
+      const channel = detectChannel();
+      const storeId = channel === 'kiosk' ? (localStorage.getItem('kiosk_store_id') || undefined) : undefined;
+      const res  = await api.post('/chat/', { message: messageText, session_id: sessionId, image_url: imageUrl, channel, store_id: storeId });
       const data = res.data || res;
 
       if (data.session_id && !sessionId) {
         setSessionId(data.session_id);
         setSearchParams({ sid: data.session_id }, { replace: true });
       }
-      if (data.current_agent) setCurrentAgent(data.current_agent);
-
-      const uiData = data.ui_data || {};
-      const productsList = uiData.products || uiData.trending_products || uiData.items || [];
-
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: data.response || 'I have processed your request.',
-        products: productsList,
-      }]);
+      pushAssistant(data);
     } catch (err) {
       console.error('Agent Error:', err);
       toast.error('Connection lost. Please try again.');
@@ -229,10 +228,64 @@ export default function ChatInterface() {
     }
   };
 
+  // ── Render one graph response ─────────────────────────────────────────────
+  const pushAssistant = (data) => {
+    if (data.agents?.length) setCurrentAgent(data.agents.map(agentLabel).join(' + '));
+    else if (data.current_agent) setCurrentAgent(agentLabel(data.current_agent));
+    if (data.human_takeover) setHumanMode(true);
+    const ui = data.ui_data || {};
+    const card = ui.type === 'approval' ? ui.card : ui;
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: data.response || (data.human_takeover ? '' : 'Done.'),
+      products: productsOf(card),
+      ui: card && card.type !== 'products' ? card : null,
+      approval: data.approval,
+      plan: data.plan || [],
+      trace: data.trace || [],
+      latency: data.latency_ms,
+    }]);
+  };
+
+  // ── Customer confirms / declines an action the agents paused on ───────────
+  const decide = async (msgIndex, approval, approved) => {
+    setMessages(prev => prev.map((m, i) => (i === msgIndex ? { ...m, decided: approved ? 'yes' : 'no' } : m)));
+    setIsTyping(true);
+    try {
+      const res = await api.post(`/chat/approvals/${approval.approval_id}`, { approved });
+      pushAssistant(res.data);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Could not record your choice');
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  // ── Live channel while a human from our team has the conversation ─────────
+  useEffect(() => {
+    if (!sessionId || !humanMode) return undefined;
+    let closed = false;
+    (async () => {
+      const token = await getAccessToken();
+      if (closed || !token) return;
+      const ws = new WebSocket(`${wsBase()}/ws/customer/${sessionId}?token=${encodeURIComponent(token)}`);
+      wsRef.current = ws;
+      ws.onmessage = (ev) => {
+        try {
+          const d = JSON.parse(ev.data);
+          if (d.type === 'message' && d.speaker === 'admin') setMessages(prev => [...prev, { role: 'staff', content: d.message }]);
+          if (d.type === 'handoff_resolved') { setMessages(prev => [...prev, { role: 'assistant', content: d.message }]); setHumanMode(false); }
+        } catch { /* ignore */ }
+      };
+    })();
+    return () => { closed = true; wsRef.current?.close(); };
+  }, [sessionId, humanMode]);
+
   const startNewChat = () => {
     setSessionId(null);
     setMessages([WELCOME_MSG]);
-    setCurrentAgent('Unified Agent');
+    setCurrentAgent('Orchestrator');
+    setHumanMode(false);
     setInput('');
     navigate(`${basePath}/agent`, { replace: true, state: {} });
   };
@@ -252,7 +305,7 @@ export default function ChatInterface() {
             <div className="flex items-center gap-2 mt-0.5">
               <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
               <p className="text-[10px] uppercase tracking-[0.2em] text-zinc-400 font-bold">
-                Active: <span className="text-emerald-400">{currentAgent}</span>
+                {humanMode ? <span className="text-amber-400">Team member connected</span> : <>Agents: <span className="text-emerald-400">{currentAgent}</span></>}
               </p>
             </div>
           </div>
@@ -299,7 +352,7 @@ export default function ChatInterface() {
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border ${
                   m.role === 'user' ? 'bg-zinc-100 border-zinc-200' : 'bg-black border-black text-white'
                 }`}>
-                  {m.role === 'user' ? <User size={14} /> : <Bot size={14} />}
+                  {m.role === 'user' ? <User size={14} /> : m.role === 'staff' ? <span className="text-[9px] font-bold">TEAM</span> : <Bot size={14} />}
                 </div>
 
                 <div className={`space-y-3 ${m.role === 'user' ? 'items-end' : 'items-start'} overflow-hidden flex flex-col`}>
@@ -325,13 +378,19 @@ export default function ChatInterface() {
                   )}
 
                   {/* Text bubble */}
-                  <div className={`p-5 rounded-2xl text-[15px] leading-relaxed shadow-sm transition-all inline-block ${
+                  {m.content ? <div className={`p-5 rounded-2xl text-[15px] leading-relaxed shadow-sm transition-all inline-block whitespace-pre-wrap ${
                     m.role === 'user'
                       ? 'bg-zinc-900 text-white rounded-tr-none self-end'
+                      : m.role === 'staff' ? 'bg-amber-50 text-zinc-800 border border-amber-200 rounded-tl-none'
                       : 'bg-[#F9F9F9] text-zinc-800 border border-zinc-100 rounded-tl-none'
                   }`}>
                     {m.content}
-                  </div>
+                  </div> : null}
+
+                  {m.approval && (
+                    <ApprovalCard approval={m.approval} decided={m.decided} onDecide={(ok) => decide(i, m.approval, ok)} />
+                  )}
+                  {m.ui && <UiCard ui={m.ui} />}
 
                   {/* Product cards */}
                   {m.products?.length > 0 && (
@@ -383,6 +442,9 @@ export default function ChatInterface() {
                         </div>
                       ))}
                     </div>
+                  )}
+                  {m.role === 'assistant' && (m.plan?.length > 0 || m.trace?.length > 0) && (
+                    <PlanTrace plan={m.plan} trace={m.trace} latencyMs={m.latency} />
                   )}
                 </div>
               </div>

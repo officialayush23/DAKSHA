@@ -11,21 +11,14 @@ from app.models.models import User
 
 
 async def verify_token_ws(websocket: WebSocket, token: Optional[str] = None) -> Optional[dict]:
-    """
-    Decode a Supabase JWT supplied as a WebSocket query-param.
-    Returns the payload dict on success, or None if missing / invalid.
-    """
-    from app.core.config import settings  # local import — avoids circular dependency
+    """Decode a Supabase or kiosk token passed as a WebSocket query param; None if invalid."""
+    from fastapi import HTTPException
+    from app.core.security import decode_token
     if not token:
         return None
     try:
-        return jwt.decode(
-            token,
-            settings.SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
-            audience="authenticated",
-        )
-    except PyJWTError:
+        return decode_token(token)
+    except HTTPException:
         return None
 
 

@@ -29,15 +29,35 @@ class Settings(BaseSettings):
     VERTEX_API_KEY: str = ""
     VERTEX_AI_LOCATION: str = "us-central1"
 
+    # ── Model gateway (app/agentic/core/llm.py) ──────────────────────────────
+    LLM_PROVIDER: str = "gemini"            # primary: gemini | bedrock
+    LLM_PROVIDER_ORDER: str = ""            # e.g. "gemini,bedrock" (overrides LLM_PROVIDER)
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-3.5-flash"
+    GEMINI_THINKING_LEVEL: str = "low"
+    GEMINI_FALLBACK_MODELS: str = "gemini-3.5-flash-lite,gemini-3-flash-preview,gemini-2.5-flash"
+    AWS_API_KEY_BEDROCK_FOR_XAI: str = ""   # Bedrock API key (ABSK...)
+    AWS_REGION: str = "us-east-1"
+    BEDROCK_MODEL_ID: str = "us.xai.grok-4.7"
+
+    # ── Orchestration ────────────────────────────────────────────────────────
+    DAKSHA_DOMAIN: str = "commerce"         # which domain pack the engine loads
+    PROACTIVE_ENABLED: bool = True          # in-app scheduler for follow-ups
+    PROACTIVE_INTERVAL_MIN: int = 60
+    KIOSK_TOKEN_SECRET: str = ""            # defaults to SUPABASE_JWT_SECRET
+    KIOSK_TOKEN_TTL_MIN: int = 30
+    KIOSK_OTP_REQUIRED: bool = True
+
     # ── Groq ──────────────────────────────────────────────────────────────────
     GROQ_API_KEY: str = ""
 
     # ── Maps ──────────────────────────────────────────────────────────────────
     GOOGLE_MAPS_API_KEY: str = ""
-    MAP_BOX_API_KEY: str = ""
+    MAP_BOX_API_KEY: str = ""     # secret token (sk.) - server side only
+    MAPBOX_TOKEN: str = ""        # public token (pk.)
 
     # ── Embeddings (Nomic) ────────────────────────────────────────────────────
-    NOMIC_API_KEY: str
+    NOMIC_API_KEY: str = ""
     EMBEDDING_PROVIDER: str = "nomic"
     NOMIC_TEXT_MODEL: str = "nomic-ai/nomic-embed-text-v1.5"
     NOMIC_VISION_MODEL: str = "nomic-ai/nomic-embed-vision-v1.5"
@@ -52,10 +72,12 @@ class Settings(BaseSettings):
     RESEND_API_KEY: str = ""
 
     # ── Redis ─────────────────────────────────────────────────────────────────
-    REDIS_URL: str
+    REDIS_URL: str = ""          # optional; in-process fallback when empty/unreachable
+    CELERY_ENABLED: bool = False   # use Celery workers only if you run them
 
     # ── Misc ──────────────────────────────────────────────────────────────────
     TELEGRAM_TOKEN: str = ""
+    WEBHOOK_SECRET: str = ""        # courier webhook shared secret (X-Webhook-Secret)
     LANGCHAIN_TRACING_V2: str = "false"
     LANGCHAIN_API_KEY: str = ""
     LANGCHAIN_PROJECT: str = "daksha"

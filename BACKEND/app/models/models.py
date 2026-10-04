@@ -975,6 +975,7 @@ class AgentHandoff(Base):
     resolved_by: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("users.id"))
     resolution_note: Mapped[Optional[str]] = mapped_column(Text)
     escalation_level: Mapped[int] = mapped_column(Integer, default=1)
+    chat_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("chat_sessions.id"), nullable=True)  # v7
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))

@@ -13,13 +13,38 @@ The AI layer uses a supervisor/handoff pattern: a router directs each user messa
 
 ## Capabilities
 
-**Agentic AI (LangGraph + Gemini/Groq)**
-- Supervisor routing across dedicated agents: cart, checkout, payment, delivery, inventory, loyalty, offers, recommendations, support, and post-purchase.
-- A unified agent mode plus per-domain agents, each with their own tool set (checkout tools, inventory tools, loyalty tools, order tools, recommendation tools, support tools, user tools).
-- Company policy and business-rule modules (checkout rules, discount rules, inventory rules, support rules) that constrain agent behavior.
-- Conversation state, context loading, and message-history management, with Postgres-backed checkpointing (`langgraph-checkpoint-postgres`) so conversations persist across sessions.
-- Human handoff over WebSocket when an agent can't resolve a request.
-- Telegram bot integration as an additional chat channel.
+**Agentic orchestration (LangGraph, `BACKEND/app/agentic/`)**
+
+A cyclic LangGraph `StateGraph` in which a planner splits each request into steps,
+specialist agents reason and act in a loop, a policy gate checks every action before
+it runs, and a human can approve or reject anything risky:
+
+```
+START → ingest → guard ─┬─ handoff ─────────────────────────────┐
+                        └─ planner → dispatch ─┬─ synthesize → remember → END
+                                     ▲          │
+                                  reflect ◄── agent_<name> ⇄ policy_gate ⇄ human_approval (interrupt)
+                                     ▲          │                 │
+                                     └──────────┴──── execute ◄───┘
+```
+
+- **8 specialist agents** (discovery, cart, checkout, offers, fulfillment, post-purchase,
+  support, engagement), each with its own scoped tools and its **own long-term memory**
+  (`agent_memories`, one namespace per agent and customer).
+- **Unified customer context** rebuilt every turn from the database (profile, tier, points,
+  the single shared cart, open checkout, orders, returns, offers, addresses, kiosk store,
+  open handoff), so web/PWA, kiosk and Telegram see the same customer.
+- **Policy gate + HITL**: rules from `company_policy.py` run as code before a tool executes
+  (deny, allow, or ask the customer / staff). Paused runs are checkpointed in Postgres and
+  resume when someone decides (`/chat/approvals/{id}`, `/admin/agentic/approvals`).
+- **Identity binding**: tools never take a user id from the model; the engine injects it.
+  Money is never a tool argument; discounts and totals are computed server-side.
+- **Proactive automation**: abandoned carts, wishlist nudges, post-delivery feedback and pickup
+  reminders run through the same graph in proactive mode; marketing messages need staff approval.
+- **Domain-agnostic engine**: `agentic/core` knows nothing about shopping. A domain is a pack of
+  agents + tools + policies + a context loader (`agentic/commerce/pack.py`).
+- **Model gateway**: Gemini 3.5 Flash with fallback models on rate limits, optional Bedrock (xAI
+  Grok) fallback, schema-validated JSON output with one self-correction retry.
 
 **Commerce backend**
 - Product catalog with semantic search and embeddings (Nomic embeddings, pgvector-style similarity).
@@ -46,13 +71,13 @@ The AI layer uses a supervisor/handoff pattern: a router directs each user messa
 | Layer | Technology |
 |---|---|
 | Backend framework | FastAPI (Python 3.11) |
-| AI orchestration | LangGraph, LangChain, Gemini (Vertex AI), Groq |
-| Database | PostgreSQL via Supabase (SQLAlchemy ORM), Redis for caching/sessions |
+| AI orchestration | LangGraph (cyclic graph, Postgres checkpoints), Gemini 3.5 Flash, optional Bedrock xAI |
+| Database | PostgreSQL via Supabase (SQLAlchemy ORM, pgvector, PostGIS); Redis optional |
 | Embeddings | Nomic (text + vision) |
 | Task queue | Celery |
 | Frontend framework | React 19, Vite 7 |
 | Frontend styling | Tailwind CSS v4, Radix UI, Ant Design |
-| Maps | Google Maps API, Mapbox GL |
+| Maps | Mapbox (GL JS + Geocoding/Search Box) |
 | Auth | Supabase Auth (JWT) |
 | Deployment | Render (backend), Vercel (frontend) |
 
@@ -136,6 +161,17 @@ Both `BACKEND/.env.example` and `daksha-frontend/.env.example` list every variab
 - `GOOGLE_MAPS_API_KEY` — store locator and delivery
 - `REDIS_URL` — caching and session storage
 - `NOMIC_API_KEY` — embeddings for search/recommendations
+
+### Database migrations and checks
+
+```bash
+cd BACKEND
+python migrations/apply_migrations.py          # all, idempotent (v7 = agentic core, v8 = schema drift fixes)
+python scripts/check_schema_drift.py           # models.py vs live database
+python scripts/smoke_keys.py                   # every external key/service, no secrets printed
+python scripts/e2e_live.py                     # full customer journey against the real stack
+python -m pytest tests                         # engine tests (scripted model, no network)
+```
 
 ### Deployment
 

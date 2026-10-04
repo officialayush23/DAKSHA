@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
 import { KioskService } from '@/lib/kioskApi';
 import { KIOSK_CONFIG, CHANNEL_TYPE } from '../constants';
+import { clearKioskToken } from '@/lib/authToken';
 
 const KioskContext = createContext();
 export const useKiosk = () => useContext(KioskContext);
@@ -34,6 +35,8 @@ export const KioskProvider = ({ children }) => {
     _setUser(null);
     setCartCount(0);
     localStorage.removeItem('kiosk_id');
+    localStorage.removeItem('kiosk_store_id');
+    clearKioskToken();
     _setKioskId(null);
     if (reason) toast.info(reason);
     // ✅ FIX: Only navigate to /kiosk if we're actually on a kiosk route
@@ -43,18 +46,13 @@ export const KioskProvider = ({ children }) => {
   }, [navigate]);
 
   const startSession = useCallback(async () => {
-    try {
-      const res = await KioskService.startSession(CHANNEL_TYPE?.KIOSK || 'kiosk');
-      setSessionActive(true);
-      setSessionId(res?.session_id || null);
-      setLastActivity(Date.now());
-      _setUser(null);
-      setCartCount(0);
-      navigate('/kiosk/login');
-    } catch (error) {
-      console.error("Failed to start session:", error);
-      toast.error("Could not start session. Check connection.");
-    }
+    // The server-side session is created at login (phone + OTP); nothing to call before that.
+    setSessionActive(true);
+    setSessionId(null);
+    setLastActivity(Date.now());
+    _setUser(null);
+    setCartCount(0);
+    navigate('/kiosk/login');
   }, [navigate]);
 
   const setUser = useCallback((userData) => {

@@ -33,6 +33,18 @@ from app.services.email_service import send_email_and_log
 from app.services.telegram_notification_service import send_telegram_and_log
 from app.services.event_service import emit_event
 
+def _aware(dt):
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _unit_price(db, variant) -> float:
+    from app.services.pricing_service import resolve_variant_price
+    try:
+        return float(resolve_variant_price(db, variant)["final_price"])
+    except Exception:
+        return float(variant.base_price or 0)
+
+
 def create_checkout_after_fulfillment(
     db: Session,
     *,
@@ -53,11 +65,17 @@ def create_checkout_after_fulfillment(
         .first()
     )
 
+    from app.models.models import Cart
+    cart = db.get(Cart, cart_id)
+    if not cart or cart.user_id != user_id:
+        raise ValueError("Cart not found for this user")
+
     items = db.query(CartItem).filter(CartItem.cart_id == cart_id).all()
     if not items:
         raise ValueError("Cart is empty")
 
-    subtotal = sum(i.quantity * i.variant.base_price for i in items)
+    # Lock the price the customer was shown: discount rules included, computed here, never by a client
+    subtotal = round(sum(i.quantity * _unit_price(db, i.variant) for i in items), 2)
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=12)
 
     if existing:
@@ -70,12 +88,21 @@ def create_checkout_after_fulfillment(
             existing.fulfillment_type = fulfillment_type
             existing.store_id = store_id
         
+        elif existing.inventory_locked:
+            # same fulfilment: drop the old hold before re-holding the (possibly edited) cart
+            release_reservations(db, existing.id)
+
         # Refresh the timer and price
         existing.state = CheckoutStateEnum.STOCK_RESERVED
         existing.locked_price = subtotal
         existing.reserved_until = expires_at
         existing.inventory_locked = True
-        
+        existing.last_active_channel = channel
+        # the cart may have changed: any discount must be re-applied against the new price
+        existing.applied_coupon_id = None
+        existing.applied_personal_offer_id = None
+        existing.discount_amount = 0
+
         checkout = existing
     else:
         # Create it for the very first time
@@ -95,13 +122,17 @@ def create_checkout_after_fulfillment(
         
     db.flush()  
 
-    # -------- RESERVE NEW INVENTORY --------
-    if fulfillment_type == FulfillmentTypeEnum.delivery:
-        reserve_inventory_delivery(db, checkout.id, cart_id, expires_at)
-    else:
-        if not store_id:
-            raise ValueError("Store required for pickup")
-        reserve_inventory_pickup(db, checkout.id, cart_id, store_id, expires_at)
+    # -------- RESERVE NEW INVENTORY (all-or-nothing) --------
+    try:
+        if fulfillment_type == FulfillmentTypeEnum.delivery:
+            reserve_inventory_delivery(db, checkout.id, cart_id, expires_at)
+        else:
+            if not store_id:
+                raise ValueError("Store required for pickup")
+            reserve_inventory_pickup(db, checkout.id, cart_id, store_id, expires_at)
+    except Exception:
+        db.rollback()
+        raise
 
     # -------- EVENTS --------
     emit_event(
@@ -145,10 +176,19 @@ async def finalize_checkout(
     scheduled_time=None,
     redeem_loyalty_points: int = 0,
     agent_run_id: UUID | None = None,
+    user_id: UUID | None = None,
 ):
     checkout = db.get(CheckoutSession, checkout_id)
-    if not checkout:
+    if not checkout or (user_id is not None and checkout.user_id != user_id):
         raise ValueError("Checkout not found")
+    if checkout.state == CheckoutStateEnum.ROLLED_BACK:
+        raise ValueError("This checkout was cancelled or expired. Please start checkout again.")
+    if checkout.reserved_until and _aware(checkout.reserved_until) < datetime.now(timezone.utc) and checkout.state != CheckoutStateEnum.ORDER_CONFIRMED:
+        release_reservations(db, checkout.id)
+        checkout.inventory_locked = False
+        checkout.state = CheckoutStateEnum.ROLLED_BACK
+        db.commit()
+        raise ValueError("Your stock hold expired. Please start checkout again.")
 
     if checkout.state == CheckoutStateEnum.ORDER_CONFIRMED:
         return {"status": "already_completed"}
@@ -182,7 +222,21 @@ async def finalize_checkout(
     # ----------------------------------------------------------------
 
     checkout.payment_attempts += 1
-    final_amount = float(checkout.locked_price) - float(checkout.discount_amount)
+    final_amount = float(checkout.locked_price) - float(checkout.discount_amount or 0)
+
+    # Loyalty redemption is validated here, against the server-side amount
+    points_value = 0.0
+    if redeem_loyalty_points and redeem_loyalty_points > 0:
+        from app.ai.policy.company_policy import validate_loyalty_redemption, LOYALTY_POLICY
+        from app.services.loyalty_service import get_balance
+        if redeem_loyalty_points > get_balance(db, checkout.user_id):
+            raise ValueError("You don't have that many loyalty points.")
+        ok, why = validate_loyalty_redemption(redeem_loyalty_points, final_amount)
+        if not ok:
+            raise ValueError(why)
+        points_value = (redeem_loyalty_points / 100) * LOYALTY_POLICY.rupees_per_100_points
+        final_amount = max(final_amount - points_value, 0.0)
+    final_amount = round(final_amount, 2)
 
     # -------- PROCESS PAYMENT --------
     success, payment = process_payment(
@@ -200,7 +254,7 @@ async def finalize_checkout(
         if checkout.payment_attempts >= 5:
             release_reservations(db, checkout.id)
             checkout.inventory_locked = False
-            checkout.state = CheckoutStateEnum.CANCELLED
+            checkout.state = CheckoutStateEnum.ROLLED_BACK
 
         emit_event(db, event_type=EventTypeEnum.payment_failed, user_id=checkout.user_id, session_id=checkout.session_id, channel=checkout.last_active_channel, entity_type=EntityTypeEnum.checkout, entity_id=checkout.id, metadata={"reason_code": "gateway_fail", "reason": str(payment.failure_reason)})
         db.commit()
@@ -230,7 +284,7 @@ async def finalize_checkout(
     # -------- TRANSFER ITEMS --------
     items = db.query(CartItem).filter(CartItem.cart_id == checkout.cart_id).all()
     for item in items:
-        db.add(OrderItem(order_id=order.id, product_variant_id=item.product_variant_id, quantity=item.quantity, price_at_purchase=item.variant.base_price))
+        db.add(OrderItem(order_id=order.id, product_variant_id=item.product_variant_id, quantity=item.quantity, price_at_purchase=_unit_price(db, item.variant)))
     db.query(CartItem).filter(CartItem.cart_id == checkout.cart_id).delete()
 
     # -------- TRAINING SIGNALS: link purchased items to recent impressions --------

@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from app.core.deps import get_db, get_current_user
+from app.core.deps import get_db, get_current_user, get_current_admin
 
 from app.services.candidate_service import generate_candidates
 from app.services.ranking_service import rank_candidates
@@ -19,29 +19,14 @@ router = APIRouter(prefix="/recommendations", tags=["Recommendations"])
 
 @router.get("/feed")
 def get_feed(
-    intent: str = None, 
-    db: Session = Depends(get_db), 
+    intent: str = None,
+    db: Session = Depends(get_db),
     user = Depends(get_current_user)
 ):
-    """The Engine: Recall -> Rank -> Filter -> Log"""
-    # 1. Recall
-    candidate_ids = generate_candidates(db, str(user.id), intent, limit=300)
-    
-    # 2. Rank
-    ranked_raw = rank_candidates(db, str(user.id), candidate_ids, intent, limit=100)
-    
-    # 3. Post-Rank
-    final_feed = apply_business_rules(ranked_raw)[:50] 
+    """Recall -> Rank -> in-stock filter -> diversify -> log (one shared pipeline)."""
+    from app.services.recommendation_service import recommend
+    return recommend(db, str(user.id), intent, limit=50, feed_type="search" if intent else "home")
 
-    # 4. Log & Inject Impression IDs
-    final_feed = final_feed = log_impressions(
-    db,
-    str(user.id),
-    final_feed,
-    feed_type="search" if intent else "home"
-)
-
-    return final_feed
 
 @router.get("/trending")
 def get_trending(
@@ -65,7 +50,7 @@ class OutcomePayload(BaseModel):
     reward_value: float = 0.1 
 
 @router.post("/outcome")
-def record_outcome(payload: OutcomePayload, db: Session = Depends(get_db)):
+def record_outcome(payload: OutcomePayload, db: Session = Depends(get_db), user=Depends(get_current_user)):
     """The Feedback Loop - Called by React onClick"""
     log_recommendation_outcome(
         db=db, 
@@ -79,7 +64,8 @@ def record_outcome(payload: OutcomePayload, db: Session = Depends(get_db)):
 @router.post("/train-model")
 def trigger_training(
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin),
 ):
     """Consumes Events + Outcomes to train TwoTower Model"""
     from app.services.ml_service import train_collaborative_model  # lazy — torch optional

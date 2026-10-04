@@ -5,6 +5,7 @@ import { useKiosk } from '../context/KioskSessionContext';
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Delete, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { setKioskToken } from '@/lib/authToken';
 
 const NUMPAD = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', '✓'];
 
@@ -13,6 +14,35 @@ export default function LoginScreen() {
   const navigate = useNavigate();
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
+  // two steps: 'phone' -> 'otp'. The code goes to the customer's email / Telegram / in-app inbox.
+  const [stage, setStage] = useState('phone');
+  const [challenge, setChallenge] = useState(null);
+  const [sentTo, setSentTo] = useState('');
+  const [otp, setOtp] = useState('');
+
+  const finishLogin = useCallback((res) => {
+    if (res?.access_token) setKioskToken(res.access_token, res.expires_in);
+    if (res?.store_id) localStorage.setItem('kiosk_store_id', res.store_id);
+    setUser({ id: res.user_id, name: res.name, phone: res.phone, store_id: res.store_id });
+    if (res.session_id && typeof setSessionId === 'function') setSessionId(res.session_id);
+    toast.success(`Welcome back, ${res.name || 'there'}!`);
+    navigate('/kiosk/chat');
+  }, [setUser, setSessionId, navigate]);
+
+  const handleVerify = useCallback(async (code) => {
+    const c = code ?? otp;
+    if (c.length !== 6 || !challenge) return;
+    setLoading(true);
+    try {
+      const res = await KioskService.verify(challenge, c);
+      finishLogin(res);
+    } catch (e) {
+      toast.error(e?.message || 'Incorrect code');
+      setOtp('');
+    } finally {
+      setLoading(false);
+    }
+  }, [otp, challenge, finishLogin]);
 
   const handleLogin = useCallback(async (currentPhone) => {
     const digits = currentPhone ?? phone;
@@ -23,31 +53,37 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const res = await KioskService.login(digits, kioskId);
-      if (res?.user_id) {
-        setUser({
-          id: res.user_id,
-          name: res.name,
-          phone: res.phone,
-          store_id: res.store_id,
-        });
-        if (res.session_id && typeof setSessionId === 'function') {
-          setSessionId(res.session_id);
-        }
-        toast.success(`Welcome back, ${res.name || 'User'}!`);
-        navigate('/kiosk/chat');
+      if (res?.otp_required) {
+        setChallenge(res.challenge_id);
+        setSentTo(res.sent_to || 'your registered contact');
+        setStage('otp');
+        setOtp('');
+        toast.info(`Code sent to ${res.sent_to || 'your registered contact'}`);
+      } else if (res?.access_token) {
+        finishLogin(res);
       } else {
         toast.error("Phone number not found. Please register via the app first.");
       }
-    } catch {
-      toast.error("Login failed. Please try again.");
+    } catch (e) {
+      toast.error(e?.message || "Login failed. Please try again.");
     } finally {
       setLoading(false);
     }
-  }, [phone, kioskId, setUser, setSessionId, navigate]);
+  }, [phone, kioskId, finishLogin]);
 
   const handleNumpad = (val) => {
     if (loading) return;
     resetIdleTimer();
+    if (stage === 'otp') {
+      if (val === '⌫') setOtp(prev => prev.slice(0, -1));
+      else if (val === '✓') handleVerify();
+      else setOtp(prev => {
+        const next = prev.length < 6 ? prev + val : prev;
+        if (next.length === 6) setTimeout(() => handleVerify(next), 0);
+        return next;
+      });
+      return;
+    }
     if (val === '⌫') {
       setPhone(prev => prev.slice(0, -1));
     } else if (val === '✓') {
@@ -62,6 +98,12 @@ export default function LoginScreen() {
     const handleKeyDown = (e) => {
       if (loading) return;
       resetIdleTimer();
+      if (stage === 'otp') {
+        if (e.key >= '0' && e.key <= '9') setOtp(prev => (prev.length < 6 ? prev + e.key : prev));
+        else if (e.key === 'Backspace') setOtp(prev => prev.slice(0, -1));
+        else if (e.key === 'Enter') handleVerify();
+        return;
+      }
       if (e.key >= '0' && e.key <= '9') {
         setPhone(prev => prev.length < 10 ? prev + e.key : prev);
       } else if (e.key === 'Backspace') {
@@ -77,7 +119,7 @@ export default function LoginScreen() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [loading, resetIdleTimer, handleLogin]);
+  }, [loading, resetIdleTimer, handleLogin, handleVerify, stage]);
 
   const handleSkip = () => {
     toast.info("Browsing as Guest");
@@ -136,17 +178,17 @@ export default function LoginScreen() {
         {/* Phone Display */}
         <div className="w-full max-w-sm">
           <div className="text-sm font-semibold uppercase tracking-widest text-slate-400 mb-3 text-center">
-            Mobile Number
+            {stage === 'otp' ? `Code sent to ${sentTo}` : 'Mobile Number'}
           </div>
           <div className={`
             h-24 w-full rounded-2xl border-2 flex items-center justify-center text-4xl font-bold tracking-widest transition-all
-            ${phone.length === 10
+            ${(stage === 'otp' ? otp.length === 6 : phone.length === 10)
               ? 'border-green-400 bg-green-50 text-green-800'
               : 'border-slate-200 bg-slate-50 text-slate-900'}
           `}>
-            {formattedPhone || (
-              <span className="text-slate-300 text-3xl">_ _ _ _ _ _ _ _ _ _</span>
-            )}
+            {stage === 'otp'
+              ? (otp ? otp.split('').join(' ') : <span className="text-slate-300 text-3xl">_ _ _ _ _ _</span>)
+              : (formattedPhone || <span className="text-slate-300 text-3xl">_ _ _ _ _ _ _ _ _ _</span>)}
           </div>
         </div>
 

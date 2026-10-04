@@ -5,24 +5,49 @@ from nomic import embed
 from sqlalchemy.orm import Session
 from app.models.models import UserPreferenceSummary, Event, ProductVariant, ProductMultimodalEmbedding
 from app.core.config import settings
-# Init
-nomic.login(settings.NOMIC_API_KEY)
+# Init (a missing/invalid key must not crash app start)
+try:
+    if settings.NOMIC_API_KEY:
+        nomic.login(settings.NOMIC_API_KEY)
+except Exception as _e:  # pragma: no cover
+    print(f"[EMBEDDING] nomic login failed: {_e}")
 
-TEXT_MODEL = "nomic-embed-text-v1.5"
-VISION_MODEL = "nomic-embed-vision-v1.5"
+
+def _model(name: str, default: str) -> str:
+    return (name or default).replace("nomic-ai/", "").strip()
+
+
+TEXT_MODEL = _model(settings.NOMIC_TEXT_MODEL, "nomic-embed-text-v1.5")
+VISION_MODEL = _model(settings.NOMIC_VISION_MODEL, "nomic-embed-vision-v1.5")
 TASK_TYPE = "search_document"
-DIM = 768
+QUERY_TASK = "search_query"
+DIM = int(settings.NOMIC_MATRYOSHKA_DIM or 768)
 
 
-def generate_text_embedding(text: str) -> list[float]:
+_QCACHE: "dict[tuple, list]" = {}
+
+
+def generate_text_embedding(text: str, task_type: str = TASK_TYPE) -> list[float]:
     if not text or not text.strip():
         return [0.0] * DIM
+    key = (task_type, text.strip().lower())
+    if task_type == "search_query" and key in _QCACHE:
+        return _QCACHE[key]          # repeated queries skip the Nomic round-trip
+    vec = _embed_text(text, task_type)
+    if task_type == "search_query" and any(vec):
+        if len(_QCACHE) > 2000:
+            _QCACHE.clear()
+        _QCACHE[key] = vec
+    return vec
+
+
+def _embed_text(text: str, task_type: str) -> list[float]:
 
     try:
         res = embed.text(
             texts=[text],
             model=TEXT_MODEL,
-            task_type=TASK_TYPE,
+            task_type=task_type,
             dimensionality=DIM,
         )
         return res["embeddings"][0]

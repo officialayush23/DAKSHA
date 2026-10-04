@@ -42,6 +42,7 @@ import Orders from './admin/pages/Orders';
 import Complaints from './admin/pages/Complaints';
 import Offers from './admin/pages/Offers';
 import Handoffs from './admin/pages/Handoffs';
+import AgentOps from './admin/pages/AgentOps';
 import Returns from './admin/pages/Returns';
 import Kiosks from './admin/pages/Kiosk';
 import DiscountRules from './admin/pages/DiscountRules';
@@ -217,6 +218,7 @@ export default function App() {
         <Route path="agent-runs" element={<AgentRuns />} />
         <Route path="offers" element={<Offers />} />
         <Route path="handoffs" element={<Handoffs />} />
+        <Route path="agent-ops" element={<AgentOps />} />
         <Route path="returns" element={<Returns />} />
         <Route path="kiosks" element={<Kiosks />} />
         <Route path="discount-rules" element={<DiscountRules />} />

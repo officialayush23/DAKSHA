@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { UserService, LoyaltyService, apiRequest } from "../lib/api";
+import { UserService, LoyaltyService, apiRequest, TelegramService } from "../lib/api";
 
 import {
   Card,
@@ -268,7 +268,6 @@ export default function ProfilePage() {
     }
   };
 
-  const telegramLink = profile?.id ? `https://t.me/daksha_retail_bot?start=${profile.id}` : "#";
 
   if (loading) {
     return (
@@ -315,6 +314,7 @@ export default function ProfilePage() {
             <Badge variant="outline" className="px-4 py-1.5 border-zinc-200 text-zinc-600 uppercase tracking-widest text-[10px]">
               {profile?.loyalty_tier || "Silver"} Tier
             </Badge>
+
           </div>
         </div>
 
@@ -439,10 +439,17 @@ export default function ProfilePage() {
                 <CardDescription>Connect via Telegram for instant 24/7 support.</CardDescription>
               </CardHeader>
               <CardContent>
-                <Button asChild className="w-full h-12 rounded-xl bg-[#24A1DE] hover:bg-[#1E8BBF] text-white shadow-lg shadow-blue-500/20">
-                  <a href={telegramLink} target="_blank" rel="noreferrer">
-                    <Send size={18} className="mr-2" /> Connect Telegram Bot
-                  </a>
+                <Button
+                  className="w-full h-12 rounded-xl bg-[#24A1DE] hover:bg-[#1E8BBF] text-white shadow-lg shadow-blue-500/20"
+                  onClick={async () => {
+                    // signed, 15-minute link; the bot verifies it before linking this account
+                    try {
+                      const r = await TelegramService.link();
+                      window.open(r.data.url, '_blank', 'noopener');
+                    } catch { toast.error('Telegram is unavailable right now'); }
+                  }}
+                >
+                  <Send size={18} className="mr-2" /> Connect Telegram Bot
                 </Button>
               </CardContent>
             </Card>

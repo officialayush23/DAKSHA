@@ -4,7 +4,7 @@ services:
     runtime: python
     rootDir: .
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2
+    startCommand: python migrations/apply_migrations.py v7 v8 && uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
@@ -26,25 +26,43 @@ services:
       - key: SUPABASE_JWT_SECRET
         sync: false
 
-      # ── AI / Gemini ───────────────────────────────────────────────────────────
+      # ── Model gateway ────────────────────────────────────────────────────────
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: GEMINI_FALLBACK_MODELS
+        value: gemini-3.5-flash-lite,gemini-3-flash-preview,gemini-2.5-flash
       - key: GEMINI_VERTEX_API_KEY
         sync: false
-      - key: VERTEX_API_KEY
+      - key: GEMINI_API_KEY
         sync: false
-      - key: VERTEX_AI_LOCATION
-        value: asia-south1
+      - key: AWS_API_KEY_BEDROCK_FOR_XAI
+        sync: false
+      - key: BEDROCK_MODEL_ID
+        value: us.xai.grok-4.7
 
-      # ── Groq ─────────────────────────────────────────────────────────────────
-      - key: GROQ_API_KEY
+      # ── Orchestration ────────────────────────────────────────────────────────
+      - key: DAKSHA_DOMAIN
+        value: commerce
+      - key: PROACTIVE_ENABLED
+        value: "true"
+      - key: KIOSK_OTP_REQUIRED
+        value: "true"
+      - key: WEBHOOK_SECRET
         sync: false
 
-      # ── Maps ─────────────────────────────────────────────────────────────────
-      - key: GOOGLE_MAPS_API_KEY
+      # ── Maps (Mapbox) ────────────────────────────────────────────────────────
+      - key: MAPBOX_TOKEN
+        sync: false
+      - key: MAP_BOX_API_KEY
         sync: false
 
-      # ── Redis ────────────────────────────────────────────────────────────────
+      # ── Redis (optional; in-process fallback when empty) ─────────────────────
       - key: REDIS_URL
         sync: false
+      - key: CELERY_ENABLED
+        value: "false"
 
       # ── Email ────────────────────────────────────────────────────────────────
       - key: SMTP_HOST

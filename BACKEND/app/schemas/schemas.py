@@ -82,13 +82,23 @@ class KioskLoginRequest(BaseSchema):
     phone: str
     kiosk_id: Optional[UUID] = None   # Optional — kiosk_id may be unknown
 
+class KioskVerifyRequest(BaseSchema):
+    challenge_id: str
+    otp: str
+
+
 class KioskLoginResponse(BaseSchema):
-    user_id: UUID
-    session_id: UUID
+    otp_required: bool = False
+    challenge_id: Optional[str] = None
+    sent_to: Optional[str] = None
+    access_token: Optional[str] = None
+    expires_in: Optional[int] = None
+    user_id: Optional[UUID] = None
+    session_id: Optional[UUID] = None
     kiosk_id: Optional[UUID] = None
     store_id: Optional[UUID] = None
-    primary_channel: ChannelEnum
-    active_channel: ChannelEnum
+    primary_channel: Optional[ChannelEnum] = None
+    active_channel: Optional[ChannelEnum] = None
     name: Optional[str] = None
     phone: Optional[str] = None
 
@@ -458,13 +468,13 @@ class StoreLookupRequest(BaseModel):
     
     
 class DeliveryCheckoutRequest(BaseModel):
-    user_id: UUID
-    session_id: UUID
+    user_id: Optional[UUID] = None      # ignored: the user comes from the token
+    session_id: Optional[UUID] = None   # ignored: resolved server-side
     cart_id: UUID
 
 class PickupCheckoutRequest(BaseModel):
-    user_id: UUID
-    session_id: UUID
+    user_id: Optional[UUID] = None
+    session_id: Optional[UUID] = None
     cart_id: UUID
     store_id: UUID
 

@@ -126,15 +126,19 @@ async def _do_refresh(db: Session, user_id: str, session_id: Optional[str]) -> N
 
 
 async def _call_gemini_distil(summaries_text: str) -> Optional[str]:
-    """Uses Gemini Flash (via Vertex AI) to produce a compact taste-profile paragraph."""
-    try:
-        from langchain_core.messages import HumanMessage
-        from app.ai.llm import get_gemini
+    """Distil a compact taste-profile paragraph through the shared model gateway."""
+    import asyncio
+    from pydantic import BaseModel
+    from app.agentic.core.llm import get_gateway
 
-        llm = get_gemini(temperature=0.2)
+    class _Profile(BaseModel):
+        profile: str
+
+    try:
         prompt = _DISTIL_PROMPT.format(summaries=summaries_text[:3000])
-        response = await llm.ainvoke([HumanMessage(content=prompt)])
-        return response.content.strip() or None
+        out = await asyncio.to_thread(get_gateway().json, "taste_profile", "You extract shopper taste profiles.",
+                                      prompt + '\nReturn JSON {"profile": "..."}', _Profile)
+        return out.profile.strip() or None
     except Exception as e:
-        logger.warning(f"preference_service: Gemini distil failed: {e}")
+        logger.warning(f"preference_service: distil failed: {e}")
         return None

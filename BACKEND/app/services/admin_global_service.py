@@ -768,7 +768,7 @@ def list_store_inventory(db: Session):
     return db.query(StoreInventory).all()
 
 def list_outbound_messages(db: Session):
-    return db.query(OutboundMessage).order_by(OutboundMessage.created_at.desc()).all()
+    return db.query(OutboundMessage).order_by(OutboundMessage.sent_at.desc().nullslast()).all()
 
 def list_ai_handoffs(db: Session):
     return db.query(AgentHandoff).order_by(AgentHandoff.created_at.desc()).all()

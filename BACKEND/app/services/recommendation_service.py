@@ -8,102 +8,74 @@ from app.models.models import ProductVariant, UserPreferenceSummary
 from app.services.pricing_service import resolve_variant_price
 from app.services.postrank_service import apply_business_rules
 
-# --- EXACT WEIGHT CONFIGURATION ---
-WEIGHT_SEMANTIC = 0.5      
-WEIGHT_COLLABORATIVE = 0.3 
-WEIGHT_TRENDING = 0.2      
-
-def get_hybrid_recommendations(
-    db: Session, 
-    user_id: str, 
-    intent_text: str = None, 
+def recommend(
+    db: Session,
+    user_id: str,
+    intent_text: str = None,
+    *,
+    limit: int = 10,
+    seed_variant_id: str = None,
     session_id: str = None,
-    limit: int = 20
+    feed_type: str = None,
+    log: bool = True,
+    max_price: float = None,
+    category: str = None,
 ):
-    master_scores = {} 
+    """
+    The one recommendation pipeline (feed, agent, Telegram all call this):
 
-    # 1. SEMANTIC / INTENT RECALL (Weight: 0.5)
-    query_vec = None
-    if intent_text:
-        query_vec = generate_text_embedding(intent_text)
-    else:
-        user_pref = db.query(UserPreferenceSummary).filter_by(user_id=user_id).first()
-        if user_pref and user_pref.embedding:
-            query_vec = user_pref.embedding
+      recall  (candidate_service: semantic / collaborative / seed / trending)
+      rank    (ranking_service: intent, content-taste and trend scores)
+      filter  (sellable stock > 0, optional price/category constraints)
+      diversify (postrank_service: max 3 per brand)
+      log     (impressions, so clicks and purchases can train the model)
 
-    if query_vec:
-        vector_str = str(query_vec)
-        semantic_query = text(f"""
-            SELECT pv.id, 1 - (pe.embedding <=> '{vector_str}') as semantic_score
-            FROM product_variants pv
-            JOIN product_multimodal_embeddings pe ON pv.id = pe.product_variant_id
-            WHERE pe.modality = 'text' AND pv.active = true
-            ORDER BY pe.embedding <=> '{vector_str}'
-            LIMIT 100
-        """)
-        rows = db.execute(semantic_query).fetchall()
-        for row in rows:
-            vid = str(row.id)
-            master_scores[vid] = master_scores.get(vid, 0.0) + (float(row.semantic_score) * WEIGHT_SEMANTIC)
+    The query is embedded once and reused by recall and rank.
+    """
+    from app.models.models import GlobalInventory
+    from app.services.candidate_service import generate_candidates
+    from app.services.ranking_service import rank_candidates
+    from app.services.stock import sellable
 
-    # 2. COLLABORATIVE RECALL (Weight: 0.3)
-    # Hooks into your PyTorch TwoTowerModel. For safe fallback if model isn't trained yet, we mock an empty dict.
-    from app.services.ml_service import get_collaborative_candidates
-    try:
-        collab_ids = get_collaborative_candidates(user_id, k=50)
-        for i, vid in enumerate(collab_ids):
-            score = 1.0 - (i / len(collab_ids)) # Rough normalization
-            master_scores[vid] = master_scores.get(vid, 0.0) + (score * WEIGHT_COLLABORATIVE)
-    except Exception:
-        pass
+    vec = generate_text_embedding(intent_text, task_type="search_query") if intent_text else None
+    ids = generate_candidates(db, user_id, intent_text, limit=300, seed_variant_id=seed_variant_id, intent_vec=vec)
+    if not ids:
+        return []
+    ranked = rank_candidates(db, user_id, ids, intent_text, limit=150, intent_vec=vec)
 
-    # 3. TRENDING RECALL (Weight: 0.2)
-    trending_query = text("""
-        SELECT product_variant_id, trending_score
-        FROM trending_products
-        WHERE scope = 'all'
-        ORDER BY rank_position ASC
-        LIMIT 50
-    """)
-    t_rows = db.execute(trending_query).fetchall()
-    for row in t_rows:
-        vid = str(row.product_variant_id)
-        master_scores[vid] = master_scores.get(vid, 0.0) + (float(row.trending_score) * WEIGHT_TRENDING)
+    kept = []
+    for r in ranked:
+        inv = db.get(GlobalInventory, r["variant_id"])
+        if sellable(inv) <= 0:
+            continue
+        if max_price is not None and r["final_price"] > max_price:
+            continue
+        if category and category.lower() not in (r.get("category") or "").lower():
+            continue
+        r["in_stock"] = sellable(inv)
+        kept.append(r)
+    final = apply_business_rules(kept)[:limit]
 
-    # 4. RANK & HYDRATE
-    ranked_variant_ids = sorted(master_scores.keys(), key=lambda v: master_scores[v], reverse=True)
-    
-    raw_results = []
-    for vid in ranked_variant_ids:
-        variant = db.query(ProductVariant).get(vid)
-        if not variant: continue
-        raw_results.append(variant)
-
-    # 5. POST-RANK (Business Rules & Diversity)
-    diversified = apply_business_rules(raw_results)[:limit]
-
-    # 6. FORMAT & PRICING
-    final_feed = []
-    for variant in diversified:
-        price = resolve_variant_price(db, variant)
-        final_feed.append({
-            "variant_id": variant.id,
-            "product_id": variant.product_id,
-            "name": variant.product.name,
-            "brand": variant.product.brand,
-            "category": variant.product.category,
-            "image": variant.images[0].image_url if variant.images else None,
-            "base_price": price["base_price"],
-            "final_price": price["final_price"],
-            "offer_name": price["offer_name"],
-            "score": master_scores[str(variant.id)],
-            "reason": "hybrid_weighted",
+    variants = {str(v.id): v for v in db.query(ProductVariant).filter(ProductVariant.id.in_([r["variant_id"] for r in final])).all()} if final else {}
+    out = []
+    for r in final:
+        v = variants.get(str(r["variant_id"]))
+        out.append({
+            "variant_id": str(r["variant_id"]), "product_id": str(r["product_id"]), "name": r["name"],
+            "brand": r["brand"], "category": r["category"], "image": r["image"],
+            "color": v.color if v else None, "size": v.size if v else None,
+            "base_price": r["base_price"], "final_price": r["final_price"], "price": r["final_price"],
+            "offer_name": r.get("offer_name"), "in_stock": r["in_stock"],
+            "score": round(float(r["final_score"]), 4), "reason": "recommended",
         })
+    if log and out:
+        log_impressions(db, user_id, out, feed_type=feed_type or ("search" if intent_text else "home"), session_id=session_id)
+    return out
 
-    # 7. LOG IMPRESSIONS
-    log_impressions(db, user_id, final_feed, feed_type="search" if intent_text else "home", session_id=session_id)
 
-    return final_feed
+def get_hybrid_recommendations(db: Session, user_id: str, intent_text: str = None, session_id: str = None, limit: int = 20):
+    """Backward-compatible wrapper (Telegram, old orchestrator)."""
+    return recommend(db, user_id, intent_text, limit=limit, session_id=session_id)
 
 
 def get_similar_variants(db: Session, variant_id: str, user_id: str = None, limit: int = 10):

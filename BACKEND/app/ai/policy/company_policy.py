@@ -244,6 +244,10 @@ def cap_offer_discount(discount_pct: float, loyalty_tier: Optional[str]) -> floa
 def validate_cancellation(order_status: str) -> tuple[bool, float, str]:
     """Returns (can_cancel, fee_amount, message)."""
     p = CANCEL_POLICY
+    if order_status == "cancelled":
+        return False, 0.0, "This order is already cancelled."
+    if order_status == "ready_for_pickup":
+        order_status = "packed"          # packed and waiting at the store
     status_order = ["created", "confirmed", "packed", "shipped", "delivered"]
     try:
         idx = status_order.index(order_status)

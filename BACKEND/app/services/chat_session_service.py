@@ -142,22 +142,18 @@ def update_rolling_summary(db: Session, session_id: str, new_summary: str):
 # ── AI naming ────────────────────────────────────────────────────────────────
 
 def generate_session_name(first_user_message: str) -> str:
-    """
-    Generate a short session name from the first user message using Gemini.
-    Falls back to a truncated version of the message if LLM fails.
-    """
+    """Short session title from the first message (model gateway, with a plain fallback)."""
     try:
-        from app.ai.llm import get_gemini
-        llm = get_gemini(temperature=0.3)
-        prompt = (
-            f"Generate a very short name (3-5 words max) for a customer support chat "
-            f"that starts with this message: '{first_user_message[:200]}'\n"
-            f"Reply with only the name, no quotes, no explanation."
-        )
-        from langchain_core.messages import HumanMessage
-        result = llm.invoke([HumanMessage(content=prompt)])
-        name = result.content.strip().strip('"').strip("'")[:80]
-        return name if name else _fallback_name(first_user_message)
+        from pydantic import BaseModel
+        from app.agentic.core.llm import get_gateway
+
+        class _Name(BaseModel):
+            name: str
+
+        out = get_gateway().json("session_name", "You name chat threads in 3-5 words.",
+                                 f"First message: {first_user_message[:200]}\nReturn JSON {{\"name\": \"...\"}}", _Name)
+        name = out.name.strip().strip('"').strip("'")[:80]
+        return name or _fallback_name(first_user_message)
     except Exception:
         return _fallback_name(first_user_message)
 

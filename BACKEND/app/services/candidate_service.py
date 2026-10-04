@@ -12,6 +12,7 @@ def generate_candidates(
     intent_text: Optional[str] = None,
     limit: int = 300,
     seed_variant_id: Optional[str] = None,
+    intent_vec: Optional[list] = None,
 ) -> List[str]:
     """
     Phase 1: HYBRID RECALL
@@ -29,7 +30,8 @@ def generate_candidates(
     # --------------------------------------------------
     # 1️⃣ SEMANTIC RECALL (intent OR taste profile)
     # --------------------------------------------------
-    vec = generate_text_embedding(intent_text) if has_intent else None
+    vec = intent_vec if (has_intent and intent_vec) else (
+        generate_text_embedding(intent_text, task_type="search_query") if has_intent else None)
 
     if not vec and user_id:
         pref = db.execute(
@@ -41,8 +43,10 @@ def generate_candidates(
             {"uid": user_id},
         ).first()
         vec = pref[0] if pref else None
+        if vec is not None and not isinstance(vec, str):
+            vec = [float(x) for x in vec]
 
-    if vec:
+    if vec is not None and len(vec) and any(vec):
         if has_intent:
             # Strict mode: apply cosine distance threshold (< 0.55 ≈ similarity > 0.45)
             # This filters out semantically unrelated products from intent-based search
@@ -53,7 +57,7 @@ def generate_candidates(
                   AND embedding <=> CAST(:vec AS vector) < 0.55
                 ORDER BY embedding <=> CAST(:vec AS vector)
                 LIMIT 200
-            """), {"vec": vec}).fetchall()
+            """), {"vec": str(list(vec)) if not isinstance(vec, str) else vec}).fetchall()
         else:
             # Home feed: top-N without threshold (broader discovery)
             rows = db.execute(text("""
@@ -62,7 +66,7 @@ def generate_candidates(
                 WHERE modality = 'text'
                 ORDER BY embedding <=> CAST(:vec AS vector)
                 LIMIT 150
-            """), {"vec": vec}).fetchall()
+            """), {"vec": str(list(vec)) if not isinstance(vec, str) else vec}).fetchall()
 
         candidates.update(str(r[0]) for r in rows)
 
