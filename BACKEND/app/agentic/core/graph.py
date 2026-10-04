@@ -313,6 +313,8 @@ class Engine:
             used = sum(1 for x in scratch if x.get("kind") == "action")
             if used >= spec.max_actions:
                 return self._finish(plan, step, name, f"stopped after {used} actions", s)
+            if (s.get("actions_used") or 0) >= self.pack.max_total_actions:
+                return self._finish(plan, step, name, "stopped: turn action budget used up", s)
 
             memories = self.memory.recall(self.pack.name, name, s.get("user_id"), step["objective"], k=5)
             mem_txt = "\n".join(f"- ({m.kind}) {m.content}" for m in memories) or "(nothing yet)"
@@ -385,7 +387,7 @@ class Engine:
             note = {"step": p["step"], "kind": "rejected", "text": f"arguments invalid: {e.errors()[:3]}"}
             self.journal.policy(run_id=s.get("run_id"), user_id=s.get("user_id"), agent=name,
                                 rule="schema", verdict="deny", args=p["args"])
-            return {"pending": None, "route": "deny", "failure_count": (s.get("failure_count") or 0) + 1,
+            return {"pending": None, "route": "deny",
                     "agents": {name: {"scratch": [note]}},
                     "trace": [_t("policy_gate", tool=p["tool"], verdict="deny", rule="schema")]}
         decision = tool.policy(self._tc(s, name), args) if tool.policy else PolicyDecision("allow", "default")

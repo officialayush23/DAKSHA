@@ -1,0 +1,65 @@
+{
+ "overhead": [
+  {
+   "plan_steps": 1,
+   "tools_per_step": 1,
+   "llm_calls": 4,
+   "supersteps": 12,
+   "overhead_ms_p50": 11.37,
+   "overhead_ms_p95": 14.24
+  },
+  {
+   "plan_steps": 1,
+   "tools_per_step": 3,
+   "llm_calls": 6,
+   "supersteps": 18,
+   "overhead_ms_p50": 14.49,
+   "overhead_ms_p95": 16.22
+  },
+  {
+   "plan_steps": 2,
+   "tools_per_step": 1,
+   "llm_calls": 6,
+   "supersteps": 18,
+   "overhead_ms_p50": 14.19,
+   "overhead_ms_p95": 16.09
+  },
+  {
+   "plan_steps": 2,
+   "tools_per_step": 3,
+   "llm_calls": 10,
+   "supersteps": 30,
+   "overhead_ms_p50": 24.02,
+   "overhead_ms_p95": 26.73
+  },
+  {
+   "plan_steps": 4,
+   "tools_per_step": 1,
+   "llm_calls": 10,
+   "supersteps": 30,
+   "overhead_ms_p50": 23.3,
+   "overhead_ms_p95": 31.37
+  },
+  {
+   "plan_steps": 4,
+   "tools_per_step": 3,
+   "llm_calls": 15,
+   "supersteps": 48,
+   "overhead_ms_p50": 34.73,
+   "overhead_ms_p95": 37.81
+  }
+ ],
+ "hostile_model": {
+  "supersteps": 51,
+  "tool_actions": 10,
+  "llm_calls": 15,
+  "recursion_limit": 194,
+  "terminated": true,
+  "plan_status": [
+   "done",
+   "done",
+   "retry",
+   "pending"
+  ]
+ }
+}

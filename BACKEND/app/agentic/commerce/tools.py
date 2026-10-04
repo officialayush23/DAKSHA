@@ -18,7 +18,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
 
 from app.agentic.core.registry import ToolContext, ToolResult
@@ -132,113 +132,119 @@ def _brief(products: list) -> str:
 # argument schemas (model-visible)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class NoArgs(BaseModel):
+class Args(BaseModel):
+    """Tool arguments the model may set. Unknown keys are rejected, so an injected
+    'user_id' or 'price' is a validation error at the gate, not a silent no-op."""
+    model_config = ConfigDict(extra="forbid")
+
+
+class NoArgs(Args):
     pass
 
 
-class SearchArgs(BaseModel):
+class SearchArgs(Args):
     query: str = Field(min_length=2, max_length=200, description="what the shopper is looking for")
     max_price: Optional[float] = Field(default=None, gt=0)
     category: Optional[str] = Field(default=None, max_length=60)
 
 
-class RecommendArgs(BaseModel):
+class RecommendArgs(Args):
     intent: Optional[str] = Field(default=None, max_length=200, description="occasion/style hint; empty = personal picks")
     max_price: Optional[float] = Field(default=None, gt=0)
 
 
-class ImageArgs(BaseModel):
+class ImageArgs(Args):
     image_url: str = Field(min_length=8, max_length=1000)
 
 
-class VariantArgs(BaseModel):
+class VariantArgs(Args):
     variant_id: uuid.UUID
 
 
-class StockArgs(BaseModel):
+class StockArgs(Args):
     variant_id: uuid.UUID
     store_id: Optional[uuid.UUID] = None
 
 
-class CartAddArgs(BaseModel):
+class CartAddArgs(Args):
     variant_id: uuid.UUID
     quantity: int = Field(default=1, ge=1, le=10)
 
 
-class CartQtyArgs(BaseModel):
+class CartQtyArgs(Args):
     variant_id: uuid.UUID
     quantity: int = Field(ge=0, le=10)
 
 
-class StartCheckoutArgs(BaseModel):
+class StartCheckoutArgs(Args):
     fulfillment: Literal["delivery", "pickup"]
     store_id: Optional[uuid.UUID] = Field(default=None, description="required for pickup unless the shopper is at a kiosk")
 
 
-class StoresArgs(BaseModel):
+class StoresArgs(Args):
     lat: Optional[float] = Field(default=None, ge=-90, le=90)
     lng: Optional[float] = Field(default=None, ge=-180, le=180)
 
 
-class PlaceOrderArgs(BaseModel):
+class PlaceOrderArgs(Args):
     address_id: Optional[uuid.UUID] = Field(default=None, description="for delivery")
     pickup_time: Optional[str] = Field(default=None, description="ISO time for pickup orders")
     redeem_points: int = Field(default=0, ge=0, le=100000)
 
 
-class DiscountArgs(BaseModel):
+class DiscountArgs(Args):
     code: Optional[str] = Field(default=None, max_length=40)
     offer_id: Optional[uuid.UUID] = None
 
 
-class OfferArgs(BaseModel):
+class OfferArgs(Args):
     percent: Optional[float] = Field(default=None, gt=0, le=90, description="desired % off; policy may lower it")
 
 
-class OrderRefArgs(BaseModel):
+class OrderRefArgs(Args):
     order_ref: str = Field(min_length=4, max_length=40, description="order id or the short #ref")
 
 
-class RescheduleArgs(BaseModel):
+class RescheduleArgs(Args):
     order_ref: str = Field(min_length=4, max_length=40)
     new_address: Optional[str] = Field(default=None, max_length=300)
 
 
-class ReturnArgs(BaseModel):
+class ReturnArgs(Args):
     order_ref: str = Field(min_length=4, max_length=40)
     variant_id: uuid.UUID
     quantity: int = Field(default=1, ge=1, le=20)
     reason: str = Field(min_length=3, max_length=500)
 
 
-class ExchangeArgs(BaseModel):
+class ExchangeArgs(Args):
     order_ref: str = Field(min_length=4, max_length=40)
     old_variant_id: uuid.UUID
     new_variant_id: uuid.UUID
     reason: Literal["size", "color", "defect", "wrong_item"]
 
 
-class CancelArgs(BaseModel):
+class CancelArgs(Args):
     order_ref: str = Field(min_length=4, max_length=40)
     reason: str = Field(min_length=3, max_length=300)
 
 
-class CancelReturnArgs(BaseModel):
+class CancelReturnArgs(Args):
     return_id: uuid.UUID
 
 
-class ComplaintArgs(BaseModel):
+class ComplaintArgs(Args):
     category: Literal["delivery", "product_quality", "payment", "refund", "staff", "app", "other"]
     description: str = Field(min_length=10, max_length=1500)
     order_ref: Optional[str] = Field(default=None, max_length=40)
     severity: Literal["low", "medium", "high", "critical"] = "medium"
 
 
-class PolicyArgs(BaseModel):
+class PolicyArgs(Args):
     topic: Literal["returns", "exchanges", "offers", "loyalty", "cancellations", "delivery", "payments"]
 
 
-class MessageArgs(BaseModel):
+class MessageArgs(Args):
     purpose: Literal["post_delivery_feedback", "abandoned_cart", "wishlist_offer", "reengagement", "pickup_reminder", "order_update"]
     subject: str = Field(min_length=3, max_length=120)
     body: str = Field(min_length=10, max_length=1200)
