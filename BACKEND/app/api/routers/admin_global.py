@@ -16,15 +16,12 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any
 
 from langchain_core.messages import HumanMessage, AIMessage
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from app.core.deps import get_current_user
 from app.core.config import settings
 from app.models.models import User
 
 # Import your AI logic
-from app.ai.graph import agent_workflow
-from app.ai.context_loader import load_context
 
 router = APIRouter(
     prefix="/admin/global",
@@ -63,7 +60,7 @@ def create_product_api(
     return create_product(db, payload, admin.id, reason)
 
 @router.get("/inventory/kpis")
-def get_inventory_kpis_endpoint(db: Session = Depends(get_db)):
+def get_inventory_kpis_endpoint(db: Session = Depends(get_db), admin=Depends(get_current_admin)):
     # Make sure to import get_inventory_kpis from your service
     return get_inventory_kpis(db)
 
@@ -404,32 +401,11 @@ def list_agent_runs_api(
 
 
 @router.post("/admin-reply")
-async def admin_chat_resume(
-    request: AdminReplyRequest, 
-    current_admin: User = Depends(get_current_user)  # Enforce admin check in real app
-):
-    """
-    Used by the human support dashboard to reply to a user who triggered a handoff.
-    This injects the admin's message and resets the agent's failure count.
-    """
-    config = {"configurable": {"thread_id": request.session_id}}
-    
-    try:
-        lg_url = settings.LANGGRAPH_DB_URL or settings.DATABASE_URL
-        async with AsyncPostgresSaver.from_conn_string(lg_url) as checkpointer:
-            app_graph = agent_workflow.compile(checkpointer=checkpointer)
-            
-            state_update = {
-                "messages": [AIMessage(content=f"👨‍💻 [Support Admin]: {request.message}")],
-                "pending_human_input": False, 
-                "failure_count": 0
-            }
-            
-            await app_graph.ainvoke(state_update, config)
-            
-        return {"status": "Message injected to thread successfully."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def admin_chat_resume(request: AdminReplyRequest, db: Session = Depends(get_db),
+                            current_admin: User = Depends(get_current_admin)):
+    """Staff reply into a handed-off chat (same as POST /chat/admin-reply)."""
+    from app.api.routers.chat import AdminReplyRequest as _Req, admin_chat_reply
+    return await admin_chat_reply(_Req(session_id=request.session_id, message=request.message), current_admin, db)
 
 @router.get("/agent/decisions")
 def list_decision_records_api(

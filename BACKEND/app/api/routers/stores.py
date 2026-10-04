@@ -6,7 +6,7 @@ from typing import Optional
 from pydantic import BaseModel
 import uuid
 
-from app.core.deps import get_db, get_current_user
+from app.core.deps import get_db, get_current_user, get_current_admin
 from app.schemas.schemas import StoreLookupRequest
 from app.services.store_availability_service import get_nearest_stores_with_cart
 from app.services.geocoding_service import (
@@ -129,7 +129,7 @@ def nearby_stores(
 ):
     """
     Returns stores near (lat, lng) within radius_km, ordered by distance.
-    Used by the Google Maps store picker in the frontend pickup checkout flow.
+    Used by the Mapbox store picker in the frontend pickup checkout flow.
     Each store includes available_stock (sum across all variants in the area).
     """
     sql = text("""
@@ -142,17 +142,17 @@ def nearby_stores(
             ST_Y(s.location::geometry)  AS latitude,
             ST_X(s.location::geometry)  AS longitude,
             ROUND(
-                ST_Distance(s.location, ST_MakePoint(:lng, :lat)::geography) / 1000.0,
+                (ST_Distance(s.location, ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography) / 1000.0)::numeric,
                 2
             )::float                    AS distance_km,
-            COALESCE(SUM(si.quantity), 0)::int AS available_stock
+            COALESCE(SUM(si.in_stock), 0)::int AS available_stock
         FROM stores s
-        LEFT JOIN store_inventory si ON si.store_id = s.id AND si.quantity > 0
+        LEFT JOIN store_inventory si ON si.store_id = s.id AND si.in_stock > 0
         WHERE s.location IS NOT NULL
           AND s.active = true
           AND ST_DWithin(
               s.location,
-              ST_MakePoint(:lng, :lat)::geography,
+              ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
               :radius_m
           )
         GROUP BY s.id, s.name, s.address, s.city, s.state, s.location
@@ -176,7 +176,7 @@ def nearby_stores(
 @router.get("/admin/list")
 def admin_list_stores(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(get_current_admin),
 ):
     """List all stores (admin)."""
     sql = text("""
@@ -195,7 +195,7 @@ def admin_list_stores(
 def admin_create_store(
     body: StoreCreateRequest,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(get_current_admin),
 ):
     """
     Create a new store. If lat/lng are not provided, the address is
@@ -253,7 +253,7 @@ def admin_update_store(
     store_id: str,
     body: StoreUpdateRequest,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(get_current_admin),
 ):
     """Update an existing store. Re-geocodes if address changed but lat/lng not provided."""
     # Fetch current row
@@ -312,7 +312,7 @@ def admin_update_store(
 def admin_deactivate_store(
     store_id: str,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(get_current_admin),
 ):
     """Soft-delete: marks store as inactive."""
     db.execute(text("UPDATE stores SET active = false WHERE id = :id"), {"id": store_id})

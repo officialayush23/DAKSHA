@@ -9,7 +9,7 @@ def semantic_catalog_search(db: Session, query: str, limit: int = 30):
     Semantic retrieval from product embeddings. for agents to answer things like : wedding dress red in color 
     """
 
-    vec = generate_text_embedding(query)
+    vec = generate_text_embedding(query, task_type="search_query")
 
     rows = db.execute(text("""
         SELECT product_variant_id

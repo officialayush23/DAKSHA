@@ -1,5 +1,5 @@
 import axios from "axios";
-import { supabase } from "./supabaseClient";
+import { getAccessToken, detectChannel } from "./authToken";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -10,9 +10,9 @@ const api = axios.create({
 
 // Auto-attach Supabase Token
 api.interceptors.request.use(async (config) => {
-  const { data } = await supabase.auth.getSession();
-  const token = data?.session?.access_token;
+  const token = await getAccessToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  config.headers['X-Channel'] = detectChannel();
   return config;
 });
 
@@ -175,7 +175,13 @@ export const LoyaltyService = {
 };
 
 export const AgentService = {
-  sendMessage: (msg) => api.post('/chat/', { message: msg }),
+  sendMessage: (msg, extra = {}) => api.post('/chat/', { message: msg, channel: detectChannel(), ...extra }),
+  decide: (approvalId, approved, note = null) => api.post(`/chat/approvals/${approvalId}`, { approved, note }),
+  graph: () => api.get('/chat/graph'),
+};
+
+export const TelegramService = {
+  link: () => api.get('/user/telegram/link'),
 };
 
 export const SessionService = {

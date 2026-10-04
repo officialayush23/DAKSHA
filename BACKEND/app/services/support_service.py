@@ -5,7 +5,7 @@ from sqlalchemy import and_, desc
 from datetime import datetime, timedelta , timezone
 from typing import List, Optional, Dict, Any
 
-from app.models.models import Return, Exchange, Complaint, Order, OrderItem, ProductVariant
+from app.models.models import Return, Exchange, Complaint, Order, OrderItem, ProductVariant, OrderStatusHistory
 from app.enums.db_enums import (
     ReturnStatusEnum, ExchangeStatusEnum, ComplaintStatusEnum,
     EventTypeEnum, EntityTypeEnum, OrderStatusEnum,
@@ -32,15 +32,23 @@ def request_return(db: Session, user_id: uuid.UUID, payload):
     if not order:
         raise ValueError("Order not found or does not belong to user.")
 
-    # 2. Check if order is eligible for return
-    return_window_days = 30
-    # 👇 FIXED: Using timezone-aware datetime for the check
-    if order.created_at < datetime.now(timezone.utc) - timedelta(days=return_window_days):
-        raise ValueError(f"Order is outside {return_window_days}-day return window.")
-
-    # Check if order status allows returns — only delivered orders
+    # 2. Eligibility comes from company_policy (single source of truth)
+    from app.ai.policy.company_policy import RETURN_POLICY
     if order.order_status not in [OrderStatusEnum.delivered]:
         raise ValueError("Returns are only allowed for delivered orders.")
+    delivered = (db.query(OrderStatusHistory)
+                 .filter(OrderStatusHistory.order_id == order.id,
+                         OrderStatusHistory.status == OrderStatusEnum.delivered)
+                 .order_by(OrderStatusHistory.updated_at.desc()).first())
+    delivered_at = delivered.updated_at if delivered else order.created_at
+    if delivered_at.tzinfo is None:
+        delivered_at = delivered_at.replace(tzinfo=timezone.utc)
+    if delivered_at < datetime.now(timezone.utc) - timedelta(days=RETURN_POLICY.window_days):
+        raise ValueError(f"The {RETURN_POLICY.window_days}-day return window for this order has closed.")
+    prior = db.query(Return).filter(Return.order_id == payload.order_id,
+                                    Return.status.in_([ReturnStatusEnum.requested, ReturnStatusEnum.approved])).count()
+    if prior >= RETURN_POLICY.max_per_order:
+        raise ValueError("A return is already open for this order (one return request per order).")
 
     # 3. Verify product variant belongs to order
     order_item = db.query(OrderItem).filter(
@@ -53,6 +61,14 @@ def request_return(db: Session, user_id: uuid.UUID, payload):
 
     if payload.quantity > order_item.quantity:
         raise ValueError(f"Cannot return more than {order_item.quantity} items.")
+    variant = db.get(ProductVariant, payload.product_variant_id)
+    category = ((variant.product.category if variant and variant.product else "") or "").lower()
+    if category in RETURN_POLICY.excluded_categories:
+        raise ValueError(f"'{category}' items are non-returnable.")
+    base = float(variant.base_price or 0) if variant else 0
+    paid = float(order_item.price_at_purchase or 0)
+    if base > 0 and (1 - paid / base) * 100 > RETURN_POLICY.excluded_if_discount_above_pct:
+        raise ValueError("Items bought at more than 50% off are final sale.")
 
     # 4. Check if return already exists for this item
     existing_return = db.query(Return).filter(
@@ -208,18 +224,12 @@ def request_order_cancellation(db: Session, user_id: uuid.UUID, order_id: uuid.U
     if not order:
         raise ValueError("Order not found or does not belong to user.")
 
-    # 2. Check if order can be cancelled
-    # Only created or confirmed orders can be cancelled (matching actual enum values)
-    cancellable_statuses = [
-        OrderStatusEnum.created,
-        OrderStatusEnum.confirmed,
-    ]
-
-    if order.order_status not in cancellable_statuses:
-        raise ValueError(
-            f"Order cannot be cancelled in '{order.order_status.value}' status. "
-            f"Only {[s.value for s in cancellable_statuses]} orders can be cancelled."
-        )
+    # 2. Cancellation rules come from company_policy
+    from app.ai.policy.company_policy import validate_cancellation
+    status_value = getattr(order.order_status, "value", order.order_status)
+    can_cancel, fee, policy_msg = validate_cancellation(status_value)
+    if not can_cancel:
+        raise ValueError(policy_msg)
 
     # 3. Check if cancellation already requested
     from app.models.models import OrderChangeRequest
@@ -237,7 +247,9 @@ def request_order_cancellation(db: Session, user_id: uuid.UUID, order_id: uuid.U
     # 4. Create order change request for cancellation
     change_payload = {
         "reason": reason,
-        "requested_at": datetime.utcnow().isoformat()
+        "requested_at": datetime.utcnow().isoformat(),
+        "cancellation_fee": fee,
+        "policy_note": policy_msg,
     }
 
     change_request = OrderChangeRequest(

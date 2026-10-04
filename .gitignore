@@ -99,3 +99,5 @@ BACKEND/daksha/
 venv/
 __pycache__/
 *.pyc
+# local test reports
+BACKEND/scripts/e2e_report*.json

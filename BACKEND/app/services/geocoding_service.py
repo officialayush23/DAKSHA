@@ -1,188 +1,105 @@
 # app/services/geocoding_service.py
 """
-Google Maps Geocoding + Places API service.
+Geocoding on Mapbox (Google Maps billing is off for this project).
 
-Functions:
-  geocode_address(address)         → {"lat": float, "lng": float, "formatted": str}
-  reverse_geocode(lat, lng)        → {"formatted": str, "components": dict}
-  autocomplete_address(query)      → [{"description": str, "place_id": str}, ...]
-  place_details(place_id)          → {"lat": float, "lng": float, "formatted": str}
-  nearest_stores_by_coords(...)    → used internally by the store router
+  geocode_address(address)       -> {"lat","lng","formatted_address","place_id"}
+  reverse_geocode(lat, lng)      -> {"formatted_address","city","state","pincode","country"}
+  autocomplete_address(query)    -> [{"description","place_id"}]   (Search Box /suggest)
+  place_details(place_id)        -> {"lat","lng","formatted_address","city","state","pincode"} (/retrieve)
+
+The function names and return shapes are unchanged, so the stores router and
+admin UI keep working. Uses MAP_BOX_API_KEY (secret) or MAPBOX_TOKEN (public).
 """
-import httpx
 import logging
+import uuid
 from typing import Optional
+
+import httpx
+
 from app.core.config import settings
 
 log = logging.getLogger(__name__)
 
-_GEOCODE_URL     = "https://maps.googleapis.com/maps/api/geocode/json"
-_AUTOCOMPLETE_URL = "https://maps.googleapis.com/maps/api/place/autocomplete/json"
-_PLACE_DETAIL_URL = "https://maps.googleapis.com/maps/api/place/details/json"
-
-def _api_key() -> str:
-    return settings.GOOGLE_MAPS_API_KEY
+_FWD = "https://api.mapbox.com/search/geocode/v6/forward"
+_REV = "https://api.mapbox.com/search/geocode/v6/reverse"
+_SUGGEST = "https://api.mapbox.com/search/searchbox/v1/suggest"
+_RETRIEVE = "https://api.mapbox.com/search/searchbox/v1/retrieve/{id}"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# GEOCODING  (address → lat/lng)
-# ─────────────────────────────────────────────────────────────────────────────
+def _token() -> str:
+    tok = (settings.MAP_BOX_API_KEY or settings.MAPBOX_TOKEN or "").strip().strip('"')
+    if not tok:
+        raise ValueError("Mapbox token missing: set MAP_BOX_API_KEY or MAPBOX_TOKEN")
+    return tok
+
+
+def _ctx(props: dict) -> dict:
+    c = props.get("context", {}) or {}
+    return {
+        "city": (c.get("place") or c.get("locality") or c.get("district") or {}).get("name", ""),
+        "state": (c.get("region") or {}).get("name", ""),
+        "pincode": (c.get("postcode") or {}).get("name", ""),
+        "country": (c.get("country") or {}).get("name", ""),
+    }
+
 
 def geocode_address(address: str) -> dict:
-    """
-    Convert a free-text address to lat/lng.
+    r = httpx.get(_FWD, params={"q": address, "country": "in", "limit": 1, "language": "en",
+                                "access_token": _token()}, timeout=10)
+    r.raise_for_status()
+    feats = r.json().get("features") or []
+    if not feats:
+        raise ValueError(f"Geocoding failed for '{address}': no match")
+    f = feats[0]
+    lng, lat = f["geometry"]["coordinates"]
+    p = f.get("properties", {})
+    return {"lat": lat, "lng": lng,
+            "formatted_address": p.get("full_address") or p.get("name") or address,
+            "place_id": p.get("mapbox_id", "")}
 
-    Returns:
-        {
-          "lat": 12.9716,
-          "lng": 77.5946,
-          "formatted_address": "...",
-          "place_id": "..."
-        }
-    Raises ValueError if the address cannot be resolved.
-    """
-    params = {
-        "address": address,
-        "key": _api_key(),
-        "region": "in",       # bias results toward India
-        "language": "en",
-    }
-    resp = httpx.get(_GEOCODE_URL, params=params, timeout=10)
-    resp.raise_for_status()
-    data = resp.json()
-
-    if data.get("status") != "OK" or not data.get("results"):
-        raise ValueError(f"Geocoding failed for '{address}': {data.get('status')}")
-
-    result = data["results"][0]
-    loc = result["geometry"]["location"]
-    return {
-        "lat": loc["lat"],
-        "lng": loc["lng"],
-        "formatted_address": result.get("formatted_address", address),
-        "place_id": result.get("place_id", ""),
-    }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# REVERSE GEOCODING  (lat/lng → address)
-# ─────────────────────────────────────────────────────────────────────────────
 
 def reverse_geocode(lat: float, lng: float) -> dict:
-    """
-    Convert lat/lng to a human-readable address.
-
-    Returns:
-        {
-          "formatted_address": "...",
-          "city": "...",
-          "state": "...",
-          "pincode": "...",
-          "country": "..."
-        }
-    """
-    params = {
-        "latlng": f"{lat},{lng}",
-        "key": _api_key(),
-        "language": "en",
-    }
-    resp = httpx.get(_GEOCODE_URL, params=params, timeout=10)
-    resp.raise_for_status()
-    data = resp.json()
-
-    if data.get("status") != "OK" or not data.get("results"):
+    try:
+        r = httpx.get(_REV, params={"longitude": lng, "latitude": lat, "limit": 1, "language": "en",
+                                    "access_token": _token()}, timeout=10)
+        r.raise_for_status()
+        feats = r.json().get("features") or []
+    except Exception as e:
+        log.warning("reverse geocode failed: %s", e)
+        feats = []
+    if not feats:
         return {"formatted_address": f"{lat}, {lng}", "city": "", "state": "", "pincode": "", "country": ""}
+    p = feats[0].get("properties", {})
+    return {"formatted_address": p.get("full_address") or p.get("name", ""), **_ctx(p)}
 
-    result = data["results"][0]
-    components = {c["types"][0]: c["long_name"] for c in result.get("address_components", [])}
-
-    return {
-        "formatted_address": result.get("formatted_address", ""),
-        "city": components.get("locality", components.get("administrative_area_level_2", "")),
-        "state": components.get("administrative_area_level_1", ""),
-        "pincode": components.get("postal_code", ""),
-        "country": components.get("country", ""),
-    }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# PLACES AUTOCOMPLETE  (partial query → suggestions)
-# ─────────────────────────────────────────────────────────────────────────────
 
 def autocomplete_address(query: str, session_token: Optional[str] = None) -> list[dict]:
-    """
-    Returns up to 5 address suggestions for a partial query.
-
-    Returns:
-        [{"description": "...", "place_id": "..."}, ...]
-    """
-    params = {
-        "input": query,
-        "key": _api_key(),
-        "types": "address",
-        "components": "country:in",    # restrict to India
-        "language": "en",
-    }
-    if session_token:
-        params["sessiontoken"] = session_token
-
-    resp = httpx.get(_AUTOCOMPLETE_URL, params=params, timeout=10)
-    resp.raise_for_status()
-    data = resp.json()
-
-    if data.get("status") not in ("OK", "ZERO_RESULTS"):
-        log.warning("Places autocomplete error: %s", data.get("status"))
+    try:
+        r = httpx.get(_SUGGEST, params={"q": query, "country": "in", "limit": 5, "language": "en",
+                                        "session_token": session_token or str(uuid.uuid4()),
+                                        "access_token": _token()}, timeout=10)
+        r.raise_for_status()
+    except Exception as e:
+        log.warning("Mapbox suggest error: %s", e)
         return []
+    out = []
+    for s in r.json().get("suggestions", []):
+        desc = ", ".join(x for x in [s.get("name"), s.get("place_formatted")] if x)
+        out.append({"description": desc or s.get("full_address", ""), "place_id": s.get("mapbox_id")})
+    return out
 
-    return [
-        {"description": p["description"], "place_id": p["place_id"]}
-        for p in data.get("predictions", [])
-    ]
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# PLACE DETAILS  (place_id → lat/lng + full address)
-# ─────────────────────────────────────────────────────────────────────────────
 
 def place_details(place_id: str, session_token: Optional[str] = None) -> dict:
-    """
-    Fetch exact lat/lng + formatted address for a place_id returned by autocomplete.
-
-    Returns:
-        {
-          "lat": float,
-          "lng": float,
-          "formatted_address": str,
-          "city": str,
-          "state": str,
-          "pincode": str
-        }
-    """
-    params = {
-        "place_id": place_id,
-        "fields": "geometry,formatted_address,address_components",
-        "key": _api_key(),
-        "language": "en",
-    }
-    if session_token:
-        params["sessiontoken"] = session_token
-
-    resp = httpx.get(_PLACE_DETAIL_URL, params=params, timeout=10)
-    resp.raise_for_status()
-    data = resp.json()
-
-    if data.get("status") != "OK":
-        raise ValueError(f"Place details failed for '{place_id}': {data.get('status')}")
-
-    result = data["result"]
-    loc = result["geometry"]["location"]
-    components = {c["types"][0]: c["long_name"] for c in result.get("address_components", [])}
-
-    return {
-        "lat": loc["lat"],
-        "lng": loc["lng"],
-        "formatted_address": result.get("formatted_address", ""),
-        "city": components.get("locality", components.get("administrative_area_level_2", "")),
-        "state": components.get("administrative_area_level_1", ""),
-        "pincode": components.get("postal_code", ""),
-    }
+    r = httpx.get(_RETRIEVE.format(id=place_id),
+                  params={"session_token": session_token or str(uuid.uuid4()), "access_token": _token()}, timeout=10)
+    r.raise_for_status()
+    feats = r.json().get("features") or []
+    if not feats:
+        raise ValueError(f"Place details failed for '{place_id}'")
+    f = feats[0]
+    lng, lat = f["geometry"]["coordinates"]
+    p = f.get("properties", {})
+    ctx = _ctx(p)
+    return {"lat": lat, "lng": lng,
+            "formatted_address": p.get("full_address") or ", ".join(x for x in [p.get("name"), p.get("place_formatted")] if x),
+            "city": ctx["city"], "state": ctx["state"], "pincode": ctx["pincode"]}

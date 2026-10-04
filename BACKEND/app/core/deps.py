@@ -18,8 +18,13 @@ def get_db():
     finally:
         db.close()
         
-def get_channel(request: Request):
-    return request.headers.get("X-Channel", "web")
+def get_channel(request: Request) -> ChannelEnum:
+    raw = (request.headers.get("X-Channel") or "web").lower()
+    raw = {"pwa": "app"}.get(raw, raw)
+    try:
+        return ChannelEnum(raw)
+    except ValueError:
+        return ChannelEnum.web
 
 def get_current_user(
     payload: dict = Depends(verify_supabase_jwt),
@@ -28,7 +33,12 @@ def get_current_user(
     """
     Verifies Supabase JWT and syncs user to public.users
     """
-    return get_or_create_user(db, payload)
+    user = get_or_create_user(db, payload)
+    # kiosk tokens pin channel + store; the chat API reads these
+    if payload.get("aud") == "daksha-kiosk":
+        user._token_channel = "kiosk"
+        user._token_store_id = payload.get("store_id")
+    return user
 
 
 def get_current_admin(

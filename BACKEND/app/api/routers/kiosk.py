@@ -2,9 +2,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from uuid import UUID
-from datetime import datetime
-from app.schemas.schemas import KioskLoginRequest, KioskLoginResponse, CheckoutIntrospection
-from app.services.kiosk_service import login_via_kiosk
+from datetime import datetime, timezone
+from app.schemas.schemas import KioskLoginRequest, KioskLoginResponse, KioskVerifyRequest, CheckoutIntrospection
+from app.services.kiosk_service import login_via_kiosk, verify_kiosk_otp
 from app.core.deps import get_db, get_current_user
 from app.models.models import CheckoutSession, UserSession, Kiosk, Store
 from app.enums.db_enums import ChannelEnum, CheckoutStateEnum
@@ -74,14 +74,22 @@ def kiosk_login(
     )
 
 
+# 3b. VERIFY THE ONE-TIME CODE -> kiosk token
+@router.post("/verify", response_model=KioskLoginResponse)
+def kiosk_verify(payload: KioskVerifyRequest, db: Session = Depends(get_db)):
+    return verify_kiosk_otp(db, payload.challenge_id, payload.otp)
+
+
 # 4. RESUME INCOMPLETE CHECKOUT ON KIOSK (UPDATED)
 @router.get("/checkout/{checkout_id}/resume", response_model=CheckoutIntrospection)
 def resume_on_kiosk(
     checkout_id: UUID,
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
 ):
     checkout = db.query(CheckoutSession).filter(
         CheckoutSession.id == checkout_id,
+        CheckoutSession.user_id == user.id,
         CheckoutSession.state.notin_([
             CheckoutStateEnum.ORDER_CONFIRMED,
             CheckoutStateEnum.ROLLED_BACK,
@@ -91,7 +99,8 @@ def resume_on_kiosk(
     if not checkout:
         raise HTTPException(status_code=404, detail="No resumable checkout found")
 
-    if checkout.reserved_until and checkout.reserved_until < datetime.utcnow():
+    ru = checkout.reserved_until
+    if ru and (ru if ru.tzinfo else ru.replace(tzinfo=timezone.utc)) < datetime.now(timezone.utc):
         raise HTTPException(status_code=410, detail="Checkout reservation expired")
 
     return CheckoutIntrospection(
@@ -134,9 +143,11 @@ def update_kiosk_active_channel(
     session_id: UUID,
     kiosk_id: UUID,
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
 ):
     session = db.query(UserSession).filter(
         UserSession.id == session_id,
+        UserSession.user_id == user.id,
         UserSession.ended_at.is_(None),
     ).first()
     if not session:

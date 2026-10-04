@@ -41,7 +41,7 @@ def release_expired_reservations():
         for checkout in expired:
             release_reservations(db, checkout.id)
             checkout.inventory_locked = False
-            checkout.state = CheckoutStateEnum.CANCELLED
+            checkout.state = CheckoutStateEnum.ROLLED_BACK
 
         db.commit()
     finally:
@@ -140,7 +140,7 @@ def send_proactive_wishlist_offers():
                 .join(Order, Order.id == OrderItem.order_id)
                 .filter(
                     Order.user_id == user_id,
-                    OrderItem.variant_id == item.product_variant_id,
+                    OrderItem.product_variant_id == item.product_variant_id,
                     Order.created_at >= cutoff_cooldown,
                 )
                 .first()
