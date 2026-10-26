@@ -87,6 +87,8 @@ services:
         sync: false
       - key: RESEND_API_KEY
         sync: false
+      - key: EMAIL_FROM            # e.g. DAKSHA <noreply@your-verified-domain>; required to email anyone but the Resend owner
+        sync: false
 
       # ── Embeddings (Nomic) ───────────────────────────────────────────────────
       - key: NOMIC_API_KEY

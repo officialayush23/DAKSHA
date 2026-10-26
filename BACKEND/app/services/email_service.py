@@ -45,7 +45,9 @@ def _send_smtp(to_email: str, subject: str, html_content: str) -> bool:
         msg["To"] = to_email
         msg.attach(MIMEText(html_content, "html"))
 
-        server = smtplib.SMTP(smtp_host, smtp_port)
+        # timeout: some hosts (e.g. Render free tier) block SMTP ports; fail fast
+        # instead of hanging the request that triggered the email.
+        server = smtplib.SMTP(smtp_host, smtp_port, timeout=15)
         server.starttls()
         
         # Will no longer crash with 'NoneType has no attribute encode'
@@ -59,13 +61,16 @@ def _send_smtp(to_email: str, subject: str, html_content: str) -> bool:
         return False
 
 def _send_resend(to_email: str, subject: str, html_content: str) -> bool:
-    if not RESEND_AVAILABLE or not os.getenv("RESEND_API_KEY") or not to_email:
+    api_key = (settings.RESEND_API_KEY or os.getenv("RESEND_API_KEY") or "").strip()
+    if not RESEND_AVAILABLE or not api_key or not to_email:
         return False
 
     try:
-        resend.api_key = os.getenv("RESEND_API_KEY")
+        resend.api_key = api_key
         resend.Emails.send({
-            "from": os.getenv("EMAIL_FROM", "onboarding@resend.dev"),
+            # onboarding@resend.dev only delivers to the Resend account owner;
+            # set EMAIL_FROM to an address on a domain verified in Resend.
+            "from": settings.EMAIL_FROM or os.getenv("EMAIL_FROM") or "onboarding@resend.dev",
             "to": to_email,
             "subject": subject,
             "html": html_content,

@@ -101,8 +101,20 @@ def _gemini(label, client):
 @check("gemini (developer api key)")
 def _():
     from google import genai
-    key = (E("GEMINI_API_KEYS") or E("GEMINI_API_KEY")).split(",")[0].strip()
-    return _gemini("studio", genai.Client(api_key=key)) if key else "skip: no key"
+    keys = []
+    for n in ("GEMINI_API_KEYS", "GEMINI_API_KEY", "GEMINI_VERTEX_API_KEY", "VERTEX_API_KEY"):
+        for k in (E(n) or "").split(","):
+            if k.strip() and (n, k.strip()) not in keys:
+                keys.append((n, k.strip()))
+    if not keys:
+        return "skip: no key"
+    errors = []
+    for n, k in keys:
+        try:
+            return _gemini(n, genai.Client(api_key=k)) + (f" (dead: {', '.join(errors)})" if errors else "")
+        except Exception:
+            errors.append(n)
+    raise RuntimeError(f"no working key; tried {', '.join(errors)}")
 
 
 @check("bedrock (xAI)")
@@ -137,6 +149,8 @@ def _():
     if not E("RESEND_API_KEY"):
         return "skip: no key"
     r = httpx.get("https://api.resend.com/domains", headers={"Authorization": f"Bearer {E('RESEND_API_KEY')}"}, timeout=10)
+    if r.status_code == 401 and "restricted_api_key" in r.text:
+        return "send-only key (fine); sender " + (E("EMAIL_FROM") or "onboarding@resend.dev -> owner inbox only")
     if r.status_code >= 400:
         raise RuntimeError(f"http {r.status_code}: {r.text[:120]}")
     return f"http {r.status_code}"
