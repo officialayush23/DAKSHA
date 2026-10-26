@@ -35,7 +35,7 @@ google-genai==1.61.0
 # ── Embeddings / numerics ────────────────────────────────────────────────────
 nomic==3.9.0
 numpy==2.4.2
-opencv-python-headless==4.12.0.88
+opencv-python-headless==4.13.0.92
 
 # ── Infra / notifications ────────────────────────────────────────────────────
 redis==7.1.0
