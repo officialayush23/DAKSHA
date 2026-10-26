@@ -189,7 +189,9 @@ def name_color(bgr) -> str:
     return "pink"
 
 
-def dominant_color(img, mask) -> Tuple[Optional[str], float]:
+def color_palette(img, mask, k: int = 4) -> List[Tuple[str, float]]:
+    """Named colours of the foreground with their pixel share, largest first
+    (skin removed). A palette survives clutter better than one dominant colour."""
     cv2 = _cv2()
     fg = mask > 0
     no_skin = fg & (_skin_mask(img) == 0)
@@ -197,15 +199,23 @@ def dominant_color(img, mask) -> Tuple[Optional[str], float]:
         fg = no_skin
     px = img[fg].reshape(-1, 3).astype(np.float32)
     if len(px) < 50:
-        return None, 0.0
+        return []
     if len(px) > 6000:
         px = px[np.random.default_rng(0).choice(len(px), 6000, replace=False)]
-    k = 3 if len(px) >= 300 else 1
+    k = k if len(px) >= 400 else 1
     _, labels, centers = cv2.kmeans(px, k, None, (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 20, 1.0),
                                     3, cv2.KMEANS_PP_CENTERS)
-    counts = np.bincount(labels.flatten(), minlength=k)
-    c = centers[int(np.argmax(counts))]
-    return name_color([int(round(x)) for x in c]), float(counts.max() / counts.sum())
+    counts = np.bincount(labels.flatten(), minlength=k).astype(float)
+    shares: Dict[str, float] = {}
+    for c, n in zip(centers, counts):
+        name = name_color([int(round(x)) for x in c])
+        shares[name] = shares.get(name, 0.0) + n / counts.sum()
+    return sorted(shares.items(), key=lambda kv: -kv[1])
+
+
+def dominant_color(img, mask) -> Tuple[Optional[str], float]:
+    pal = color_palette(img, mask)
+    return (pal[0][0], pal[0][1]) if pal else (None, 0.0)
 
 
 def hsv_hist(img, mask) -> np.ndarray:
@@ -234,6 +244,7 @@ def sift(img, mask):
 class Features:
     color: Optional[str]
     color_share: float
+    palette: List[Tuple[str, float]]
     hist: np.ndarray
     hu: np.ndarray
     pts: np.ndarray
@@ -243,9 +254,10 @@ class Features:
 
 def describe(img) -> Features:
     mask = segment(img)
-    color, share = dominant_color(img, mask)
+    palette = color_palette(img, mask)
+    color, share = (palette[0] if palette else (None, 0.0))
     pts, des = sift(img, mask)
-    return Features(color, share, hsv_hist(img, mask), hu_moments(mask), pts, des, float((mask > 0).mean()))
+    return Features(color, share, palette, hsv_hist(img, mask), hu_moments(mask), pts, des, float((mask > 0).mean()))
 
 
 # ── pairwise signals ─────────────────────────────────────────────────────────
@@ -253,7 +265,11 @@ def color_sim(a: Features, b: Features) -> float:
     cv2 = _cv2()
     bc = cv2.compareHist(a.hist, b.hist, cv2.HISTCMP_BHATTACHARYYA)      # 0 = identical
     s = max(0.0, 1.0 - float(bc))
-    if a.color and a.color == b.color:
+    # the candidate's main colour is a meaningful part of the query photo
+    share = dict(getattr(a, "palette", None) or []).get(b.color, 0.0)
+    if share >= 0.12:
+        s = min(1.0, 0.5 * s + 0.5 + 0.5 * min(share / 0.5, 1.0) * 0.5)
+    elif a.color and a.color == b.color:
         s = min(1.0, s + 0.2)
     return s
 
