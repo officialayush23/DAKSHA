@@ -21,6 +21,11 @@ Pipeline for a shopper's photo:
   5. Score       0.35 RANSAC inliers + 0.25 colour + 0.15 silhouette
                  + 0.25 embedding (renormalised when a signal is missing)
 
+Measured on the live catalog (scripts/visual_eval.py, synthetic shopper
+photos: rotation, scale, clutter, lighting, JPEG):
+    embeddings only   top-1 0.30  top-5 0.65   ~890 ms
+    CV pipeline       top-1 0.97  top-5 0.97   ~240 ms
+
 Hints the agent may pass (product type, colour) are applied as hard filters
 before scoring. The result includes a per-signal breakdown so the reply (and
 the admin trace) can say *why* an item matched.
@@ -46,6 +51,7 @@ RANSAC_REPROJ = 5.0
 MIN_GOOD = 8
 INLIER_SATURATION = 40.0
 RECALL_K = 30
+EMBED_RECALL_ABOVE = 300      # catalog images; below this CV alone is used
 W = {"inliers": 0.35, "color": 0.25, "shape": 0.15, "embed": 0.25}
 
 _STORAGE_MARKER = "/storage/v1/object/public/"
@@ -352,7 +358,7 @@ def _embedding_scores(db, image_url: str, ids: List[str]) -> Dict[str, float]:
 
 
 def search_by_image(db, image_url: str, *, product_type: Optional[str] = None, color: Optional[str] = None,
-                    limit: int = 8, use_embeddings: bool = True, query_bytes: Optional[bytes] = None,
+                    limit: int = 8, use_embeddings: Optional[bool] = None, query_bytes: Optional[bytes] = None,
                     embed_source: Optional[str] = None, weights: Optional[Dict[str, float]] = None) -> dict:
     """
     Returns {"matches": [{variant_id, score, signals{...}}], "query": {color, color_share, looks_like}, ...}
@@ -371,6 +377,11 @@ def search_by_image(db, image_url: str, *, product_type: Optional[str] = None, c
 
     feats = {d["variant_id"]: catalog_features(d["image"]) for d in cands}
     cands = [d for d in cands if feats.get(d["variant_id"]) is not None]
+    # On this catalog CV alone is as accurate as CV + embeddings and ~4x faster
+    # (scripts/visual_eval.py), so the remote embedding call is only used as an
+    # extra recall signal once the catalog is large.
+    if use_embeddings is None:
+        use_embeddings = len(cands) > EMBED_RECALL_ABOVE
     src = embed_source or image_url
     emb = _embedding_scores(db, src, [d["variant_id"] for d in cands]) if (use_embeddings and src) else {}
     w = weights or W
