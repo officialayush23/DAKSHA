@@ -63,7 +63,12 @@ export default function AuthPage({ isRegister = false }) {
         navigate("/dash/shop");
       }
     } catch (err) {
-      toast.error(err.message || "Authentication failed");
+      if (err?.code === "user_already_exists" || /already registered/i.test(err?.message || "")) {
+        toast.error("This email already has an account. Please sign in instead.");
+        navigate("/login");
+      } else {
+        toast.error(err.message || "Authentication failed");
+      }
     } finally {
       setLoading(false);
     }
@@ -111,13 +116,13 @@ export default function AuthPage({ isRegister = false }) {
               <div className="relative">
                 <User className="absolute left-0 top-3 text-gray-300 w-5 h-5" />
                 <input required value={name} onChange={e => setName(e.target.value)}
-                  placeholder="Full Name"
+                  placeholder="Full Name" autoComplete="name"
                   className="w-full pl-8 border-b py-3 outline-none font-serif" />
               </div>
               <div className="relative">
                 <Phone className="absolute left-0 top-3 text-gray-300 w-5 h-5" />
                 <input required value={phone} onChange={e => setPhone(e.target.value)}
-                  placeholder="Phone (for concierge)"
+                  placeholder="Phone (for concierge)" autoComplete="tel"
                   className="w-full pl-8 border-b py-3 outline-none font-serif" />
               </div>
             </>
@@ -125,14 +130,15 @@ export default function AuthPage({ isRegister = false }) {
 
           <div className="relative">
             <Mail className="absolute left-0 top-3 text-gray-300 w-5 h-5" />
-            <input required type="email" value={email} onChange={e => setEmail(e.target.value)}
+            <input required type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)}
               placeholder="Email"
               className="w-full pl-8 border-b py-3 outline-none font-serif" />
           </div>
 
           <div className="relative">
             <Lock className="absolute left-0 top-3 text-gray-300 w-5 h-5" />
-            <input required type="password" value={password} onChange={e => setPassword(e.target.value)}
+            <input required type="password" autoComplete={isRegister ? "new-password" : "current-password"}
+              value={password} onChange={e => setPassword(e.target.value)}
               placeholder="Password"
               className="w-full pl-8 border-b py-3 outline-none font-serif" />
           </div>
