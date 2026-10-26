@@ -13,6 +13,7 @@ import KioskLayout from './kiosk/layout/KioskLayout';
 // --- PUBLIC PAGES ---
 import LandingPage from './pages/LandingPage';
 import AuthPage from './pages/AuthPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import ErrorPage from './pages/ErrorPage';
 
 // --- SHARED USER + KIOSK PAGES ---
@@ -123,8 +124,10 @@ export default function App() {
       {/* 1. PUBLIC ROUTES               */}
       {/* ============================== */}
       <Route path="/" element={<LandingPage />} />
-      <Route path="/login" element={<AuthPage />} />
-      <Route path="/register" element={<AuthPage isRegister />} />
+      <Route path="/login" element={<AuthPage mode="login" />} />
+      <Route path="/register" element={<AuthPage mode="register" />} />
+      <Route path="/forgot-password" element={<AuthPage mode="forgot" />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/animation" element={<AdvancedArchitectureSimulator />} />
 
 
@@ -200,7 +203,7 @@ export default function App() {
       {/* ============================== */}
       {/* 4. ADMIN PANEL                 */}
       {/* ============================== */}
-      <Route path="/admin/login" element={<AuthPage />} />
+      <Route path="/admin/login" element={<AuthPage mode="login" />} />
       <Route
         path="/admin"
         element={

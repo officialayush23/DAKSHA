@@ -22,9 +22,12 @@ def _tool(fn, args, desc, effect="read", policy=None) -> ToolSpec:
 
 TOOLS = {t.name: t for t in [
     # discovery
-    _tool(T.search_catalog, T.SearchArgs, "Semantic product search with optional max price/category. Returns in-stock variants."),
+    _tool(T.search_catalog, T.SearchArgs, "Catalog search. Pass the shopper's words as query AND fill product_type / color / "
+          "gender / size / brand / price when they are stated or implied by the conversation (e.g. 'only red' after "
+          "t-shirts -> product_type='t-shirt', color='red'). Results are exact matches; 'related' are labelled alternatives."),
     _tool(T.recommend_for_me, T.RecommendArgs, "Personalised picks from taste profile, collaborative signals and trends."),
-    _tool(T.similar_to_image, T.ImageArgs, "Find products visually similar to an uploaded image URL."),
+    _tool(T.similar_to_image, T.ImageArgs, "Find catalog items that look like an uploaded photo (computer-vision matching). "
+          "Pass the image URL; add product_type/color only if the shopper stated them."),
     _tool(T.trending_now, T.NoArgs, "Currently trending in-stock products."),
     _tool(T.product_details, T.VariantArgs, "Details, rating and all colour/size variants with stock for one product."),
     _tool(T.check_stock, T.StockArgs, "Warehouse and (optional) store stock for a variant."),
@@ -64,8 +67,10 @@ TOOLS = {t.name: t for t in [
 AGENTS = [
     AgentSpec("discovery", "Discovery Agent",
               "finding products: search, personal picks, image search, trending, product details, stock, wishlist",
-              "Find products that fit the request. Prefer search_catalog for explicit needs and recommend_for_me for "
-              "open-ended ones. Respect budget and size if mentioned. Return a short list; the app shows the cards.",
+              "Find products that fit the request. Use search_catalog for explicit needs (always fill product_type and "
+              "color when known, carrying them over from earlier turns on refinements) and recommend_for_me for open-ended "
+              "ones. If search_catalog reports no exact matches, say so plainly and present alternatives as alternatives. "
+              "For an attached image call similar_to_image. Keep the reply short; the app shows the product cards.",
               ["search_catalog", "recommend_for_me", "similar_to_image", "trending_now", "product_details", "check_stock",
                "add_to_wishlist"]),
     AgentSpec("cart", "Cart Agent", "adding, removing, changing quantities and showing the cart",
@@ -126,6 +131,21 @@ def handoff(tc: ToolContext, reason: str, summary: str) -> ToolResult:
 
 def build_pack() -> DomainPack:
     from app.ai.policy.company_policy import HANDOFF_POLICY
+    def _image_args(text: str, url: str) -> dict:
+        """Photo + words ("this but in black jacket"): the words become hard
+        filters for the image matcher via the same taxonomy as text search."""
+        from app.services.catalog_taxonomy import parse_query, type_label
+        args = {"image_url": url}
+        try:
+            f = parse_query(text or "", allow_zero_shot=False)
+            if len(f.types) == 1:
+                args["product_type"] = type_label(f.types[0])
+            if len(f.colors) == 1:
+                args["color"] = f.colors[0]
+        except Exception:
+            pass
+        return args
+
     return DomainPack(
         name="commerce",
         persona=("You are Daksha, the shopping concierge of a fashion store that sells online, in its app and at "
@@ -141,4 +161,5 @@ def build_pack() -> DomainPack:
         max_failures_before_handoff=HANDOFF_POLICY.max_agent_failures_before_handoff,
         max_plan_steps=4,
         max_total_actions=10,
+        image_route=("discovery", "similar_to_image", _image_args),
     )

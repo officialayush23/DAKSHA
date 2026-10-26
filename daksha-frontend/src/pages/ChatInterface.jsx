@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Card } from 'antd';
 import {
-  Send, ShoppingBag, Sparkles, User, Bot, Mic, MicOff,
+  Send, Sparkles, User, Bot, Mic, MicOff,
   Plus, MessageSquare, Loader2, ImagePlus, X,
   CheckCircle2, AlertCircle, RefreshCw,
 } from 'lucide-react';
@@ -11,34 +10,10 @@ import { useBasePath } from '../hooks/useBasePath';
 import api from '../lib/api';
 import { detectChannel, getAccessToken, wsBase } from '../lib/authToken';
 import { PlanTrace, ApprovalCard, UiCard, agentLabel } from '../components/agent/AgentExtras';
+import ChatProductCards from '../components/agent/ChatProductCards';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 // Image uploads go through the backend (/chat/upload-image) to bypass Supabase RLS
-
-// ── Recommendation outcome tracker ──────────────────────────────────────────
-const logRecommendationOutcome = async (impressionId, outcomeType, rewardValue = 0.1) => {
-  if (!impressionId) return;
-  try {
-    await api.post('/recommendations/outcome', {
-      impression_id: impressionId,
-      outcome_type: outcomeType,
-      reward_value: rewardValue,
-    });
-  } catch (_) {}
-};
-
-// ── Direct cart add (no AI needed) ──────────────────────────────────────────
-const directAddToCart = async (variantId, impressionId, productName, toastFn) => {
-  logRecommendationOutcome(impressionId, 'cart', 0.5);
-  try {
-    await api.post('/cart/quick-add', { variant_id: variantId, quantity: 1 });
-    toastFn?.success('Added to cart!');
-  } catch (err) {
-    const detail = err?.response?.data?.detail || 'Could not add to cart';
-    toastFn?.error(detail);
-  }
-};
-
-const { Meta } = Card;
 
 const WELCOME_MSG = {
   role: 'assistant',
@@ -46,11 +21,13 @@ const WELCOME_MSG = {
   current_agent: 'orchestrator',
 };
 
+const metaOf = (ui) => (ui && ui.type === 'products' ? { query: ui.query, mode: ui.mode } : null);
 const productsOf = (ui) => (ui ? (ui.products || ui.trending_products || (ui.type === 'products' ? ui.items : null) || []) : []);
 
 export default function ChatInterface() {
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { basePath } = useBasePath();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -165,6 +142,7 @@ export default function ChatInterface() {
             role: m.role === 'staff' ? 'staff' : m.role,
             content: m.content,
             products: productsOf(m.ui_data),
+            productMeta: metaOf(m.ui_data),
             ui: m.ui_data && m.ui_data.type !== 'products' ? m.ui_data : null,
             plan: m.ui_data?._agentic?.plan || [],
           })));
@@ -235,10 +213,15 @@ export default function ChatInterface() {
     if (data.human_takeover) setHumanMode(true);
     const ui = data.ui_data || {};
     const card = ui.type === 'approval' ? ui.card : ui;
+    // the agent may have changed the bag (cart / checkout / kiosk): refresh the badge
+    if ((data.agents || []).some(a => ['cart', 'checkout'].includes(a)) || card?.type === 'cart') {
+      queryClient.invalidateQueries({ queryKey: ['cart'] });
+    }
     setMessages(prev => [...prev, {
       role: 'assistant',
       content: data.response || (data.human_takeover ? '' : 'Done.'),
       products: productsOf(card),
+      productMeta: metaOf(card),
       ui: card && card.type !== 'products' ? card : null,
       approval: data.approval,
       plan: data.plan || [],
@@ -394,54 +377,7 @@ export default function ChatInterface() {
 
                   {/* Product cards */}
                   {m.products?.length > 0 && (
-                    <div className="flex overflow-x-auto gap-4 pb-4 pt-2 snap-x scrollbar-hide w-full max-w-[300px] sm:max-w-[450px] md:max-w-[600px]">
-                      {m.products.map((p, idx) => (
-                        <div key={idx} className="snap-start shrink-0 w-[200px]">
-                          <Card
-                            hoverable
-                            className="rounded-2xl border-zinc-200 overflow-hidden shadow-sm hover:shadow-md transition-all h-full flex flex-col"
-                            bodyStyle={{ padding: '12px' }}
-                            onClick={() => logRecommendationOutcome(p.impression_id, 'click', 0.1)}
-                            cover={
-                              <div className="h-40 w-full bg-zinc-100 overflow-hidden">
-                                <img
-                                  src={p.image || p.image_url || 'https://via.placeholder.com/200'}
-                                  alt={p.name}
-                                  className="w-full h-full object-cover"
-                                />
-                              </div>
-                            }
-                            actions={[
-                              <ShoppingBag
-                                key="add"
-                                size={18}
-                                className="text-zinc-600 hover:text-black transition-colors cursor-pointer"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  directAddToCart(p.variant_id, p.impression_id, p.name, toast);
-                                }}
-                              />,
-                            ]}
-                          >
-                            <Meta
-                              title={<span className="font-bold text-sm whitespace-normal line-clamp-2 leading-tight">{p.name}</span>}
-                              description={
-                                <div className="mt-1 space-y-0.5">
-                                  {(p.color || p.size) && (
-                                    <div className="text-xs text-zinc-500">
-                                      {[p.color, p.size].filter(Boolean).join(' · ')}
-                                    </div>
-                                  )}
-                                  <div className="text-black font-semibold text-sm">
-                                    ₹{p.final_price || p.price || p.base_price || 0}
-                                  </div>
-                                </div>
-                              }
-                            />
-                          </Card>
-                        </div>
-                      ))}
-                    </div>
+                    <ChatProductCards products={m.products} meta={m.productMeta} basePath={basePath} />
                   )}
                   {m.role === 'assistant' && (m.plan?.length > 0 || m.trace?.length > 0) && (
                     <PlanTrace plan={m.plan} trace={m.trace} latencyMs={m.latency} />

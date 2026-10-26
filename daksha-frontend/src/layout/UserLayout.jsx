@@ -104,7 +104,7 @@ const DesktopSidebar = ({ user, signOut, cartCount, isAdmin, sessionInfo }) => {
       </div>
 
       {/* Session Active Indicator */}
-      {sessionInfo && (
+      {sessionInfo?.session_id && (
         <div className="px-6 pb-4">
           <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-3 flex items-center gap-3">
             <div className="h-8 w-8 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600 shadow-sm">
@@ -112,7 +112,7 @@ const DesktopSidebar = ({ user, signOut, cartCount, isAdmin, sessionInfo }) => {
             </div>
             <div className="overflow-hidden">
               <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-800">Active Session</p>
-              <p className="text-[10px] text-emerald-600 truncate font-mono mt-0.5">{sessionInfo.session_id.slice(0, 12)}...</p>
+              <p className="text-[10px] text-emerald-600 truncate font-mono mt-0.5">{String(sessionInfo?.session_id || "").slice(0, 12)}…</p>
             </div>
           </div>
         </div>

@@ -80,6 +80,25 @@ def merge_agents(old: Optional[dict], new: Optional[dict]) -> dict:
     return out
 
 
+def _json_default(o: Any) -> Any:
+    if getattr(o, "ndim", 0) and hasattr(o, "tolist"):   # numpy array
+        return o.tolist()
+    if hasattr(o, "item") and callable(o.item):          # numpy scalar
+        return o.item()
+    if hasattr(o, "isoformat"):
+        return o.isoformat()
+    try:
+        return float(o)                                  # Decimal and friends
+    except Exception:
+        return str(o)                                    # UUID, enums, anything else
+
+
+def _plain(x: Any) -> Any:
+    if x is None:
+        return None
+    return json.loads(json.dumps(x, default=_json_default))
+
+
 class GraphState(TypedDict, total=False):
     # who / where — set by the API layer, never by the model
     thread_id: str
@@ -244,10 +263,12 @@ class Engine:
     # ── reasoning: planner ───────────────────────────────────────────────────
     def planner(self, s: GraphState) -> Dict[str, Any]:
         names = {a.name for a in self.pack.agents}
-        if s.get("image_url"):
-            plan = [{"id": 0, "agent": "discovery", "objective": f"find products visually similar to the image {s['image_url']}",
-                     "status": "pending", "attempts": 0}]
-            return {"plan": plan, "cursor": 0, "trace": [_t("planner", deterministic=True, steps=1)]}
+        if s.get("image_url") and self.pack.image_route:
+            agent, tool, build = self.pack.image_route
+            args = build(s.get("input") or "", s["image_url"])
+            plan = [{"id": 0, "agent": agent, "objective": f"find products visually similar to the attached image",
+                     "status": "pending", "attempts": 0, "forced": {"tool": tool, "args": args}}]
+            return {"plan": plan, "cursor": 0, "trace": [_t("planner", deterministic=True, steps=1, forced=tool)]}
         if s.get("mode") == "proactive":
             trig = s.get("trigger") or {}
             goal = f"Proactive trigger '{trig.get('type')}': {trig.get('goal', '')}. Data: {json.dumps(trig.get('data', {}), default=str)[:800]}"
@@ -315,6 +336,16 @@ class Engine:
                 return self._finish(plan, step, name, f"stopped after {used} actions", s)
             if (s.get("actions_used") or 0) >= self.pack.max_total_actions:
                 return self._finish(plan, step, name, "stopped: turn action budget used up", s)
+
+            # Deterministic step (e.g. image search): run the fixed tool through
+            # the policy gate, then finish on its observation. No model call.
+            forced = step.get("forced")
+            if forced:
+                if used == 0 and not scratch:      # first visit; a denial/error ends the step instead of looping
+                    return {"pending": {"agent": name, "tool": forced["tool"], "args": forced["args"], "step": step["id"]},
+                            "route": "gate",
+                            "trace": [_t(f"agent_{name}", thought="deterministic step", tool=forced["tool"], llm=False)]}
+                return self._finish(plan, step, name, scratch[-1]["text"][:600] if scratch else "no result", s)
 
             memories = self.memory.recall(self.pack.name, name, s.get("user_id"), step["objective"], k=5)
             mem_txt = "\n".join(f"- ({m.kind}) {m.content}" for m in memories) or "(nothing yet)"
@@ -452,6 +483,10 @@ class Engine:
             res = tool.fn(self._tc(s, name), args)
         except Exception as e:
             res = ToolResult(False, f"{type(e).__name__}: {str(e)[:300]}")
+        # Tool output goes into the checkpointed graph state; make it plain JSON
+        # (numpy scalars, Decimals, UUIDs, datetimes) so a tool can never break
+        # checkpoint serialization and with it the whole turn.
+        res = ToolResult(res.ok, res.message, _plain(res.data) or {}, _plain(res.ui))
         ms = (time.perf_counter() - t0) * 1000
         self.journal.action(run_id=s.get("run_id"), user_id=s.get("user_id"), agent=name, tool=p["tool"],
                             args=p["args"], output={"ok": res.ok, "message": res.message, "data": res.data},
@@ -541,10 +576,29 @@ class Engine:
             r = self.gw().json("synthesize", system, user, Reply)
             reply = r.reply
         except LLMUnavailable:
-            done = [x.get("result") for x in s.get("plan", []) if x.get("result")]
-            reply = " ".join(done) or "I couldn't complete that just now. Please try again."
+            reply = self._fallback_reply(s, ui)
         return {"reply": reply, "ui": ui, "messages": [AIMessage(content=reply)],
                 "trace": [_t("synthesize", llm=True, approvals=len(pending_approval))]}
+
+    @staticmethod
+    def _fallback_reply(s: GraphState, ui: Optional[Dict[str, Any]]) -> str:
+        """Reply without the model: say what the tools and the policy gate actually
+        decided. Internal step results ("model unavailable") never reach the user."""
+        denials = []
+        for agent_state in (s.get("agents") or {}).values():
+            for x in agent_state.get("scratch", []) or []:
+                if x.get("kind") == "denied" and ":" in x.get("text", ""):
+                    reason = x["text"].split(":", 1)[1].strip()
+                    if reason and reason not in denials:
+                        denials.append(reason)
+        if denials:
+            return "I couldn't do that: " + "; ".join(denials) + "."
+        kind = (ui or {}).get("type")
+        lead = {"products": "Here's what I found.", "cart": "Here's your bag.", "order": "Here are your order details.",
+                "orders": "Here are your recent orders.", "approval": "Please confirm to continue."}.get(kind)
+        if lead:
+            return lead
+        return "I'm having trouble answering right now. Please try again in a moment."
 
     # ── control: remember ────────────────────────────────────────────────────
     def remember(self, s: GraphState) -> Dict[str, Any]:
