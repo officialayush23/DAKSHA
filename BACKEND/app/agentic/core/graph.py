@@ -80,6 +80,25 @@ def merge_agents(old: Optional[dict], new: Optional[dict]) -> dict:
     return out
 
 
+def _json_default(o: Any) -> Any:
+    if getattr(o, "ndim", 0) and hasattr(o, "tolist"):   # numpy array
+        return o.tolist()
+    if hasattr(o, "item") and callable(o.item):          # numpy scalar
+        return o.item()
+    if hasattr(o, "isoformat"):
+        return o.isoformat()
+    try:
+        return float(o)                                  # Decimal and friends
+    except Exception:
+        return str(o)                                    # UUID, enums, anything else
+
+
+def _plain(x: Any) -> Any:
+    if x is None:
+        return None
+    return json.loads(json.dumps(x, default=_json_default))
+
+
 class GraphState(TypedDict, total=False):
     # who / where — set by the API layer, never by the model
     thread_id: str
@@ -464,6 +483,10 @@ class Engine:
             res = tool.fn(self._tc(s, name), args)
         except Exception as e:
             res = ToolResult(False, f"{type(e).__name__}: {str(e)[:300]}")
+        # Tool output goes into the checkpointed graph state; make it plain JSON
+        # (numpy scalars, Decimals, UUIDs, datetimes) so a tool can never break
+        # checkpoint serialization and with it the whole turn.
+        res = ToolResult(res.ok, res.message, _plain(res.data) or {}, _plain(res.ui))
         ms = (time.perf_counter() - t0) * 1000
         self.journal.action(run_id=s.get("run_id"), user_id=s.get("user_id"), agent=name, tool=p["tool"],
                             args=p["args"], output={"ok": res.ok, "message": res.message, "data": res.data},

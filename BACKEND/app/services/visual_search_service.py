@@ -209,7 +209,7 @@ def color_palette(img, mask, k: int = 4) -> List[Tuple[str, float]]:
     shares: Dict[str, float] = {}
     for c, n in zip(centers, counts):
         name = name_color([int(round(x)) for x in c])
-        shares[name] = shares.get(name, 0.0) + n / counts.sum()
+        shares[name] = shares.get(name, 0.0) + float(n / counts.sum())
     return sorted(shares.items(), key=lambda kv: -kv[1])
 
 
