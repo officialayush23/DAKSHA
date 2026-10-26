@@ -163,7 +163,7 @@ def _select(db: Session, pool: List[dict], f: tx.QueryFilters, query: str, limit
     # Embeddings are only needed to order free text the filters didn't consume
     # ("for a wedding", "breathable"). A pure "red t-shirts" query skips the
     # remote embedding call entirely, which keeps search instant.
-    sem = _semantic_scores(db, [d["variant_id"] for d, _ in priced], query) if (f.keywords or not f.types) else {}
+    sem = _semantic_scores(db, [d["variant_id"] for d, _ in priced], query) if (f.keywords or not f.has_constraints()) else {}
     scored = sorted(priced, key=lambda dp: (-(0.7 * sem.get(dp[0]["variant_id"], 0.0)
                                                + 0.3 * _keyword_score(dp[0], f.keywords)),
                                              -int(dp[0]["stock"] or 0), dp[0]["name"]))
