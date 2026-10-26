@@ -336,16 +336,18 @@ def parse_query(query: str, known_brands: Optional[List[str]] = None, allow_zero
         f.exclude_colors += [c for c in cols if c not in f.exclude_colors]
     text = re.sub(r"\b(?:not|no|except|without|avoid)\s+(" + "|".join(re.escape(p) for p, _ in _COLOR_INDEX) + r")\b", " ", text)
 
-    # groups ("footwear", "tops") before types so they don't get split
-    groups, text = _find_phrases(text, [(p, k) for p, k in _GROUP_INDEX])
-    for g in groups:
-        for t in TYPE_GROUPS[g]:
-            if t not in f.types:
-                f.types.append(t)
+    # specific types first ("running shoes"), then broad groups ("shoes", "tops")
+    # only if no specific type was named
     types, text = _find_phrases(text, _TYPE_INDEX)
     for t in types:
         if t not in f.types:
             f.types.append(t)
+    groups, text = _find_phrases(text, [(p, k) for p, k in _GROUP_INDEX])
+    if not f.types:
+        for g in groups:
+            for t in TYPE_GROUPS[g]:
+                if t not in f.types:
+                    f.types.append(t)
     if f.types:
         f.type_source = "lexicon"
 
