@@ -22,7 +22,9 @@ def _tool(fn, args, desc, effect="read", policy=None) -> ToolSpec:
 
 TOOLS = {t.name: t for t in [
     # discovery
-    _tool(T.search_catalog, T.SearchArgs, "Semantic product search with optional max price/category. Returns in-stock variants."),
+    _tool(T.search_catalog, T.SearchArgs, "Catalog search. Pass the shopper's words as query AND fill product_type / color / "
+          "gender / size / brand / price when they are stated or implied by the conversation (e.g. 'only red' after "
+          "t-shirts -> product_type='t-shirt', color='red'). Results are exact matches; 'related' are labelled alternatives."),
     _tool(T.recommend_for_me, T.RecommendArgs, "Personalised picks from taste profile, collaborative signals and trends."),
     _tool(T.similar_to_image, T.ImageArgs, "Find products visually similar to an uploaded image URL."),
     _tool(T.trending_now, T.NoArgs, "Currently trending in-stock products."),
@@ -64,8 +66,10 @@ TOOLS = {t.name: t for t in [
 AGENTS = [
     AgentSpec("discovery", "Discovery Agent",
               "finding products: search, personal picks, image search, trending, product details, stock, wishlist",
-              "Find products that fit the request. Prefer search_catalog for explicit needs and recommend_for_me for "
-              "open-ended ones. Respect budget and size if mentioned. Return a short list; the app shows the cards.",
+              "Find products that fit the request. Use search_catalog for explicit needs (always fill product_type and "
+              "color when known, carrying them over from earlier turns on refinements) and recommend_for_me for open-ended "
+              "ones. If search_catalog reports no exact matches, say so plainly and present alternatives as alternatives. "
+              "For an attached image call similar_to_image. Keep the reply short; the app shows the product cards.",
               ["search_catalog", "recommend_for_me", "similar_to_image", "trending_now", "product_details", "check_stock",
                "add_to_wishlist"]),
     AgentSpec("cart", "Cart Agent", "adding, removing, changing quantities and showing the cart",

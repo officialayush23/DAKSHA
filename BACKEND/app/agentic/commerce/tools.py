@@ -143,9 +143,18 @@ class NoArgs(Args):
 
 
 class SearchArgs(Args):
-    query: str = Field(min_length=2, max_length=200, description="what the shopper is looking for")
+    """Say WHAT to look for; the catalog code applies it as exact filters."""
+    query: str = Field(min_length=2, max_length=200, description="the shopper's request in their words")
+    product_type: Optional[str] = Field(default=None, max_length=60,
+                                        description="garment/product type, e.g. 't-shirt', 'jeans', 'sneakers', 'footwear'")
+    color: Optional[str] = Field(default=None, max_length=40, description="wanted colour, e.g. 'red'")
+    exclude_color: Optional[str] = Field(default=None, max_length=40, description="colour to avoid")
+    gender: Optional[Literal["men", "women", "kids"]] = None
+    size: Optional[str] = Field(default=None, max_length=8)
+    brand: Optional[str] = Field(default=None, max_length=60)
+    min_price: Optional[float] = Field(default=None, gt=0)
     max_price: Optional[float] = Field(default=None, gt=0)
-    category: Optional[str] = Field(default=None, max_length=60)
+    category: Optional[str] = Field(default=None, max_length=60, description="deprecated; use product_type")
 
 
 class RecommendArgs(Args):
@@ -261,15 +270,29 @@ class MessageArgs(Args):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def search_catalog(tc: ToolContext, a: SearchArgs) -> ToolResult:
-    from app.services.recommendation_service import recommend
+    """Deterministic catalog search: the model supplies what to look for, the
+    taxonomy turns it into exact filters, embeddings only rank inside them."""
+    from app.services.structured_search_service import search
     try:
         with _db() as db:
-            prods = recommend(db, str(_uid(tc)), a.query, limit=8, max_price=a.max_price, category=a.category,
-                              session_id=_web_session(tc), feed_type="search")
-            if not prods:   # fall back to plain semantic search without the strict threshold
-                from app.services.catalog_semantic_service import semantic_catalog_search
-                prods = _hydrate(db, semantic_catalog_search(db, a.query, limit=30), 8, a.max_price)
-        return ToolResult(True, f"{len(prods)} results: {_brief(prods)}", {"products": prods}, _cards(prods))
+            res = search(db, a.query, product_type=a.product_type or a.category, color=a.color,
+                         exclude_color=a.exclude_color, gender=a.gender, size=a.size, brand=a.brand,
+                         min_price=a.min_price, max_price=a.max_price, limit=8,
+                         session_key=str(tc.session_id or tc.thread_id or tc.user_id or ""))
+            prods, related = res["products"], res["related"]
+            try:
+                from app.services.impression_service import log_impressions
+                if prods and tc.user_id:
+                    log_impressions(db, str(_uid(tc)), prods, feed_type="search", session_id=_web_session(tc))
+            except Exception:
+                db.rollback()
+        note = res["summary"]
+        brief = f"{note}. Exact: {_brief(prods)}"
+        if related:
+            brief += f". Alternatives (say they are alternatives, not exact matches): {_brief(related)}"
+        ui = {"type": "products", "products": prods + related, "query": res["understood"],
+              "exact_count": len(prods)}
+        return ToolResult(True, brief, {"products": prods, "related": related, "filters": res["filters"]}, ui)
     except Exception as e:
         return _err(e)
 
