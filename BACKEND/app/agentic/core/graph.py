@@ -553,10 +553,29 @@ class Engine:
             r = self.gw().json("synthesize", system, user, Reply)
             reply = r.reply
         except LLMUnavailable:
-            done = [x.get("result") for x in s.get("plan", []) if x.get("result")]
-            reply = " ".join(done) or "I couldn't complete that just now. Please try again."
+            reply = self._fallback_reply(s, ui)
         return {"reply": reply, "ui": ui, "messages": [AIMessage(content=reply)],
                 "trace": [_t("synthesize", llm=True, approvals=len(pending_approval))]}
+
+    @staticmethod
+    def _fallback_reply(s: GraphState, ui: Optional[Dict[str, Any]]) -> str:
+        """Reply without the model: say what the tools and the policy gate actually
+        decided. Internal step results ("model unavailable") never reach the user."""
+        denials = []
+        for agent_state in (s.get("agents") or {}).values():
+            for x in agent_state.get("scratch", []) or []:
+                if x.get("kind") == "denied" and ":" in x.get("text", ""):
+                    reason = x["text"].split(":", 1)[1].strip()
+                    if reason and reason not in denials:
+                        denials.append(reason)
+        if denials:
+            return "I couldn't do that: " + "; ".join(denials) + "."
+        kind = (ui or {}).get("type")
+        lead = {"products": "Here's what I found.", "cart": "Here's your bag.", "order": "Here are your order details.",
+                "orders": "Here are your recent orders.", "approval": "Please confirm to continue."}.get(kind)
+        if lead:
+            return lead
+        return "I'm having trouble answering right now. Please try again in a moment."
 
     # ── control: remember ────────────────────────────────────────────────────
     def remember(self, s: GraphState) -> Dict[str, Any]:
