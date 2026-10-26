@@ -107,6 +107,8 @@ def _passes(d: dict, f: tx.QueryFilters, *, types=None, colors=None) -> bool:
         return False
     if f.brands and (d["brand"] or "").lower() not in [b.lower() for b in f.brands]:
         return False
+    if f.occasions and not tx.occasion_ok(d.get("occasion"), f.occasions):
+        return False
     return True
 
 
@@ -242,6 +244,15 @@ def search(db: Session, query: str, *, product_type: Optional[str] = None, color
     one_per_product = not f.colors and not f.sizes
     exact_pool = [d for d in catalog if _passes(d, f)]
     products = _select(db, exact_pool, f, rank_text, limit, rules, "exact", one_per_product)
+    occasion_note = ""
+    if not products and f.occasions and (f.types or f.colors):
+        # occasion tags are sparse in the catalog: keep the hard type/colour
+        # filters, drop the occasion, and say so
+        loose = replace(f, occasions=[])
+        products = _select(db, [d for d in catalog if _passes(d, loose)], loose, rank_text, limit, rules,
+                           "exact", one_per_product)
+        if products:
+            occasion_note = f"none tagged for {'/'.join(f.occasions)}, so the occasion was not applied"
 
     related: List[dict] = []
     relax_note = ""
@@ -264,6 +275,8 @@ def search(db: Session, query: str, *, product_type: Optional[str] = None, color
         summary += " (kept the product type from the previous search)"
     if related:
         summary += f"; {len(related)} labelled alternatives" + (f" ({relax_note})" if relax_note else "")
+    if occasion_note:
+        summary += f" ({occasion_note})"
     if f.notes:
         summary += "; " + "; ".join(f.notes)
 

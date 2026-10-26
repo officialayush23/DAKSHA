@@ -105,6 +105,20 @@ GENDERS: Dict[str, List[str]] = {
     "kids": ["kids", "kid", "children", "child", "boy", "girl", "toddler", "baby"],
 }
 
+# occasion -> (synonyms in queries, tags accepted in products.occasion)
+OCCASIONS: Dict[str, Tuple[List[str], List[str]]] = {
+    "wedding":     (["wedding", "weddings", "marriage", "shaadi", "shadi", "sangeet", "reception", "mehendi", "haldi"], ["wedding"]),
+    "festive":     (["festive", "festival", "diwali", "eid", "puja", "pooja", "navratri", "holi", "rakhi"], ["festive"]),
+    "party":       (["party", "parties", "night out", "club", "clubbing", "brunch", "date night", "date"], ["party", "brunch"]),
+    "office":      (["office", "work", "workwear", "formal", "business", "meeting", "interview", "corporate"], ["office", "formal", "business"]),
+    "casual":      (["casual", "everyday", "daily wear", "daily", "weekend", "college"], ["casual", "everyday", "smart casual", "streetwear"]),
+    "sports":      (["sports", "sport", "gym", "workout", "running", "training", "activewear", "yoga", "jogging"], ["sports", "gym", "running", "activewear"]),
+    "winter":      (["winter", "cold", "snow", "chilly"], ["winter"]),
+    "travel":      (["travel", "trip", "vacation", "holiday", "outdoors", "hiking", "trek", "trekking"], ["travel", "outdoors"]),
+    "traditional": (["traditional", "desi", "ethnic"], ["traditional", "ethnic", "desi"]),
+}
+_OCC_INDEX = sorted({(_p, c) for c, (syns, _) in OCCASIONS.items() for _p in syns}, key=lambda x: -len(x[0]))
+
 SIZES = ["xxxl", "xxl", "xl", "xs", "s", "m", "l"]
 _SIZE_WORDS = {"small": "s", "medium": "m", "large": "l", "extra large": "xl", "extra small": "xs"}
 
@@ -243,6 +257,7 @@ class QueryFilters:
     gender: Optional[str] = None                         # men | women | kids
     sizes: List[str] = field(default_factory=list)
     brands: List[str] = field(default_factory=list)
+    occasions: List[str] = field(default_factory=list)  # canonical occasions (OR)
     min_price: Optional[float] = None
     max_price: Optional[float] = None
     keywords: List[str] = field(default_factory=list)    # leftover words, used only for ranking
@@ -250,7 +265,7 @@ class QueryFilters:
     notes: List[str] = field(default_factory=list)
 
     def has_constraints(self) -> bool:
-        return bool(self.types or self.colors or self.gender or self.sizes or self.brands
+        return bool(self.types or self.colors or self.gender or self.sizes or self.brands or self.occasions
                     or self.min_price or self.max_price or self.exclude_colors)
 
     def describe(self) -> str:
@@ -265,6 +280,8 @@ class QueryFilters:
             parts.append("size " + "/".join(s.upper() for s in self.sizes))
         if self.brands:
             parts.append("by " + "/".join(self.brands))
+        if self.occasions:
+            parts.append("for " + "/".join(self.occasions))
         if self.min_price and self.max_price:
             parts.append(f"₹{self.min_price:.0f}-₹{self.max_price:.0f}")
         elif self.max_price:
@@ -277,6 +294,17 @@ class QueryFilters:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def occasion_tags(raw: Optional[str]) -> List[str]:
+    return [t.strip().lower() for t in (raw or "").split(",") if t.strip()]
+
+
+def occasion_ok(raw: Optional[str], wanted: List[str]) -> bool:
+    if not wanted:
+        return True
+    tags = occasion_tags(raw)
+    return any(t in tags for w in wanted for t in OCCASIONS.get(w, ([], [w]))[1])
 
 
 def type_label(canon: str) -> str:
@@ -353,6 +381,9 @@ def parse_query(query: str, known_brands: Optional[List[str]] = None, allow_zero
 
     cols, text = _find_phrases(text, _COLOR_INDEX)
     f.colors = [c for c in cols if c not in f.exclude_colors]
+
+    occ, text = _find_phrases(text, _OCC_INDEX)
+    f.occasions = occ
 
     for g, syns in GENDERS.items():
         for s in sorted(syns, key=len, reverse=True):
