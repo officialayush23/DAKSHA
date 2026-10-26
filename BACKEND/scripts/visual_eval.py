@@ -71,7 +71,7 @@ def main():
     ap.add_argument("--index-only", action="store_true")
     args = ap.parse_args()
     if os.path.exists(CACHE):
-        vs._CACHE.update(pickle.load(open(CACHE, "rb")))
+        vs._CACHE.update({k: (time.monotonic(), v[1]) for k, v in pickle.load(open(CACHE, "rb")).items()})
     rng = np.random.default_rng(7)
     with SessionLocal() as db:
         cands = [d for d in vs._candidates(db) if d["stock"] > 0]
