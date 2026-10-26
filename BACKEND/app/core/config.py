@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     LLM_PROVIDER_ORDER: str = ""            # e.g. "gemini,bedrock" (overrides LLM_PROVIDER)
     GEMINI_API_KEY: str = ""                # Gemini Developer API (AI Studio) key; no GCP project needed
     GEMINI_API_KEYS: str = ""               # optional: several keys, comma-separated
+    GEMINI_VERTEX_API_KEY: str = ""         # legacy name; used as a Developer API key (no Vertex)
+    VERTEX_API_KEY: str = ""                # legacy name; used as a Developer API key (no Vertex)
     GEMINI_MODEL: str = "gemini-3.5-flash"
     GEMINI_THINKING_LEVEL: str = "low"
     GEMINI_FALLBACK_MODELS: str = "gemini-3.5-flash-lite,gemini-3-flash-preview,gemini-2.5-flash"
@@ -54,6 +56,7 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     SMTP_FROM_EMAIL: str = ""
     RESEND_API_KEY: str = ""
+    EMAIL_FROM: str = ""         # Resend sender, e.g. "DAKSHA <noreply@your-verified-domain>"
 
     # ── Redis ─────────────────────────────────────────────────────────────────
     REDIS_URL: str = ""          # optional; in-process fallback when empty/unreachable
