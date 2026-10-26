@@ -76,6 +76,21 @@ async def startup_tasks():
     manager.loop = asyncio.get_running_loop()
     asyncio.create_task(session_cleanup_loop())
     asyncio.create_task(proactive_loop())
+    asyncio.create_task(_warm_search())
+
+
+async def _warm_search():
+    """Build zero-shot type prototypes and index catalog images for visual
+    search in the background, so the first shopper doesn't pay for it."""
+    await asyncio.sleep(20)
+    try:
+        from app.services.catalog_taxonomy import _type_prototypes
+        await asyncio.to_thread(_type_prototypes)
+        from app.services.visual_search_service import warm_cache
+        n = await asyncio.to_thread(warm_cache)
+        print(f"[SEARCH] warm: type prototypes ready, {n} catalog images indexed")
+    except Exception as e:
+        print(f"[SEARCH] warm-up skipped: {e}")
 
 # ── CORS ─────────────────────────────────────────────────────────────────────
 # FRONTEND_URLS is a comma-separated list set in Render env vars.

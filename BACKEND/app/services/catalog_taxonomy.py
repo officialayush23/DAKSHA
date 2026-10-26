@@ -207,14 +207,14 @@ def _type_prototypes() -> Dict[str, List[float]]:
     if _protos is None:
         with _proto_lock:
             if _protos is None:
-                from app.services.embedding_service import generate_text_embedding
-                protos = {}
-                for canon, (label, syns) in PRODUCT_TYPES.items():
-                    desc = f"{label}: " + ", ".join(syns[:5])
-                    vec = generate_text_embedding(desc, task_type="search_document")
-                    if any(vec):
-                        protos[canon] = vec
-                _protos = protos
+                from app.services.embedding_service import generate_text_embeddings_batch
+                canons = list(PRODUCT_TYPES)
+                descs = [f"{PRODUCT_TYPES[c][0]}: " + ", ".join(PRODUCT_TYPES[c][1][:5]) for c in canons]
+                vecs = generate_text_embeddings_batch(descs, task_type="search_document")
+                protos = {c: v for c, v in zip(canons, vecs) if any(v)}
+                if protos:            # don't cache a failed (all-zero) build
+                    _protos = protos
+                return protos
     return _protos or {}
 
 
