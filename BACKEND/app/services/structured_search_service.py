@@ -165,6 +165,11 @@ def _select(db: Session, pool: List[dict], f: tx.QueryFilters, query: str, limit
     scored = sorted(priced, key=lambda dp: (-(0.7 * sem.get(dp[0]["variant_id"], 0.0)
                                                + 0.3 * _keyword_score(dp[0], f.keywords)),
                                              -int(dp[0]["stock"] or 0), dp[0]["name"]))
+    # open-ended queries ("something for a wedding") have no hard filters, so
+    # keep only items close to the best semantic match instead of the catalog
+    if sem and not f.has_constraints():
+        best = max(sem.values())
+        scored = [dp for dp in scored if sem.get(dp[0]["variant_id"], 0.0) >= best - 0.08]
     out, seen = [], set()
     for d, p in scored:
         if one_per_product and d["product_id"] in seen:
