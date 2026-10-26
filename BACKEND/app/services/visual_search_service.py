@@ -16,8 +16,9 @@ Pipeline for a shopper's photo:
                  by colour + silhouette (+ Nomic vision-embedding similarity
                  when available); keep the top 30
   4. Verify      SIFT matching with Lowe's ratio test (0.75), then RANSAC
-                 homography; the inlier count measures whether the same print,
-                 logo or texture really appears in both images
+                 homography, rejected if degenerate (reflection, extreme scale
+                 or perspective, non-convex outline); the inlier count measures
+                 whether the same print, logo or texture appears in both images
   5. Score       0.35 RANSAC inliers + 0.25 colour + 0.15 silhouette
                  + 0.25 embedding (renormalised when a signal is missing)
 
@@ -277,7 +278,26 @@ def ransac_inliers(a: Features, b: Features) -> int:
     src = a.pts[[m.queryIdx for m in good]].reshape(-1, 1, 2)
     dst = b.pts[[m.trainIdx for m in good]].reshape(-1, 1, 2)
     H, inl = cv2.findHomography(src, dst, cv2.RANSAC, RANSAC_REPROJ)
-    return int(inl.sum()) if H is not None and inl is not None else 0
+    if H is None or inl is None or not _plausible(H, a.pts):
+        return 0
+    return int(inl.sum())
+
+
+def _plausible(H: np.ndarray, pts: np.ndarray) -> bool:
+    """Reject degenerate homographies RANSAC can still fit to clutter: a real
+    view of the same item keeps orientation (det > 0), changes scale by a
+    bounded factor, and maps the keypoints' bounding box to a convex quad."""
+    cv2 = _cv2()
+    det = float(np.linalg.det(H[:2, :2]))
+    if not (0.05 < det < 20.0):
+        return False
+    if abs(H[2, 0]) > 0.005 or abs(H[2, 1]) > 0.005:      # strong perspective = implausible for product shots
+        return False
+    x0, y0 = pts.min(axis=0)
+    x1, y1 = pts.max(axis=0)
+    box = np.float32([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]).reshape(-1, 1, 2)
+    quad = cv2.perspectiveTransform(box, H)
+    return bool(cv2.isContourConvex(quad.astype(np.float32)))
 
 
 # ── catalog feature cache ────────────────────────────────────────────────────
