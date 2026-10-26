@@ -239,14 +239,16 @@ def get_inventory_kpis(db: Session):
     # Stock sitting in the global warehouse (reserved/pending assignment)
     warehouse_stock = db.query(func.sum(GlobalInventory.reserved_stock)).scalar() or 0
 
-    # Available = total - reserved - assigned
-    # Low-stock threshold: available ≤ 5
+    # Available = sellable units (free warehouse pool + units in stores), the
+    # one definition in app/services/stock.py. "total - reserved - assigned" is
+    # zero whenever the inventory invariant holds, so it flagged every SKU as
+    # out of stock. Low-stock threshold: available <= 5.
+    from app.services.stock import sellable
     LOW_STOCK_THRESHOLD = 5
     all_inv = db.query(GlobalInventory).all()
     low_stock_count = 0
     for inv in all_inv:
-        assigned = getattr(inv, "assigned_stock", 0) or 0
-        available = (inv.total_stock or 0) - (inv.reserved_stock or 0) - assigned
+        available = sellable(inv)
         if 0 < available <= LOW_STOCK_THRESHOLD:
             low_stock_count += 1
 
@@ -258,9 +260,9 @@ def get_inventory_kpis(db: Session):
         .join(Product, Product.id == ProductVariant.product_id)
         .all()
     )
+    inv_rows.sort(key=sellable)          # most urgent first
     for inv in inv_rows:
-        assigned = getattr(inv, "assigned_stock", 0) or 0
-        available = (inv.total_stock or 0) - (inv.reserved_stock or 0) - assigned
+        available = sellable(inv)
         if available <= LOW_STOCK_THRESHOLD:
             v = db.query(ProductVariant).get(inv.product_variant_id)
             p = db.query(Product).get(v.product_id) if v else None
@@ -861,11 +863,8 @@ def get_inventory_overview_service(db, variant_id, store_id=None):
         "assigned_stock": global_inv.assigned_stock if global_inv else 0,
     }
 
-    global_available = (
-        global_data["total_stock"]
-        - global_data["reserved_stock"]
-        - global_data["assigned_stock"]
-    )
+    from app.services.stock import sellable
+    global_available = sellable(global_inv)
 
     # --- STORE ---
     store_data = None
