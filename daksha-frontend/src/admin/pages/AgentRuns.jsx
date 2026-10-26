@@ -11,9 +11,11 @@ import {
 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
 import { toast } from 'sonner';
+import { getAccessToken } from '../../lib/authToken';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-const authH = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
+// the Supabase session token (nothing ever wrote a 'token' localStorage key)
+const authH = async () => ({ Authorization: `Bearer ${await getAccessToken()}` });
 
 function agentColor(name) {
   const map = {
@@ -96,7 +98,7 @@ export default function AgentRuns() {
     try {
       const params = new URLSearchParams({ limit: 50 });
       if (filterAgent) params.set('agent_name', filterAgent);
-      const res  = await fetch(`${API_BASE}/admin/agent-runs?${params}`, { headers: authH() });
+      const res  = await fetch(`${API_BASE}/admin/agent-runs?${params}`, { headers: await authH() });
       const data = await res.json();
       setRuns(data.runs || []);
       setTotal(data.total || 0);
@@ -106,7 +108,7 @@ export default function AgentRuns() {
 
   const fetchRecentActions = useCallback(async () => {
     try {
-      const res  = await fetch(`${API_BASE}/admin/agent-runs/actions/recent?limit=100`, { headers: authH() });
+      const res  = await fetch(`${API_BASE}/admin/agent-runs/actions/recent?limit=100`, { headers: await authH() });
       const data = await res.json();
       setRecentActions(Array.isArray(data) ? data : []);
     } catch {}
@@ -119,7 +121,7 @@ export default function AgentRuns() {
     setSelectedRun(run);
     setActionsLoading(true);
     try {
-      const res  = await fetch(`${API_BASE}/admin/agent-runs/${run.id}/actions`, { headers: authH() });
+      const res  = await fetch(`${API_BASE}/admin/agent-runs/${run.id}/actions`, { headers: await authH() });
       const data = await res.json();
       setActions(data.actions || []);
     } catch { toast.error('Could not load actions'); }
