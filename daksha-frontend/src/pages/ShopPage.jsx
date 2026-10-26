@@ -14,7 +14,19 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-const CATEGORIES = ["All", "Shoes", "Clothing", "Accessories", "Home", "Sports"];
+// Chips run the same structured search as the search box, so "Footwear" means
+// every sneaker, running shoe and loafer no matter how the catalog row was labelled.
+const CATEGORIES = [
+  { label: "All", q: null },
+  { label: "T-shirts", q: "t-shirts" },
+  { label: "Shirts", q: "shirts" },
+  { label: "Jeans", q: "jeans" },
+  { label: "Ethnic", q: "ethnic wear" },
+  { label: "Footwear", q: "footwear" },
+  { label: "Winterwear", q: "winterwear" },
+  { label: "Sportswear", q: "sportswear" },
+  { label: "Bags", q: "backpack" },
+];
 
 const getUniqueProducts = (items) => {
   if (!Array.isArray(items)) return [];
@@ -38,6 +50,7 @@ export default function ShopPage() {
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);   // lightweight — keeps grid visible
   const [searchTerm, setSearchTerm] = useState("");
+  const [searchInfo, setSearchInfo] = useState(null);  // { understood, exact, related }
   const [activeCategory, setActiveCategory] = useState("All");
 
   useEffect(() => {
@@ -78,6 +91,7 @@ export default function ShopPage() {
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!searchTerm.trim()) {
+      setSearchInfo(null);
       bootstrap();
       return;
     }
@@ -85,10 +99,12 @@ export default function ShopPage() {
     // Use the lightweight searching state so the grid stays visible
     setSearching(true);
     try {
-      await ProductService.search(searchTerm).catch(() => {});
-      const res = await ProductService.getFeed(searchTerm);
-
-      setItems(getUniqueProducts(res?.data || res));
+      ProductService.search(searchTerm).catch(() => {});      // signal only, don't wait
+      const res = await ProductService.searchCatalog(searchTerm);
+      const data = res?.data || res || {};
+      const exact = getUniqueProducts(data.items || []);
+      setItems(exact.length ? exact : getUniqueProducts(data.related || []));
+      setSearchInfo({ understood: data.understood, exact: exact.length, related: (data.related || []).length });
       setRecommended([]);
       setTrending([]);
       setHotDeals([]);
@@ -157,12 +173,24 @@ export default function ShopPage() {
     }
   };
 
-  const visibleItems = activeCategory === "All"
-    ? (items || [])
-    : (items || []).filter(p => 
-        p && p.category && typeof p.category === 'string' && 
-        p.category.toLowerCase() === activeCategory.toLowerCase()
-      );
+  const visibleItems = items || [];
+
+  const selectCategory = async (cat) => {
+    setActiveCategory(cat.label);
+    setSearchTerm("");
+    setSearchInfo(null);
+    if (!cat.q) { bootstrap(); return; }
+    setSearching(true);
+    try {
+      const res = await ProductService.searchCatalog(cat.q, 60);
+      const data = res?.data || res || {};
+      setItems(getUniqueProducts(data.items || []));
+    } catch {
+      toast.error("Couldn't load this category");
+    } finally {
+      setSearching(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -229,16 +257,16 @@ export default function ShopPage() {
       <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
         {CATEGORIES.map(cat => (
           <button
-            key={cat}
-            onClick={() => setActiveCategory(cat)}
+            key={cat.label}
+            onClick={() => selectCategory(cat)}
             className={`
               whitespace-nowrap px-6 py-3 rounded-full font-bold transition-all duration-300 text-xs tracking-wide uppercase
-              ${activeCategory === cat 
+              ${activeCategory === cat.label 
                 ? "bg-zinc-900 text-white shadow-md scale-105" 
                 : "bg-white text-zinc-500 border border-zinc-200 hover:border-zinc-400 hover:text-zinc-900 hover:bg-zinc-50"}
             `}
           >
-            {cat}
+            {cat.label}
           </button>
         ))}
       </div>
@@ -322,9 +350,18 @@ export default function ShopPage() {
       {/* --- MAIN CATALOG --- */}
       <section className="space-y-6 pt-6">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between border-b border-zinc-100 pb-4 gap-2">
-          <h2 className="text-2xl md:text-3xl font-serif font-bold tracking-tight text-zinc-900">
-            {searchTerm ? `Results for "${searchTerm}"` : activeCategory !== "All" ? `${activeCategory} Collection` : "All Products"}
-          </h2>
+          <div>
+            <h2 className="text-2xl md:text-3xl font-serif font-bold tracking-tight text-zinc-900">
+              {searchTerm ? `Results for "${searchTerm}"` : activeCategory !== "All" ? `${activeCategory} Collection` : "All Products"}
+            </h2>
+            {searchTerm && searchInfo && (
+              <p className="mt-1 text-xs text-zinc-500">
+                {searchInfo.exact > 0
+                  ? <>Showing <span className="font-semibold text-zinc-700">{searchInfo.understood}</span></>
+                  : <>No exact matches for <span className="font-semibold text-zinc-700">{searchInfo.understood}</span>{searchInfo.related > 0 ? " — showing similar items" : ""}</>}
+              </p>
+            )}
+          </div>
           <span className="text-zinc-400 font-bold text-xs uppercase tracking-widest">{visibleItems.length} items</span>
         </div>
 
@@ -334,7 +371,7 @@ export default function ShopPage() {
             <p className="text-zinc-500 text-base font-medium">No products found for this category.</p>
             {activeCategory !== "All" && (
               <button 
-                onClick={() => setActiveCategory("All")}
+                onClick={() => selectCategory(CATEGORIES[0])}
                 className="mt-6 px-6 py-2.5 bg-black text-white text-xs font-bold uppercase tracking-widest rounded-full hover:bg-zinc-800 transition-colors"
               >
                 View all products

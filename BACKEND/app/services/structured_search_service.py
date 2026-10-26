@@ -51,7 +51,14 @@ def _previous(key: Optional[str]) -> Optional[tx.QueryFilters]:
         return _LAST.get(key)
 
 
+_CAT_CACHE: dict = {"t": 0.0, "rows": None}
+_CAT_TTL = 30.0
+
+
 def _catalog(db: Session) -> List[dict]:
+    import time
+    if _CAT_CACHE["rows"] is not None and time.monotonic() - _CAT_CACHE["t"] < _CAT_TTL:
+        return _CAT_CACHE["rows"]
     rows = db.execute(text("""
         SELECT v.id::text AS variant_id, v.product_id::text AS product_id, v.color, v.size,
                v.base_price, p.name, p.brand, p.category, p.gender, p.occasion, p.fabric_type,
@@ -71,6 +78,7 @@ def _catalog(db: Session) -> List[dict]:
         d["color_canon"] = tx.color_of(d["color"])
         d["gender_canon"] = tx.product_gender(d["gender"])
         out.append(d)
+    _CAT_CACHE.update(t=time.monotonic(), rows=out)
     return out
 
 
@@ -150,9 +158,13 @@ def _select(db: Session, pool: List[dict], f: tx.QueryFilters, query: str, limit
         if f.min_price is not None and p["final_price"] < f.min_price:
             continue
         priced.append((d, p))
-    sem = _semantic_scores(db, [d["variant_id"] for d, _ in priced], query)
-    scored = sorted(priced, key=lambda dp: -(0.7 * sem.get(dp[0]["variant_id"], 0.0)
-                                              + 0.3 * _keyword_score(dp[0], f.keywords)))
+    # Embeddings are only needed to order free text the filters didn't consume
+    # ("for a wedding", "breathable"). A pure "red t-shirts" query skips the
+    # remote embedding call entirely, which keeps search instant.
+    sem = _semantic_scores(db, [d["variant_id"] for d, _ in priced], query) if (f.keywords or not f.types) else {}
+    scored = sorted(priced, key=lambda dp: (-(0.7 * sem.get(dp[0]["variant_id"], 0.0)
+                                               + 0.3 * _keyword_score(dp[0], f.keywords)),
+                                             -int(dp[0]["stock"] or 0), dp[0]["name"]))
     out, seen = [], set()
     for d, p in scored:
         if one_per_product and d["product_id"] in seen:
