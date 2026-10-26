@@ -7,8 +7,8 @@ and retries once with the validation error if the model got it wrong. Nodes
 never see raw model text, so a malformed answer can't leak into state.
 
 Providers (tried in order, see LLM_PROVIDER_ORDER):
-  gemini   - google-genai SDK. Works with an AI Studio key, a Vertex express
-             key ("AQ." prefix) or a Vertex service account.
+  gemini   - google-genai SDK against the Gemini Developer API with an
+             AI Studio key (GEMINI_API_KEY). No Vertex AI / Google Cloud.
   bedrock  - Amazon Bedrock Converse API with a Bedrock API key (bearer token).
              Default model is xAI Grok via the US cross-region profile.
   scripted - deterministic fake used by tests and offline benchmarks.
@@ -136,27 +136,26 @@ class GeminiProvider(Provider):
         self._cool: Dict[str, float] = {}     # model -> monotonic time it may be used again
 
     def configured(self) -> bool:
-        return bool(
-            _env("GEMINI_API_KEY", "GEMINI_VERTEX_API_KEY", "VERTEX_API_KEY")
-            or _env("GOOGLE_APPLICATION_CREDENTIALS_JSON")
-        )
+        return bool(self._keys())
+
+    @staticmethod
+    def _keys() -> List[str]:
+        # Gemini Developer API (AI Studio) keys only. No Vertex AI, no service
+        # account, no Google Cloud project. GEMINI_API_KEYS may hold several
+        # comma-separated keys to spread free-tier quota.
+        keys: List[str] = []
+        for raw in (_env("GEMINI_API_KEYS"), _env("GEMINI_API_KEY")):
+            for k in raw.split(","):
+                k = k.strip()
+                if k and k not in keys:
+                    keys.append(k)
+        return keys
 
     def _candidates(self):
         from google import genai
 
-        keys = []
-        for n in ("GEMINI_API_KEY", "GEMINI_VERTEX_API_KEY", "VERTEX_API_KEY"):
-            k = _env(n)
-            if k and k not in keys:
-                keys.append(k)
-        project = _env("GOOGLE_CLOUD_PROJECT")
-        location = _env("GOOGLE_CLOUD_LOCATION", "VERTEX_AI_LOCATION", default="us-central1")
-        for i, key in enumerate(keys):
-            # AI Studio style first, then Vertex express mode (same "AQ." key format)
+        for i, key in enumerate(self._keys()):
             yield f"studio#{i}", (lambda k=key: genai.Client(api_key=k))
-            yield f"vertex-express#{i}", (lambda k=key: genai.Client(vertexai=True, api_key=k))
-        if project and _env("GOOGLE_APPLICATION_CREDENTIALS_JSON", "GOOGLE_APPLICATION_CREDENTIALS"):
-            yield "vertex-sa", lambda: genai.Client(vertexai=True, project=project, location=location)
 
     def _config(self, model: str, system: str, schema: Dict[str, Any]):
         from google.genai import types
