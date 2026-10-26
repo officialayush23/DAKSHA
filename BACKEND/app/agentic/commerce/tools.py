@@ -163,7 +163,10 @@ class RecommendArgs(Args):
 
 
 class ImageArgs(Args):
-    image_url: str = Field(min_length=8, max_length=1000)
+    image_url: str = Field(min_length=8, max_length=1000, description="the uploaded image URL from the message")
+    product_type: Optional[str] = Field(default=None, max_length=60,
+                                        description="only if the shopper said what kind of item they want, e.g. 'jacket'")
+    color: Optional[str] = Field(default=None, max_length=40, description="only if the shopper asked for a colour")
 
 
 class VariantArgs(Args):
@@ -312,11 +315,30 @@ def recommend_for_me(tc: ToolContext, a: RecommendArgs) -> ToolResult:
 
 
 def similar_to_image(tc: ToolContext, a: ImageArgs) -> ToolResult:
-    from app.services.catalog_semantic_service import search_similar_by_image
+    """Classical CV image matching (GrabCut, colour, Hu moments, SIFT + RANSAC),
+    optionally narrowed by the shopper's stated type/colour."""
+    from app.services.visual_search_service import search_by_image
     try:
         with _db() as db:
-            prods = _hydrate(db, search_similar_by_image(db, a.image_url, limit=30), 8)
-        return ToolResult(True, f"{len(prods)} visually similar: {_brief(prods)}", {"products": prods}, _cards(prods))
+            res = search_by_image(db, a.image_url, product_type=a.product_type, color=a.color, limit=8)
+            ids = [m["variant_id"] for m in res["matches"]]
+            prods = _hydrate(db, ids, 8)
+        by_id = {m["variant_id"]: m for m in res["matches"]}
+        for p in prods:
+            m = by_id.get(p["variant_id"], {})
+            sig = m.get("signals") or {}
+            p["match"] = "visual"
+            p["visual_score"] = m.get("score")
+            p["why"] = (f"{sig.get('ransac_inliers', 0)} matching keypoints" if sig.get("ransac_inliers", 0) >= 12
+                        else "similar colour and shape")
+        qi = res["query"]
+        seen = f"photo shows a {qi.get('color') or 'mixed-colour'} item" + (
+            f" that looks like a {qi['looks_like'].lower()}" if qi.get("looks_like") else "")
+        brief = (f"{seen}. {len(prods)} visual matches (best first): " + "; ".join(
+            f"{p['name']} ({p.get('color')}) score={p.get('visual_score')} [{p['why']}] variant_id={p['variant_id']}"
+            for p in prods)) if prods else f"{seen}. No in-stock visual matches."
+        ui = {"type": "products", "products": prods, "query": seen, "mode": "image"}
+        return ToolResult(True, brief, {"products": prods, "visual": res}, ui)
     except Exception as e:
         return _err(e)
 
