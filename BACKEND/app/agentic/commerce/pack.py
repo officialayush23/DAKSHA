@@ -26,7 +26,8 @@ TOOLS = {t.name: t for t in [
           "gender / size / brand / price when they are stated or implied by the conversation (e.g. 'only red' after "
           "t-shirts -> product_type='t-shirt', color='red'). Results are exact matches; 'related' are labelled alternatives."),
     _tool(T.recommend_for_me, T.RecommendArgs, "Personalised picks from taste profile, collaborative signals and trends."),
-    _tool(T.similar_to_image, T.ImageArgs, "Find products visually similar to an uploaded image URL."),
+    _tool(T.similar_to_image, T.ImageArgs, "Find catalog items that look like an uploaded photo (computer-vision matching). "
+          "Pass the image URL; add product_type/color only if the shopper stated them."),
     _tool(T.trending_now, T.NoArgs, "Currently trending in-stock products."),
     _tool(T.product_details, T.VariantArgs, "Details, rating and all colour/size variants with stock for one product."),
     _tool(T.check_stock, T.StockArgs, "Warehouse and (optional) store stock for a variant."),
