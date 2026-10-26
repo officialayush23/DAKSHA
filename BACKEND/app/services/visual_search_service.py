@@ -150,10 +150,45 @@ def _palette():
     return _PALETTE_LAB
 
 
+def _skin_mask(img) -> np.ndarray:
+    """Classic YCrCb skin range; used to ignore the model's skin in garment photos."""
+    cv2 = _cv2()
+    ycc = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
+    return cv2.inRange(ycc, (0, 135, 85), (255, 175, 135))
+
+
+def name_color(bgr) -> str:
+    """Name a colour from HSV rules (more robust than nearest-anchor for dark denim, khaki, etc.)."""
+    cv2 = _cv2()
+    h, sat, v = [int(x) for x in cv2.cvtColor(np.uint8([[bgr]]), cv2.COLOR_BGR2HSV)[0, 0]]
+    if v < 55:
+        return "black"
+    if sat < 38:
+        if v > 200:
+            return "white"
+        return "grey" if v > 70 else "black"
+    if (h <= 8 or h >= 170):
+        return "red" if v > 90 else ("brown" if sat < 150 else "red")
+    if h <= 20:
+        return "brown" if v < 170 or sat < 110 else "orange"
+    if h <= 33:
+        return "yellow" if v > 150 and sat > 90 else "brown"
+    if h <= 85:
+        return "green"
+    if h <= 128:
+        return "blue"
+    if h <= 150:
+        return "purple"
+    return "pink"
+
+
 def dominant_color(img, mask) -> Tuple[Optional[str], float]:
     cv2 = _cv2()
-    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-    px = lab[mask > 0].reshape(-1, 3).astype(np.float32)
+    fg = mask > 0
+    no_skin = fg & (_skin_mask(img) == 0)
+    if no_skin.sum() > 0.3 * fg.sum():
+        fg = no_skin
+    px = img[fg].reshape(-1, 3).astype(np.float32)
     if len(px) < 50:
         return None, 0.0
     if len(px) > 6000:
@@ -163,9 +198,7 @@ def dominant_color(img, mask) -> Tuple[Optional[str], float]:
                                     3, cv2.KMEANS_PP_CENTERS)
     counts = np.bincount(labels.flatten(), minlength=k)
     c = centers[int(np.argmax(counts))]
-    share = float(counts.max() / counts.sum())
-    name = min(_palette().items(), key=lambda kv: float(np.linalg.norm(kv[1] - c)))[0]
-    return name, share
+    return name_color([int(round(x)) for x in c]), float(counts.max() / counts.sum())
 
 
 def hsv_hist(img, mask) -> np.ndarray:
