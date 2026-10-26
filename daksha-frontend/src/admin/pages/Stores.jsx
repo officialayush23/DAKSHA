@@ -32,20 +32,22 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
+import { getAccessToken } from "../../lib/authToken";
 
 const API_BASE      = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const MAPBOX_TOKEN  = import.meta.env.VITE_MAPBOX_TOKEN || "";
 
 // ── Auth header helper ─────────────────────────────────────────────────────
-const authHeaders = () => ({
+// the Supabase session token (nothing ever wrote a "token" localStorage key)
+const authHeaders = async () => ({
   "Content-Type": "application/json",
-  Authorization: `Bearer ${localStorage.getItem("token")}`,
+  Authorization: `Bearer ${await getAccessToken()}`,
 });
 
 // ── API helpers ───────────────────────────────────────────────────────────
 async function apiFetch(path, opts = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: authHeaders(), ...opts,
+    headers: await authHeaders(), ...opts,
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
