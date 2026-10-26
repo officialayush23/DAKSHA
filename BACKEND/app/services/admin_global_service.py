@@ -192,6 +192,11 @@ def create_variant(db: Session, payload, admin_id, reason: str, product_id: uuid
     
     variant = ProductVariant(**data)
     db.add(variant)
+    db.flush()
+    # every variant gets an inventory row from day one (zero stock), so stock
+    # screens and the low-stock KPI never have to guess about a missing row
+    if not db.get(GlobalInventory, variant.id):
+        db.add(GlobalInventory(product_variant_id=variant.id, total_stock=0, reserved_stock=0, assigned_stock=0))
     db.commit()
     db.refresh(variant)
 
