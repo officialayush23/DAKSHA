@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { ProductService, CartService, UserService, SessionService, RecommendationService } from "../lib/api";
 import { motion, AnimatePresence } from "framer-motion";
@@ -19,6 +19,8 @@ import { toast } from "sonner";
 
 export default function ProductDetail() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const wantedVariant = searchParams.get("variant");   // e.g. the red one picked in chat
   const navigate = useNavigate();
   const { user } = useAuth();
 
@@ -53,10 +55,8 @@ export default function ProductDetail() {
     const fetchProductData = async () => {
       setLoading(true);
       try {
-        const [prodRes, simRes, boughtRes, revRes, wlRes, sessRes] = await Promise.all([
+        const [prodRes, revRes, wlRes, sessRes] = await Promise.all([
           ProductService.getDetail(id),
-          RecommendationService.getSimilarVariants(id).catch(() => ({ data: [] })),
-          RecommendationService.getBoughtTogether(id).catch(() => ({ data: [] })),
           ProductService.getReviews(id).catch(() => ({ data: [] })),
           UserService.getWishlist().catch(() => ({ data: { items: [] } })),
           SessionService.getActive().catch(() => null)
@@ -66,8 +66,6 @@ export default function ProductDetail() {
         if (!p) throw new Error("Product not found");
         
         setProduct(p);
-        setSimilar(Array.isArray(simRes?.data) ? simRes.data : simRes || []);
-        setBoughtTogether(Array.isArray(boughtRes?.data) ? boughtRes.data : boughtRes || []);
         setReviews(Array.isArray(revRes?.data) ? revRes.data : revRes || []);
         
         setSessionId(sessRes?.data?.session_id || sessRes?.session_id || null);
@@ -75,11 +73,24 @@ export default function ProductDetail() {
         const wlItems = wlRes?.data?.items || wlRes?.items || [];
         setWishlistIds(new Set(wlItems.map(w => w.variant_id || w.product_variant_id).filter(Boolean)));
 
+        let seedVariant = null;
         if (p.variants && p.variants.length > 0) {
-          const firstVar = p.variants[0];
+          const firstVar = p.variants.find(v => (v.variant_id || v.id) === wantedVariant) || p.variants[0];
+          seedVariant = firstVar.variant_id || firstVar.id;
           setSelectedColor(firstVar.color || "");
           setSelectedSize(firstVar.size || "");
           setActiveImage(firstVar.images?.[0] || firstVar.image_url || p.image || "");
+        }
+
+        // these endpoints take a VARIANT id (passing the product id left them empty)
+        if (seedVariant) {
+          Promise.all([
+            RecommendationService.getSimilarVariants(seedVariant).catch(() => ({ data: [] })),
+            RecommendationService.getBoughtTogether(seedVariant).catch(() => ({ data: [] })),
+          ]).then(([simRes, boughtRes]) => {
+            setSimilar(Array.isArray(simRes?.data) ? simRes.data : simRes || []);
+            setBoughtTogether(Array.isArray(boughtRes?.data) ? boughtRes.data : boughtRes || []);
+          });
         }
 
         UserService.captureEvent('product_view', 'product', p.product_id).catch(() => {});
@@ -94,7 +105,7 @@ export default function ProductDetail() {
     };
 
     fetchProductData();
-  }, [id, navigate]);
+  }, [id, navigate, wantedVariant]);
 
   // ================= VARIANT LOGIC =================
   
