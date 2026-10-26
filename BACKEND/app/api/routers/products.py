@@ -144,6 +144,22 @@ def discounted_products(
 # =========================
 # PRODUCT DETAIL (All variants)
 # =========================
+@router.get("/search")
+def search_products(q: str, limit: int = 40, db: Session = Depends(get_db)):
+    """
+    Shop-page search. Same deterministic pipeline as the agent's search_catalog:
+    the query is parsed into type/colour/gender/size/brand/price filters that
+    are applied exactly; embeddings only order free-text leftovers.
+    """
+    from app.services.structured_search_service import search
+    q = (q or "").strip()[:200]
+    if len(q) < 2:
+        return {"items": [], "related": [], "understood": ""}
+    res = search(db, q, limit=max(1, min(limit, 60)), refine=False)
+    return {"items": res["products"], "related": res["related"], "understood": res["understood"],
+            "filters": res["filters"]}
+
+
 @router.get("/{product_id}")
 def product_detail(
     product_id,

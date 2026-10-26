@@ -42,7 +42,10 @@ export const ProductService = {
   getSimilar: (id) => api.get(`/products/${id}/similar`),
   
   // Search (Logs intent & updates preferences)
+  // logs the search as a signal for personalisation; never awaited by the UI
   search: (query) => api.post('/user/search', { query, channel: 'web' }),
+  // fast deterministic catalog search (type / colour / size / price filters)
+  searchCatalog: (q, limit = 40) => api.get('/products/search', { params: { q, limit } }),
   
   // Reviews
   getReviews: (id) => api.get(`/user/products/${id}/reviews`),
