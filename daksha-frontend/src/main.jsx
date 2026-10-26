@@ -7,6 +7,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext.jsx'
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { KioskProvider } from './kiosk/context/KioskSessionContext';
+import { Toaster } from 'sonner';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,6 +24,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <AuthProvider>
         <KioskProvider>            {/* ← inside BrowserRouter so useNavigate works */}
           <App />                  {/* ← only ONE <App /> */}
+          {/* one toast container for the whole app (shop, chat, cart, kiosk, admin, auth) */}
+          <Toaster position="top-center" richColors closeButton duration={3500}
+            toastOptions={{ className: 'font-sans' }} />
         </KioskProvider>
       </AuthProvider>
     </BrowserRouter>

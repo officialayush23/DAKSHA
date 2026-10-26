@@ -41,6 +41,18 @@ def generate_text_embedding(text: str, task_type: str = TASK_TYPE) -> list[float
     return vec
 
 
+def generate_text_embeddings_batch(texts: list[str], task_type: str = TASK_TYPE) -> list[list[float]]:
+    """One Nomic round-trip for many texts (used to build type prototypes)."""
+    if not texts:
+        return []
+    try:
+        res = embed.text(texts=texts, model=TEXT_MODEL, task_type=task_type, dimensionality=DIM)
+        return res["embeddings"]
+    except Exception as e:
+        print(f"[TEXT EMBEDDING ERROR] batch: {e}")
+        return [[0.0] * DIM for _ in texts]
+
+
 def _embed_text(text: str, task_type: str) -> list[float]:
 
     try:

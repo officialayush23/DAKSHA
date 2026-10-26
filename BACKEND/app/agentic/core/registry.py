@@ -10,7 +10,7 @@ clinic scheduling tomorrow by registering a different pack.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Literal, Optional, Type
+from typing import Tuple, Any, Callable, Dict, List, Literal, Optional, Type
 
 from pydantic import BaseModel
 
@@ -95,6 +95,10 @@ class DomainPack:
     max_failures_before_handoff: int = 3
     max_plan_steps: int = 4
     max_total_actions: int = 10
+    # Deterministic route for an attached image: (agent, tool, args_builder).
+    # args_builder(user_text, image_url) -> dict of tool args. The tool still
+    # passes the policy gate; only the "which tool" model call is skipped.
+    image_route: Optional[Tuple[str, str, Callable[[str, str], Dict[str, Any]]]] = None
 
     def agent(self, name: str) -> AgentSpec:
         for a in self.agents:
