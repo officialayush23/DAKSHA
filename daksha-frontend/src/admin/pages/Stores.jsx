@@ -1,5 +1,5 @@
 // src/admin/pages/Stores.jsx
-// Admin store management — Google Places autocomplete + Mapbox GL map
+// Admin store management — Mapbox address search + Mapbox GL map
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
@@ -120,7 +120,7 @@ function StorePickupsDialog({ store, open, onOpenChange }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ADDRESS AUTOCOMPLETE (Google Places via backend proxy)
+// ADDRESS AUTOCOMPLETE (Mapbox Search Box via backend proxy)
 // ─────────────────────────────────────────────────────────────────────────────
 function AddressAutocomplete({ value, onChange, onPlaceSelect, placeholder }) {
   const [suggestions, setSuggestions] = useState([]);
@@ -423,7 +423,7 @@ export default function StoresPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Store Management</h1>
-          <p className="text-muted-foreground">Manage physical store locations — Mapbox map + Google Places autocomplete</p>
+          <p className="text-muted-foreground">Manage physical store locations — Mapbox map and address search</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={exportCSV} className="gap-2">
@@ -443,7 +443,7 @@ export default function StoresPage() {
                 <DialogTitle>{isEditing ? "Edit Store" : "Register New Store"}</DialogTitle>
                 <DialogDescription>
                   {isEditing
-                    ? "Update store details — address auto-geocoded via Google Places."
+                    ? "Update store details — address auto-geocoded via Mapbox."
                     : "Type an address to auto-detect lat/lng. Map preview powered by Mapbox."}
                 </DialogDescription>
               </DialogHeader>
@@ -463,7 +463,7 @@ export default function StoresPage() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label>Address * (Google Places autocomplete)</Label>
+                      <Label>Address * (address search)</Label>
                       <AddressAutocomplete
                         value={formData.address}
                         onChange={v => setFormData(p => ({ ...p, address: v }))}
