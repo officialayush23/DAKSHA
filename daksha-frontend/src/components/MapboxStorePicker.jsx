@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, MapPin, Package, Navigation } from 'lucide-react';
 import { toast } from 'sonner';
+import { getAccessToken } from '../lib/authToken';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || '';
 const API_BASE     = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -52,8 +53,9 @@ export default function MapboxStorePicker({ cartItems = [], onStoreSelect, onClo
     try {
       const params = new URLSearchParams({ lat, lng, radius_km: 20 });
       const res = await fetch(`${API_BASE}/stores/nearby?${params}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        headers: { Authorization: `Bearer ${await getAccessToken()}` },
       });
+      if (!res.ok) throw new Error(`stores ${res.status}`);
       const data = await res.json();
       setStores(Array.isArray(data) ? data : []);
     } catch {
