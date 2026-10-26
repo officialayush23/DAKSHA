@@ -143,8 +143,12 @@ class GeminiProvider(Provider):
         # Gemini Developer API (AI Studio) keys only. No Vertex AI, no service
         # account, no Google Cloud project. GEMINI_API_KEYS may hold several
         # comma-separated keys to spread free-tier quota.
+        # GEMINI_VERTEX_API_KEY / VERTEX_API_KEY are legacy names for the same
+        # kind of key; they are used on the Developer API too, never Vertex.
+        # A dead key is skipped (auth error) and the next one is tried.
         keys: List[str] = []
-        for raw in (_env("GEMINI_API_KEYS"), _env("GEMINI_API_KEY")):
+        for raw in (_env("GEMINI_API_KEYS"), _env("GEMINI_API_KEY"),
+                    _env("GEMINI_VERTEX_API_KEY"), _env("VERTEX_API_KEY")):
             for k in raw.split(","):
                 k = k.strip()
                 if k and k not in keys:

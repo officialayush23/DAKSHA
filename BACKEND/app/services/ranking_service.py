@@ -102,10 +102,11 @@ def rank_candidates(
     ).all()
 
     for r in rows:
+        # scores can come back as Decimal (numeric columns); cast before mixing with float weights
         final_score = (
-            w_intent * (r.intent_score or 0) +
-            w_content * (r.content_score or 0) +
-            w_trend * (r.trend_score or 0)
+            w_intent * float(r.intent_score or 0) +
+            w_content * float(r.content_score or 0) +
+            w_trend * float(r.trend_score or 0)
         )
 
         price_data = resolve_variant_price(
