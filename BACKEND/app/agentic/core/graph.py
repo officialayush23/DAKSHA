@@ -244,10 +244,12 @@ class Engine:
     # ── reasoning: planner ───────────────────────────────────────────────────
     def planner(self, s: GraphState) -> Dict[str, Any]:
         names = {a.name for a in self.pack.agents}
-        if s.get("image_url"):
-            plan = [{"id": 0, "agent": "discovery", "objective": f"find products visually similar to the image {s['image_url']}",
-                     "status": "pending", "attempts": 0}]
-            return {"plan": plan, "cursor": 0, "trace": [_t("planner", deterministic=True, steps=1)]}
+        if s.get("image_url") and self.pack.image_route:
+            agent, tool, build = self.pack.image_route
+            args = build(s.get("input") or "", s["image_url"])
+            plan = [{"id": 0, "agent": agent, "objective": f"find products visually similar to the attached image",
+                     "status": "pending", "attempts": 0, "forced": {"tool": tool, "args": args}}]
+            return {"plan": plan, "cursor": 0, "trace": [_t("planner", deterministic=True, steps=1, forced=tool)]}
         if s.get("mode") == "proactive":
             trig = s.get("trigger") or {}
             goal = f"Proactive trigger '{trig.get('type')}': {trig.get('goal', '')}. Data: {json.dumps(trig.get('data', {}), default=str)[:800]}"
@@ -315,6 +317,16 @@ class Engine:
                 return self._finish(plan, step, name, f"stopped after {used} actions", s)
             if (s.get("actions_used") or 0) >= self.pack.max_total_actions:
                 return self._finish(plan, step, name, "stopped: turn action budget used up", s)
+
+            # Deterministic step (e.g. image search): run the fixed tool through
+            # the policy gate, then finish on its observation. No model call.
+            forced = step.get("forced")
+            if forced:
+                if used == 0 and not scratch:      # first visit; a denial/error ends the step instead of looping
+                    return {"pending": {"agent": name, "tool": forced["tool"], "args": forced["args"], "step": step["id"]},
+                            "route": "gate",
+                            "trace": [_t(f"agent_{name}", thought="deterministic step", tool=forced["tool"], llm=False)]}
+                return self._finish(plan, step, name, scratch[-1]["text"][:600] if scratch else "no result", s)
 
             memories = self.memory.recall(self.pack.name, name, s.get("user_id"), step["objective"], k=5)
             mem_txt = "\n".join(f"- ({m.kind}) {m.content}" for m in memories) or "(nothing yet)"

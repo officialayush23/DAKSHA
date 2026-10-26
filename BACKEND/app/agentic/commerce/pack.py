@@ -131,6 +131,21 @@ def handoff(tc: ToolContext, reason: str, summary: str) -> ToolResult:
 
 def build_pack() -> DomainPack:
     from app.ai.policy.company_policy import HANDOFF_POLICY
+    def _image_args(text: str, url: str) -> dict:
+        """Photo + words ("this but in black jacket"): the words become hard
+        filters for the image matcher via the same taxonomy as text search."""
+        from app.services.catalog_taxonomy import parse_query, type_label
+        args = {"image_url": url}
+        try:
+            f = parse_query(text or "", allow_zero_shot=False)
+            if len(f.types) == 1:
+                args["product_type"] = type_label(f.types[0])
+            if len(f.colors) == 1:
+                args["color"] = f.colors[0]
+        except Exception:
+            pass
+        return args
+
     return DomainPack(
         name="commerce",
         persona=("You are Daksha, the shopping concierge of a fashion store that sells online, in its app and at "
@@ -146,4 +161,5 @@ def build_pack() -> DomainPack:
         max_failures_before_handoff=HANDOFF_POLICY.max_agent_failures_before_handoff,
         max_plan_steps=4,
         max_total_actions=10,
+        image_route=("discovery", "similar_to_image", _image_args),
     )
