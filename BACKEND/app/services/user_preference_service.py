@@ -1,22 +1,23 @@
 # app/services/user_preference_service.py
-# app/services/user_preference_service.py
-import json
-import re
 from datetime import datetime, timezone
+from typing import List, Optional, Union
+
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from google import genai
-from google.genai import types
 
-from app.core.config import settings
+from app.agentic.core.llm import get_gateway
 from app.services.embedding_service import generate_text_embedding
 from app.models.models import UserPreferences
 
-def _make_client():
-    api_key = settings.GEMINI_VERTEX_API_KEY or settings.VERTEX_API_KEY
-    return genai.Client(api_key=api_key)
 
-MODEL = "gemini-2.0-flash-001"
+class _PreferenceExtract(BaseModel):
+    preferred_categories: List[str] = []
+    preferred_colors: List[str] = []
+    preferred_sizes: List[str] = []
+    price_min: Optional[Union[float, str]] = None
+    price_max: Optional[Union[float, str]] = None
+    style_summary: str = ""
 
 def build_user_preference_summary(db: Session, user_id: str):
     print(f"\n{'='*50}\n🚀 [AI PREF] STARTING FOR USER {user_id}\n{'='*50}")
@@ -54,7 +55,7 @@ def build_user_preference_summary(db: Session, user_id: str):
             print(f"⚠️ [AI PREF] No events found. Exiting.")
             return
 
-        # Translate database rows into human-readable English for Gemini
+        # Translate database rows into human-readable English for the model
         lines = []
         for r in rows:
             meta = r.event_metadata or {}
@@ -105,25 +106,15 @@ def build_user_preference_summary(db: Session, user_id: str):
         {history}
         """
 
-        # Ask Gemini (via Vertex AI API key) to analyze the history
-        resp = _make_client().models.generate_content(
-            model=MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.1,
-                response_mime_type="application/json", 
-            )
-        )
-
-        raw = resp.text.strip()
-        print(f"🤖 [AI PREF] GEMINI JSON RESPONSE:\n{raw}\n")
-
-        # Fallback regex in case Gemini wraps the JSON in markdown
-        match = re.search(r'\{.*\}', raw, re.S)
-        if not match:
-            raise ValueError("Model did not return valid JSON")
-        
-        data = json.loads(match.group())
+        # Shared model gateway: Gemini (AI Studio key) with Bedrock fallback,
+        # schema-validated JSON output.
+        data = get_gateway().json(
+            "preference_extract",
+            "You analyse shopper behaviour and return strict JSON.",
+            prompt,
+            _PreferenceExtract,
+        ).model_dump()
+        print(f"🤖 [AI PREF] MODEL JSON RESPONSE:\n{data}\n")
 
         # Safely extract lists and numbers
         def ensure_list(v):

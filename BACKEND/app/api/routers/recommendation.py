@@ -1,5 +1,5 @@
 # app/api/routers/recommendation.py
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.core.deps import get_db, get_current_user, get_current_admin
@@ -68,7 +68,11 @@ def trigger_training(
     admin=Depends(get_current_admin),
 ):
     """Consumes Events + Outcomes to train TwoTower Model"""
-    from app.services.ml_service import train_collaborative_model  # lazy — torch optional
+    try:
+        from app.services.ml_service import train_collaborative_model  # lazy — torch optional
+    except ImportError:
+        raise HTTPException(status_code=501,
+                            detail="Model training needs the optional ML extras (pip install -r requirements-ml.txt)")
     background_tasks.add_task(train_collaborative_model, db)
     return {"status": "Training started"}
 

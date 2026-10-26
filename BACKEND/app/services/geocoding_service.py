@@ -1,6 +1,6 @@
 # app/services/geocoding_service.py
 """
-Geocoding on Mapbox (Google Maps billing is off for this project).
+Geocoding on Mapbox (no Google Maps dependency).
 
   geocode_address(address)       -> {"lat","lng","formatted_address","place_id"}
   reverse_geocode(lat, lng)      -> {"formatted_address","city","state","pincode","country"}

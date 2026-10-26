@@ -2,13 +2,15 @@ services:
   - type: web
     name: daksha-backend
     runtime: python
-    rootDir: .
+    plan: free
+    region: singapore
+    rootDir: BACKEND
     buildCommand: pip install -r requirements.txt
     startCommand: python migrations/apply_migrations.py v7 v8 && uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.0
+        value: 3.11.9
 
       # ── Database (Supabase) ──────────────────────────────────────────────────
       - key: DATABASE_URL
@@ -33,10 +35,12 @@ services:
         value: gemini-3.5-flash
       - key: GEMINI_FALLBACK_MODELS
         value: gemini-3.5-flash-lite,gemini-3-flash-preview,gemini-2.5-flash
-      - key: GEMINI_VERTEX_API_KEY
+      - key: GEMINI_API_KEY        # Gemini Developer API key from aistudio.google.com (no GCP project/billing)
         sync: false
-      - key: GEMINI_API_KEY
-        sync: false
+      - key: LLM_PROVIDER_ORDER
+        value: gemini,bedrock
+      - key: AWS_REGION
+        value: us-east-1
       - key: AWS_API_KEY_BEDROCK_FOR_XAI
         sync: false
       - key: BEDROCK_MODEL_ID
@@ -45,12 +49,18 @@ services:
       # ── Orchestration ────────────────────────────────────────────────────────
       - key: DAKSHA_DOMAIN
         value: commerce
+      - key: KIOSK_TOKEN_SECRET
+        generateValue: true
       - key: PROACTIVE_ENABLED
         value: "true"
       - key: KIOSK_OTP_REQUIRED
         value: "true"
       - key: WEBHOOK_SECRET
         sync: false
+
+      # ── CORS ─────────────────────────────────────────────────────────────────
+      - key: FRONTEND_URLS
+        value: https://daksha-1.vercel.app
 
       # ── Maps (Mapbox) ────────────────────────────────────────────────────────
       - key: MAPBOX_TOKEN

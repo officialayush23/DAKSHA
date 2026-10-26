@@ -43,8 +43,9 @@ START → ingest → guard ─┬─ handoff ───────────�
   reminders run through the same graph in proactive mode; marketing messages need staff approval.
 - **Domain-agnostic engine**: `agentic/core` knows nothing about shopping. A domain is a pack of
   agents + tools + policies + a context loader (`agentic/commerce/pack.py`).
-- **Model gateway**: Gemini 3.5 Flash with fallback models on rate limits, optional Bedrock (xAI
-  Grok) fallback, schema-validated JSON output with one self-correction retry.
+- **Model gateway**: Gemini 3.5 Flash through the Gemini Developer API (plain API key, no Google Cloud
+  project), fallback models on rate limits, Amazon Bedrock (xAI Grok) as provider fallback,
+  schema-validated JSON output with one self-correction retry.
 
 **Commerce backend**
 - Product catalog with semantic search and embeddings (Nomic embeddings, pgvector-style similarity).
@@ -52,7 +53,7 @@ START → ingest → guard ─┬─ handoff ───────────�
 - Payments with pluggable gateway configuration, and delivery/pickup fulfillment with courier webhook support and live tracking.
 - Personalized recommendations combining content-based, collaborative, trend, and intent-match scoring.
 - Loyalty points, coupons, and personalized offers.
-- Store locator with Google Maps and Mapbox geocoding, kiosk mode for in-store devices.
+- Store locator with Mapbox geocoding and search, kiosk mode for in-store devices.
 - Email notifications (SMTP or Resend) and in-app notifications.
 - Admin APIs for global platform administration and per-user administration, including agent-run tracing for debugging AI conversations.
 - Session TTL cleanup and Redis-backed caching/session storage.
@@ -63,7 +64,7 @@ START → ingest → guard ─┬─ handoff ───────────�
 - Embedded AI chat interface for shopping assistance.
 - Kiosk mode with its own routes, layout, and context for in-store terminals.
 - Two admin dashboards (admin and admin_user) built with a sidebar layout.
-- Store picker with both Google Maps and Mapbox implementations.
+- Store picker built on Mapbox GL JS.
 - UI built on Tailwind CSS v4, Radix UI / shadcn-style primitives, Ant Design, Framer Motion/GSAP animations, and React Three Fiber for 3D elements.
 
 ## Tech stack
@@ -71,7 +72,7 @@ START → ingest → guard ─┬─ handoff ───────────�
 | Layer | Technology |
 |---|---|
 | Backend framework | FastAPI (Python 3.11) |
-| AI orchestration | LangGraph (cyclic graph, Postgres checkpoints), Gemini 3.5 Flash, optional Bedrock xAI |
+| AI orchestration | LangGraph (cyclic graph, Postgres checkpoints), Gemini 3.5 Flash (Developer API key), Bedrock xAI fallback |
 | Database | PostgreSQL via Supabase (SQLAlchemy ORM, pgvector, PostGIS); Redis optional |
 | Embeddings | Nomic (text + vision) |
 | Task queue | Celery |
@@ -85,6 +86,7 @@ START → ingest → guard ─┬─ handoff ───────────�
 
 ```
 DAKSHA-/
+├── render.yaml                # Render Blueprint (backend)
 ├── BACKEND/
 │   ├── app/
 │   │   ├── ai/                # LangGraph agents, tools, policy, routing
@@ -100,7 +102,6 @@ DAKSHA-/
 │   │   ├── integrations/      # Telegram, etc.
 │   │   └── main.py            # FastAPI app entrypoint
 │   ├── requirements.txt
-│   ├── render.yaml            # Render deployment config
 │   └── .env.example
 └── daksha-frontend/
     ├── src/
@@ -124,7 +125,7 @@ DAKSHA-/
 - Node.js 18+ and npm
 - A Supabase project (Postgres database + Auth)
 - Redis instance
-- API keys: Google Gemini/Vertex AI, Groq, Google Maps, Nomic, and optionally Mapbox, Resend/SMTP, Telegram bot token
+- API keys: Gemini (AI Studio key), Mapbox, Nomic, and optionally a Bedrock API key, Resend/SMTP, Telegram bot token
 
 ### Backend setup
 
@@ -132,8 +133,8 @@ DAKSHA-/
 cd BACKEND
 python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env            # fill in DATABASE_URL, SUPABASE_*, GEMINI/GROQ keys, REDIS_URL, etc.
+pip install -r requirements-dev.txt   # add -r requirements-ml.txt for model training
+cp env.template .env            # fill in DATABASE_URL, SUPABASE_*, GEMINI_API_KEY, MAPBOX_TOKEN, etc.
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -144,7 +145,7 @@ The API will be available at `http://localhost:8000`, with a health check at `/h
 ```bash
 cd daksha-frontend
 npm install
-cp .env.example .env             # set VITE_API_URL, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_GOOGLE_MAPS_API_KEY
+cp .env.example .env             # set VITE_API_URL, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_MAPBOX_TOKEN
 npm run dev
 ```
 
@@ -152,13 +153,13 @@ The app will be available at `http://localhost:5173` (Vite default) and is confi
 
 ### Environment variables
 
-Both `BACKEND/.env.example` and `daksha-frontend/.env.example` list every variable required. At minimum you'll need:
+`BACKEND/env.template` and `daksha-frontend/.env.example` list every variable required. At minimum you'll need:
 
 - `DATABASE_URL` / `LANGGRAPH_DB_URL` — Supabase Postgres connection strings (pooled, transaction and session mode respectively)
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET`
-- `GEMINI_VERTEX_API_KEY` / `VERTEX_API_KEY`, `VERTEX_AI_LOCATION` — for the primary LLM
-- `GROQ_API_KEY` — secondary/fallback LLM provider
-- `GOOGLE_MAPS_API_KEY` — store locator and delivery
+- `GEMINI_API_KEY` — primary LLM (Gemini Developer API key; no Google Cloud project)
+- `AWS_API_KEY_BEDROCK_FOR_XAI` — optional fallback LLM (Bedrock, xAI Grok)
+- `MAPBOX_TOKEN` / `MAP_BOX_API_KEY` — geocoding, address search, store locator
 - `REDIS_URL` — caching and session storage
 - `NOMIC_API_KEY` — embeddings for search/recommendations
 
@@ -175,7 +176,7 @@ python -m pytest tests                         # engine tests (scripted model, n
 
 ### Deployment
 
-- The backend ships with a `render.yaml` for one-click deployment to Render (`uvicorn` behind a health check at `/health`).
+- The backend ships with a root-level `render.yaml` Blueprint for Render (`uvicorn` behind a health check at `/health`; startup applies migrations v7 and v8).
 - The frontend includes a `vercel.json` for deployment to Vercel.
 
 ## License

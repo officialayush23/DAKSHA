@@ -16,23 +16,11 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_ROLE_KEY: str
     SUPABASE_JWT_SECRET: str
 
-    # ── AI / Gemini ───────────────────────────────────────────────────────────
-    # Option A — Vertex AI (production, no rate limits)
-    GOOGLE_CLOUD_PROJECT: str = ""            # e.g. "creativedirector-494221"
-    GOOGLE_CLOUD_LOCATION: str = "us-central1"
-    # Paste the entire service-account JSON as a single env var on Render.
-    # The app writes it to /tmp at startup so google-auth ADC picks it up.
-    GOOGLE_APPLICATION_CREDENTIALS_JSON: str = ""
-
-    # Option B — Google AI Studio API key (AQ. prefix, dev/fallback only)
-    GEMINI_VERTEX_API_KEY: str = ""
-    VERTEX_API_KEY: str = ""
-    VERTEX_AI_LOCATION: str = "us-central1"
-
     # ── Model gateway (app/agentic/core/llm.py) ──────────────────────────────
     LLM_PROVIDER: str = "gemini"            # primary: gemini | bedrock
     LLM_PROVIDER_ORDER: str = ""            # e.g. "gemini,bedrock" (overrides LLM_PROVIDER)
-    GEMINI_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""                # Gemini Developer API (AI Studio) key; no GCP project needed
+    GEMINI_API_KEYS: str = ""               # optional: several keys, comma-separated
     GEMINI_MODEL: str = "gemini-3.5-flash"
     GEMINI_THINKING_LEVEL: str = "low"
     GEMINI_FALLBACK_MODELS: str = "gemini-3.5-flash-lite,gemini-3-flash-preview,gemini-2.5-flash"
@@ -48,11 +36,7 @@ class Settings(BaseSettings):
     KIOSK_TOKEN_TTL_MIN: int = 30
     KIOSK_OTP_REQUIRED: bool = True
 
-    # ── Groq ──────────────────────────────────────────────────────────────────
-    GROQ_API_KEY: str = ""
-
-    # ── Maps ──────────────────────────────────────────────────────────────────
-    GOOGLE_MAPS_API_KEY: str = ""
+    # ── Maps (Mapbox only) ──────────────────────────────────────────────────────────────
     MAP_BOX_API_KEY: str = ""     # secret token (sk.) - server side only
     MAPBOX_TOKEN: str = ""        # public token (pk.)
 

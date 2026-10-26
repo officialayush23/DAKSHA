@@ -63,13 +63,13 @@ def address_autocomplete(
     _: User = Depends(get_current_user),
 ):
     """
-    Returns up to 5 Google Places autocomplete suggestions.
+    Returns up to 5 Mapbox Search Box suggestions.
     Use session_token (UUID string) to group autocomplete + detail calls for billing.
     """
     try:
         return autocomplete_address(q, session_token)
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Places API error: {e}")
+        raise HTTPException(status_code=502, detail=f"Mapbox search error: {e}")
 
 
 @router.post("/geocode/place")
@@ -199,7 +199,7 @@ def admin_create_store(
 ):
     """
     Create a new store. If lat/lng are not provided, the address is
-    automatically geocoded via Google Maps Geocoding API.
+    automatically geocoded via Mapbox Geocoding.
     """
     lat, lng, formatted = body.latitude, body.longitude, body.address
     city, state = body.city, body.state

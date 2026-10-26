@@ -147,7 +147,7 @@ export default function CheckoutPage({ basePath = '/dash' }) {
   }, [navigate]);
 
   // ==========================================
-  // 2. STORE SELECTION (via GoogleMapsStorePicker)
+  // 2. STORE SELECTION (via MapboxStorePicker)
   // ==========================================
   const handleStoreSelect = (store) => {
     setSelectedStore(store);

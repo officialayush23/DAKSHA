@@ -98,33 +98,11 @@ def _gemini(label, client):
     return f"{model} via {label}: {r.text.strip()[:40]}"
 
 
-@check("gemini (api key, studio)")
+@check("gemini (developer api key)")
 def _():
     from google import genai
-    key = E("GEMINI_API_KEY") or E("GEMINI_VERTEX_API_KEY")
+    key = (E("GEMINI_API_KEYS") or E("GEMINI_API_KEY")).split(",")[0].strip()
     return _gemini("studio", genai.Client(api_key=key)) if key else "skip: no key"
-
-
-@check("gemini (api key, vertex express)")
-def _():
-    from google import genai
-    key = E("GEMINI_API_KEY") or E("GEMINI_VERTEX_API_KEY")
-    return _gemini("vertex-express", genai.Client(vertexai=True, api_key=key)) if key else "skip: no key"
-
-
-@check("gemini (vertex service acct)")
-def _():
-    raw = E("GOOGLE_APPLICATION_CREDENTIALS_JSON")
-    if not raw:
-        return "skip: no SA json"
-    import tempfile
-    from google import genai
-    p = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
-    p.write(raw); p.close()
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = p.name
-    c = genai.Client(vertexai=True, project=E("GOOGLE_CLOUD_PROJECT"),
-                     location=E("GOOGLE_CLOUD_LOCATION") or "us-central1")
-    return _gemini("vertex-sa", c)
 
 
 @check("bedrock (xAI)")
@@ -152,18 +130,6 @@ def _():
     r.raise_for_status()
     f = r.json()["features"][0]
     return f"{f['properties']['full_address'][:50]}"
-
-
-@check("google maps geocoding")
-def _():
-    key = E("GOOGLE_MAPS_API_KEY")
-    if not key:
-        return "skip: no key"
-    r = httpx.get("https://maps.googleapis.com/maps/api/geocode/json",
-                  params={"address": "Pune", "key": key}, timeout=10).json()
-    if r.get("status") != "OK":
-        raise RuntimeError(f"{r.get('status')}: {r.get('error_message', '')[:120]}")
-    return "OK"
 
 
 @check("resend")
