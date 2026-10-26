@@ -73,8 +73,10 @@ def reserve_inventory_pickup(db: Session, checkout_id: UUID, cart_id: UUID, stor
             raise InsufficientStock(line.product_variant_id, line.quantity, where="store")
         db.execute(text("""
             UPDATE global_inventory
-               SET assigned_stock = GREATEST(assigned_stock - :q, 0),
-                   total_stock    = GREATEST(total_stock - :q, 0)
+               -- take the same amount off both so total = reserved + assigned
+               -- always holds (SET reads the pre-update row for both columns)
+               SET assigned_stock = assigned_stock - LEAST(:q, assigned_stock),
+                   total_stock    = total_stock    - LEAST(:q, assigned_stock)
              WHERE product_variant_id = :v
         """), {"q": line.quantity, "v": line.product_variant_id})
         db.execute(text("""
